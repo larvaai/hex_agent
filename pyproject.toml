@@ -1,0 +1,20 @@
+[project]
+name = "core_agent"
+version = "0.0.1"
+description = "Clean rebuild of the agent system — Sprint 0 (kernel, discipline, llm adapter, observability)."
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.0",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.5"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.pytest.ini_options]
+addopts = "-q -p no:cacheprovider"
+testpaths = ["tests"]

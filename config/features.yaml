@@ -1,0 +1,4 @@
+features:
+  example_echo:
+    enabled: true
+    module: features.example_echo

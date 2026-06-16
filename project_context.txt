@@ -1,0 +1,6490 @@
+# PROJECT CONTEXT DUMP
+
+Generated at: 2026-06-16T16:09:04
+Root directory: D:\my_agents_v0.3\core_agent
+
+================================================================================
+PROJECT FILE TREE
+================================================================================
+
+core_agent/
+├── config
+│   └── features.yaml
+├── core
+│   ├── __init__.py
+│   ├── bootstrap.py
+│   ├── events.py
+│   ├── kernel.py
+│   ├── ports.py
+│   ├── registry.py
+│   ├── schemas.py
+│   └── state.py
+├── discipline
+│   ├── __init__.py
+│   ├── budget.py
+│   ├── condense.py
+│   ├── finish_gate.py
+│   └── json_gate.py
+├── docs
+│   ├── bootstrap.md
+│   ├── core-init.md
+│   ├── events.md
+│   ├── features-example-echo.md
+│   ├── features-init.md
+│   ├── features-loader.md
+│   ├── HOW_TO_FOLLOW.md
+│   ├── kernel.md
+│   ├── llm-adapter.md
+│   ├── llm-init.md
+│   ├── observability-event-log.md
+│   ├── observability-init.md
+│   ├── observability-inspect.md
+│   ├── ports.md
+│   ├── registry.md
+│   ├── schemas.md
+│   └── state.md
+├── features
+│   ├── __init__.py
+│   ├── example_echo.py
+│   └── loader.py
+├── llm
+│   ├── __init__.py
+│   └── adapter.py
+├── observability
+│   ├── __init__.py
+│   ├── event_log.py
+│   └── inspect.py
+├── tests
+│   ├── __init__.py
+│   ├── test_discipline.py
+│   ├── test_kernel.py
+│   ├── test_llm_adapter.py
+│   └── test_observability.py
+├── tools
+│   └── gen_map.py
+├── var
+│   └── agent_runs
+│       ├── 20260616_100259_f73860fe
+│       │   ├── events.jsonl
+│       │   └── summary.json
+│       └── index.jsonl
+├── .gitignore
+├── CHANGELOG.md
+├── MAP.md
+├── pyproject.toml
+├── read_file_and_list.py
+├── README.md
+└── run_smoke.py
+
+================================================================================
+FILES WITH CONTENT
+================================================================================
+
+
+================================================================================
+FILE: .gitignore
+================================================================================
+
+# runtime artifacts (never commit)
+var/
+*.log
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+*.egg-info/
+
+
+
+================================================================================
+FILE: CHANGELOG.md
+================================================================================
+
+# Changelog
+
+Mỗi mục = một đợt thêm/sửa, gắn với **Sprint + Epic**, để theo dõi "thêm gì, vì sao". Mục mới nhất ở trên.
+
+## Sprint 0 — Nền móng (P0) · 2026-06-16
+Khởi tạo repo `core_agent` + 4 epic nền. **24/24 test xanh**, smoke `CORE_AGENT_SMOKE_OK`.
+
+- **E01 Kernel** (`core/`): `kernel`, `registry` (+ null fallback), `schemas` (envelope CapabilityResult), `events`, `state`, `bootstrap`; feature plugin từ `config/features.yaml` (`features/loader.py`, `features/example_echo.py`).
+- **E02 Output Discipline** (`discipline/`): `json_gate` (parse+repair), `condense`, `finish_gate`, `budget`.
+- **E03 LLM Adapter** (`llm/adapter.py`): JSON-mode, lazy client, injectable, lỗi → final JSON.
+- **E04 Observability** (`observability/`): `event_log` (JSONL+summary+metrics), `inspect` CLI.
+- Tests: `tests/test_{kernel,discipline,llm_adapter,observability}.py` (24 case). Smoke: `run_smoke.py`.
+- Tooling: `tools/gen_map.py` → sinh `MAP.md`.
+
+<!-- Mẫu cho lần sau:
+## Sprint 1 — E06 MCP Tools & Safety, E05 Single-agent Graph · <ngày>
+- E06 (`tools_mcp/`): client một-cửa, policy chokepoint, sandbox. Tests: ...
+- E05 (`graph/`): single-agent graph 1 node, tái dùng discipline. Tests: ...
+-->
+
+
+
+================================================================================
+FILE: config\features.yaml
+================================================================================
+
+features:
+  example_echo:
+    enabled: true
+    module: features.example_echo
+
+
+
+================================================================================
+FILE: core\__init__.py
+================================================================================
+
+
+
+
+================================================================================
+FILE: core\bootstrap.py
+================================================================================
+
+"""Build a kernel and install features from config/features.yaml. Epic E01."""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from core.events import EventBus
+from core.kernel import AgentKernel
+from core.registry import CapabilityRegistry
+from core.state import StateStore
+
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_CONFIG_PATH = PROJECT_DIR / "config" / "features.yaml"
+
+
+def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
+    path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
+    if not path.exists():
+        return {"features": {}}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        raise ValueError(f"Feature config must be a mapping: {path}")
+    data.setdefault("features", {})
+    return data
+
+
+def build_kernel(config: dict[str, Any]) -> AgentKernel:
+    kernel = AgentKernel(
+        registry=CapabilityRegistry(),
+        events=EventBus(),
+        state=StateStore(),
+        config=config,
+    )
+    from features.loader import install_configured_features
+
+    install_configured_features(kernel, config)
+    return kernel
+
+
+def create_kernel(config_path: str | Path | None = None) -> AgentKernel:
+    return build_kernel(load_config(config_path))
+
+
+
+================================================================================
+FILE: core\events.py
+================================================================================
+
+"""EventBus — minimal pub/sub that the observability layer subscribes to. Epic E01/E04."""
+from __future__ import annotations
+
+from typing import Any, Callable
+
+Subscriber = Callable[[str, dict[str, Any]], None]
+
+
+class EventBus:
+    """Minimal pub/sub. Observability subscribes here (E04)."""
+
+    def __init__(self) -> None:
+        self._subscribers: list[Subscriber] = []
+
+    def subscribe(self, fn: Subscriber) -> None:
+        self._subscribers.append(fn)
+
+    def publish(self, topic: str, payload: dict[str, Any] | None = None) -> None:
+        data = payload or {}
+        for fn in list(self._subscribers):
+            try:
+                fn(topic, data)
+            except Exception:
+                # An observer must never break the runtime.
+                pass
+
+
+
+================================================================================
+FILE: core\kernel.py
+================================================================================
+
+"""AgentKernel — minimal core owning state, events, and capability execution. Epic E01."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+from core.events import EventBus
+from core.registry import CapabilityRegistry
+from core.schemas import CapabilityResult, TaskEnvelope, ToolRequest
+from core.state import StateStore
+
+
+@dataclass
+class AgentKernel:
+    """
+    Minimal living core. Owns state, events, capability lookup.
+    Concrete behavior lives behind ports/adapters in the registry.
+    """
+
+    registry: CapabilityRegistry
+    events: EventBus
+    state: StateStore
+    config: dict[str, Any] = field(default_factory=dict)
+
+    def accept_task(self, user_request: str, context: dict[str, Any] | None = None) -> TaskEnvelope:
+        task = TaskEnvelope(user_request=user_request, context=context or {})
+        self.state.set("current_task", task)
+        self.events.publish("task.accepted", {"task_id": task.task_id})
+        return task
+
+    def execute_tool(self, tool_name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+        request = ToolRequest(name=tool_name, args=args or {})
+        self.events.publish(
+            "tool.requested",
+            {"tool": request.name, "request_id": request.request_id, "args": request.args},
+        )
+
+        resolution = self.registry.resolve_tool(request.name)
+        try:
+            result = resolution.executor.execute(request)
+        except Exception as exc:  # a tool must never crash the kernel
+            result = {"ok": False, "tool": request.name, "error": str(exc), "kernel_error": True}
+
+        if not isinstance(result, dict):
+            result = {
+                "ok": False,
+                "tool": request.name,
+                "error": f"Tool returned {type(result).__name__}, expected dict.",
+                "kernel_error": True,
+            }
+
+        envelope = CapabilityResult.from_raw(
+            capability=request.name,
+            feature=resolution.feature,
+            result=result,
+            metadata={
+                "request_id": request.request_id,
+                "executor": getattr(resolution.executor, "name", resolution.executor.__class__.__name__),
+            },
+        ).as_dict()
+
+        self.events.publish(
+            "tool.completed" if envelope.get("ok") else "tool.failed",
+            {
+                "tool": request.name,
+                "request_id": request.request_id,
+                "ok": bool(envelope.get("ok")),
+                "error": envelope.get("error"),
+            },
+        )
+        return envelope
+
+    def describe_capabilities(self) -> dict[str, Any]:
+        return {"features": self.registry.list_features(), "tools": self.registry.list_tools()}
+
+
+
+================================================================================
+FILE: core\ports.py
+================================================================================
+
+"""ToolPort protocol — the seam every concrete tool implements. Epic E01."""
+from __future__ import annotations
+
+from typing import Any, Protocol, runtime_checkable
+
+from core.schemas import ToolRequest
+
+
+@runtime_checkable
+class ToolPort(Protocol):
+    """A tool executor. Concrete behavior lives behind this port."""
+
+    name: str
+
+    def execute(self, request: ToolRequest) -> dict[str, Any]:
+        ...
+
+
+
+================================================================================
+FILE: core\registry.py
+================================================================================
+
+"""CapabilityRegistry + NullToolPort — resolve a tool name to an executor, with graceful fallback. Epic E01."""
+from __future__ import annotations
+
+from typing import Any, NamedTuple
+
+from core.schemas import FeatureDescriptor, ToolRequest
+
+
+class ToolResolution(NamedTuple):
+    executor: Any
+    feature: str | None
+
+
+class NullToolPort:
+    """Keeps the kernel alive when a tool is missing."""
+
+    name = "null_tool"
+
+    def execute(self, request: ToolRequest) -> dict[str, Any]:
+        return {
+            "ok": False,
+            "tool": request.name,
+            "missing_capability": True,
+            "error": f"No tool capability is registered for '{request.name}'.",
+        }
+
+
+class CapabilityRegistry:
+    """Exact registration wins; optional fallback; else NullToolPort."""
+
+    def __init__(self, *, null_tool: Any = None) -> None:
+        self._tools: dict[str, Any] = {}
+        self._features: dict[str, FeatureDescriptor] = {}
+        self._tool_features: dict[str, str] = {}
+        self._fallback: Any = None
+        self._fallback_feature: str | None = None
+        self._null = null_tool or NullToolPort()
+
+    def register_feature(self, descriptor: FeatureDescriptor) -> None:
+        self._features[descriptor.name] = descriptor
+
+    def register_tool(self, name: str, executor: Any, *, feature_name: str | None = None) -> None:
+        self._tools[name] = executor
+        if feature_name:
+            self._tool_features[name] = feature_name
+
+    def register_tools(self, names, executor: Any, *, feature_name: str | None = None) -> None:
+        for name in names:
+            self.register_tool(name, executor, feature_name=feature_name)
+
+    def set_fallback_tool_executor(self, executor: Any, *, feature_name: str | None = None) -> None:
+        self._fallback = executor
+        self._fallback_feature = feature_name if executor is not None else None
+
+    def resolve_tool(self, name: str) -> ToolResolution:
+        if name in self._tools:
+            return ToolResolution(self._tools[name], self._tool_features.get(name))
+        if self._fallback is not None:
+            return ToolResolution(self._fallback, self._fallback_feature)
+        return ToolResolution(self._null, None)
+
+    def has_tool(self, name: str) -> bool:
+        return name in self._tools
+
+    def list_tools(self) -> list[dict[str, Any]]:
+        return [{"name": n, "feature": self._tool_features.get(n)} for n in sorted(self._tools)]
+
+    def list_features(self) -> list[dict[str, Any]]:
+        return [d.as_dict() for d in self._features.values()]
+
+
+
+================================================================================
+FILE: core\schemas.py
+================================================================================
+
+"""Core data contracts: TaskEnvelope, ToolRequest, CapabilityResult envelope, FeatureDescriptor. Epic E01."""
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass, field
+from typing import Any
+
+_ENVELOPE_KEYS = {"ok", "capability", "feature", "data", "error", "metadata"}
+
+
+@dataclass(frozen=True)
+class TaskEnvelope:
+    user_request: str
+    context: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    task_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+
+
+@dataclass(frozen=True)
+class ToolRequest:
+    name: str
+    args: dict[str, Any] = field(default_factory=dict)
+    request_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+
+
+def is_capability_result(result: Any) -> bool:
+    return isinstance(result, dict) and _ENVELOPE_KEYS <= set(result)
+
+
+@dataclass(frozen=True)
+class CapabilityResult:
+    """Uniform envelope every tool call returns."""
+
+    ok: bool
+    capability: str
+    feature: str | None = None
+    data: dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_raw(
+        cls,
+        *,
+        capability: str,
+        feature: str | None,
+        result: dict[str, Any],
+        metadata: dict[str, Any] | None = None,
+    ) -> "CapabilityResult":
+        extra = dict(metadata or {})
+        if is_capability_result(result):
+            meta = dict(result.get("metadata") or {})
+            meta.update(extra)
+            return cls(
+                ok=bool(result.get("ok")),
+                capability=str(result.get("capability") or capability),
+                feature=result.get("feature") if result.get("feature") is not None else feature,
+                data=dict(result.get("data") or {}),
+                error=result.get("error"),
+                metadata=meta,
+            )
+        ok = bool(result.get("ok", False))
+        error = None if ok else str(result.get("error") or "Capability execution failed.")
+        data = {k: v for k, v in result.items() if k not in {"ok", "error", "metadata"}}
+        meta = dict(result.get("metadata") or {})
+        meta.update(extra)
+        meta.setdefault("raw_keys", sorted(result))
+        return cls(ok=ok, capability=capability, feature=feature, data=data, error=error, metadata=meta)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "capability": self.capability,
+            "feature": self.feature,
+            "data": dict(self.data),
+            "error": self.error,
+            "metadata": dict(self.metadata),
+        }
+
+
+@dataclass(frozen=True)
+class FeatureDescriptor:
+    name: str
+    version: str = "0.1"
+    capabilities: tuple[str, ...] = ()
+    enabled: bool = True
+    description: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "version": self.version,
+            "capabilities": list(self.capabilities),
+            "enabled": self.enabled,
+            "description": self.description,
+        }
+
+
+
+================================================================================
+FILE: core\state.py
+================================================================================
+
+"""StateStore — in-memory run state held by the kernel. Epic E01."""
+from __future__ import annotations
+
+from typing import Any
+
+
+class StateStore:
+    def __init__(self) -> None:
+        self._data: dict[str, Any] = {}
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._data.get(key, default)
+
+    def set(self, key: str, value: Any) -> None:
+        self._data[key] = value
+
+    def as_dict(self) -> dict[str, Any]:
+        return dict(self._data)
+
+
+
+================================================================================
+FILE: discipline\__init__.py
+================================================================================
+
+from discipline.budget import Budget
+from discipline.condense import condense
+from discipline.finish_gate import check_finish, has_passing_validation, requires_validation
+from discipline.json_gate import JsonGateError, build_retry_message, parse_action
+
+__all__ = [
+    "Budget",
+    "condense",
+    "check_finish",
+    "has_passing_validation",
+    "requires_validation",
+    "JsonGateError",
+    "build_retry_message",
+    "parse_action",
+]
+
+
+
+================================================================================
+FILE: discipline\budget.py
+================================================================================
+
+"""Loop budgets — steps, parse-errors, same-tool repeats (parse errors do not consume steps). Epic E02."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class Budget:
+    """Loop control. Parse-error retries do NOT consume the step budget."""
+
+    max_steps: int = 30
+    max_parse_errors: int = 3
+    max_same_tool_calls: int = 3
+    steps: int = 0
+    parse_errors: int = 0
+    _tool_calls: dict[str, int] = field(default_factory=dict)
+
+    def record_step(self) -> None:
+        self.steps += 1
+
+    def step_exceeded(self) -> bool:
+        return self.steps > self.max_steps
+
+    def record_parse_error(self) -> None:
+        self.parse_errors += 1
+
+    def parse_exceeded(self) -> bool:
+        return self.parse_errors >= self.max_parse_errors
+
+    def record_tool_call(self, key: str) -> int:
+        self._tool_calls[key] = self._tool_calls.get(key, 0) + 1
+        return self._tool_calls[key]
+
+    def same_tool_exceeded(self, key: str) -> bool:
+        return self._tool_calls.get(key, 0) > self.max_same_tool_calls
+
+    @staticmethod
+    def tool_key(tool_name: str, args: dict[str, Any]) -> str:
+        import json
+
+        return tool_name + ":" + json.dumps(args, sort_keys=True, ensure_ascii=False)
+
+
+
+================================================================================
+FILE: discipline\condense.py
+================================================================================
+
+"""Condense large tool results before re-feeding them to the model. Epic E02."""
+from __future__ import annotations
+
+from typing import Any
+
+
+def _truncate(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + f"... [+{len(text) - max_chars} chars]"
+
+
+def condense(value: Any, *, max_chars: int = 2000, max_list: int = 10) -> Any:
+    """Shrink a tool result before re-feeding it to the model."""
+    if isinstance(value, dict):
+        return {k: condense(v, max_chars=max_chars, max_list=max_list) for k, v in value.items()}
+    if isinstance(value, list):
+        head = [condense(v, max_chars=max_chars, max_list=max_list) for v in value[:max_list]]
+        if len(value) > max_list:
+            head.append(f"... [+{len(value) - max_list} items]")
+        return head
+    if isinstance(value, str):
+        return _truncate(value, max_chars)
+    return value
+
+
+
+================================================================================
+FILE: discipline\finish_gate.py
+================================================================================
+
+"""Finish gate — block a final when code changed but no validation passed. Epic E02."""
+from __future__ import annotations
+
+from typing import Any
+
+
+def requires_validation(state: dict[str, Any]) -> bool:
+    return bool(state.get("code_changed"))
+
+
+def has_passing_validation(state: dict[str, Any]) -> bool:
+    return bool(state.get("validation_passed"))
+
+
+def check_finish(state: dict[str, Any], finish_reason: str | None = None) -> dict[str, Any]:
+    """Block a `final` when code changed but no validation passed (unless a blocker is declared)."""
+    if requires_validation(state) and not has_passing_validation(state) and finish_reason != "blocker":
+        return {
+            "allowed": False,
+            "reason": "Code changed but no passing validation. Validate or finish with finish_reason='blocker'.",
+        }
+    return {"allowed": True, "reason": ""}
+
+
+
+================================================================================
+FILE: discipline\json_gate.py
+================================================================================
+
+"""Parse + repair the model's JSON action; raise JsonGateError on failure. Epic E02."""
+from __future__ import annotations
+
+import json
+import re
+from typing import Any
+
+
+class JsonGateError(ValueError):
+    def __init__(self, message: str, *, stage: str = "parse", candidate: str = "") -> None:
+        super().__init__(message)
+        self.stage = stage
+        self.candidate = candidate
+
+
+def _strip_fences(text: str) -> str:
+    t = text.strip()
+    if t.startswith("```"):
+        t = re.sub(r"^```[a-zA-Z0-9]*", "", t).strip()
+        t = re.sub(r"```$", "", t).strip()
+    return t
+
+
+def _repair(candidate: str) -> str:
+    # drop trailing commas before } or ]
+    fixed = re.sub(r",\s*([}\]])", r"\1", candidate)
+    # balance brackets that are open outside of strings
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    for ch in fixed:
+        if escaped:
+            escaped = False
+            continue
+        if ch == "\\":
+            escaped = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch in "{[":
+            stack.append(ch)
+        elif ch == "}" and stack and stack[-1] == "{":
+            stack.pop()
+        elif ch == "]" and stack and stack[-1] == "[":
+            stack.pop()
+    closing = {"{": "}", "[": "]"}
+    return fixed + "".join(closing[item] for item in reversed(stack))
+
+
+def _load_object(text: str) -> dict[str, Any] | None:
+    for variant in (text, _repair(text)):
+        try:
+            parsed = json.loads(variant)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def parse_action(text: str) -> dict[str, Any]:
+    """Parse one JSON action object from model output, repairing common breakage."""
+    raw = _strip_fences(text or "")
+    obj = _load_object(raw)
+    if obj is None:
+        decoder = json.JSONDecoder()
+        for match in re.finditer(r"\{", raw):
+            for variant in (raw[match.start():], _repair(raw[match.start():])):
+                try:
+                    parsed, _ = decoder.raw_decode(variant)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(parsed, dict):
+                    obj = parsed
+                    break
+            if obj is not None:
+                break
+    if obj is None:
+        raise JsonGateError("Could not parse a JSON object from model output.", candidate=raw[:200])
+    if "action" not in obj:
+        raise JsonGateError("Missing required 'action' field.", stage="schema", candidate=str(obj)[:200])
+    return obj
+
+
+def build_retry_message(error: JsonGateError) -> str:
+    return (
+        "Your previous output was not a valid action object "
+        f"(stage={error.stage}). Return exactly ONE JSON object with an 'action' field "
+        "and no markdown fences or prose."
+    )
+
+
+
+================================================================================
+FILE: docs\bootstrap.md
+================================================================================
+
+# Giải thích `core/bootstrap.py`
+
+File `core/bootstrap.py` chịu trách nhiệm khởi tạo runtime của agent. Nếu `core/kernel.py` là lõi điều phối, thì `core/bootstrap.py` là nơi lắp ráp lõi đó: đọc config, tạo các dependency cần thiết, cài feature/plugin, rồi trả về một `AgentKernel` đã sẵn sàng chạy.
+
+Nói ngắn gọn: `bootstrap.py` là điểm dựng hệ thống.
+
+## Vai trò trong architecture
+
+`bootstrap.py` nằm ở ranh giới giữa cấu hình bên ngoài và kernel bên trong.
+
+Nó làm các việc:
+
+- xác định thư mục project,
+- tìm file config mặc định,
+- đọc YAML config,
+- tạo `CapabilityRegistry`,
+- tạo `EventBus`,
+- tạo `StateStore`,
+- tạo `AgentKernel`,
+- nạp các feature được bật trong config.
+
+Điểm quan trọng: kernel không tự đọc file config và không tự import feature. Việc đó được tách ra ở bootstrap để giữ kernel nhỏ, sạch và dễ test.
+
+## Các import
+
+```python
+from __future__ import annotations
+```
+
+Bật postponed evaluation cho type annotations. Điều này giúp annotation nhẹ hơn ở runtime và giảm rủi ro khi có type liên quan tới import vòng.
+
+```python
+from pathlib import Path
+from typing import Any
+```
+
+- `Path`: xử lý đường dẫn file/thư mục theo cách rõ ràng, cross-platform.
+- `Any`: dùng cho config vì YAML có thể chứa nhiều kiểu dữ liệu khác nhau.
+
+```python
+import yaml
+```
+
+Dùng thư viện PyYAML để đọc `features.yaml`.
+
+```python
+from core.events import EventBus
+from core.kernel import AgentKernel
+from core.registry import CapabilityRegistry
+from core.state import StateStore
+```
+
+Đây là các thành phần cần lắp vào kernel:
+
+- `EventBus`: kênh publish/subscribe event.
+- `AgentKernel`: lõi runtime.
+- `CapabilityRegistry`: nơi đăng ký và resolve tool/capability.
+- `StateStore`: state store đơn giản.
+
+## Hằng số đường dẫn
+
+```python
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_CONFIG_PATH = PROJECT_DIR / "config" / "features.yaml"
+```
+
+`PROJECT_DIR` lấy thư mục gốc project dựa trên vị trí của file `bootstrap.py`.
+
+Vì file nằm ở:
+
+```text
+core/bootstrap.py
+```
+
+nên:
+
+```python
+Path(__file__).resolve().parent
+```
+
+là thư mục `core/`, còn `.parent.parent` là thư mục gốc project.
+
+`DEFAULT_CONFIG_PATH` trỏ tới:
+
+```text
+config/features.yaml
+```
+
+Ý nghĩa: nếu caller không truyền config riêng, hệ thống sẽ dùng config mặc định này.
+
+## Function `load_config`
+
+```python
+def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
+```
+
+Function này đọc config feature từ file YAML và trả về dict.
+
+Input:
+
+- `config_path`: đường dẫn config tùy chọn.
+- Nếu không truyền, dùng `DEFAULT_CONFIG_PATH`.
+
+### Chọn đường dẫn config
+
+```python
+path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
+```
+
+Nếu caller truyền `config_path`, convert nó thành `Path`. Nếu không, dùng file mặc định.
+
+### Nếu file không tồn tại
+
+```python
+if not path.exists():
+    return {"features": {}}
+```
+
+Nếu config không tồn tại, function không crash. Nó trả về config rỗng với key `features`.
+
+Ý nghĩa: kernel vẫn có thể được tạo ngay cả khi không có feature nào được cấu hình.
+
+### Đọc YAML
+
+```python
+data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+```
+
+File được đọc bằng UTF-8. `yaml.safe_load()` parse YAML thành Python object.
+
+Nếu file rỗng hoặc parse ra `None`, dùng `{}` thay thế.
+
+### Kiểm tra root object phải là mapping
+
+```python
+if not isinstance(data, dict):
+    raise ValueError(f"Feature config must be a mapping: {path}")
+```
+
+Config hợp lệ phải là dict/mapping. Ví dụ hợp lệ:
+
+```yaml
+features:
+  example_echo:
+    enabled: true
+    module: features.example_echo
+```
+
+Ví dụ không hợp lệ:
+
+```yaml
+- item1
+- item2
+```
+
+Nếu root YAML là list/string/number, function raise `ValueError`.
+
+### Đảm bảo luôn có key `features`
+
+```python
+data.setdefault("features", {})
+```
+
+Dù file YAML không có key `features`, output vẫn có `features: {}`.
+
+Điều này giúp code phía sau không phải check thiếu key nhiều lần.
+
+### Trả config
+
+```python
+return data
+```
+
+Kết quả là dict config dùng để build kernel.
+
+## Function `build_kernel`
+
+```python
+def build_kernel(config: dict[str, Any]) -> AgentKernel:
+```
+
+Function này nhận config đã parse và tạo một `AgentKernel`.
+
+Khác với `create_kernel()`, function này không đọc file. Nó chỉ build từ dict có sẵn. Điều này rất hữu ích cho test vì test có thể truyền config trực tiếp.
+
+### Tạo kernel và dependency
+
+```python
+kernel = AgentKernel(
+    registry=CapabilityRegistry(),
+    events=EventBus(),
+    state=StateStore(),
+    config=config,
+)
+```
+
+Ở đây bootstrap tạo toàn bộ dependency cần thiết:
+
+- registry mới,
+- event bus mới,
+- state store mới,
+- config hiện tại.
+
+Sau đó inject chúng vào `AgentKernel`.
+
+Ý nghĩa thiết kế: kernel nhận dependency từ bên ngoài thay vì tự tạo dependency bên trong. Cách này giúp dễ test, dễ thay thế implementation, và giữ kernel không bị dính vào bootstrap logic.
+
+### Import feature loader bên trong function
+
+```python
+from features.loader import install_configured_features
+```
+
+Import này được đặt bên trong `build_kernel()` thay vì ở top-level.
+
+Ý nghĩa có thể có:
+
+- giảm coupling khi chỉ import module `core.bootstrap`,
+- tránh import feature layer quá sớm,
+- giảm rủi ro import vòng giữa core và features.
+
+Đây là một lựa chọn hợp lý trong kiến trúc plugin.
+
+### Cài feature theo config
+
+```python
+install_configured_features(kernel, config)
+```
+
+Feature loader sẽ đọc `config["features"]`, import module feature được bật, rồi gọi `install(kernel)` của từng feature.
+
+Sau bước này, registry trong kernel đã có các tool/capability được config bật.
+
+### Trả kernel
+
+```python
+return kernel
+```
+
+Kernel trả về ở đây là kernel đã được lắp registry, events, state, config, và feature.
+
+## Function `create_kernel`
+
+```python
+def create_kernel(config_path: str | Path | None = None) -> AgentKernel:
+    return build_kernel(load_config(config_path))
+```
+
+Đây là helper cấp cao nhất trong file.
+
+Nó làm hai việc:
+
+1. `load_config(config_path)`: đọc config từ file.
+2. `build_kernel(...)`: tạo kernel từ config đó.
+
+Đây là entrypoint tiện lợi cho runner hoặc app code.
+
+Ví dụ trong `run_smoke.py`:
+
+```python
+kernel = create_kernel()
+```
+
+Lệnh này tự dùng `config/features.yaml`, build kernel, cài feature, rồi trả về kernel sẵn sàng gọi tool.
+
+## Luồng bootstrap tổng quát
+
+```mermaid
+flowchart TD
+    A["create_kernel(config_path?)"] --> B["load_config(config_path?)"]
+    B --> C{"Config file tồn tại?"}
+    C -- "Không" --> D["Return {'features': {}}"]
+    C -- "Có" --> E["Đọc YAML bằng UTF-8"]
+    E --> F{"Root YAML là dict?"}
+    F -- "Không" --> G["Raise ValueError"]
+    F -- "Có" --> H["Đảm bảo có key features"]
+    D --> I["build_kernel(config)"]
+    H --> I
+    I --> J["Tạo CapabilityRegistry"]
+    I --> K["Tạo EventBus"]
+    I --> L["Tạo StateStore"]
+    J --> M["Tạo AgentKernel"]
+    K --> M
+    L --> M
+    M --> N["install_configured_features(kernel, config)"]
+    N --> O["Return kernel"]
+```
+
+## Vì sao bootstrap được tách khỏi kernel?
+
+### 1. Kernel không phải biết file system
+
+Kernel không đọc `features.yaml`, không biết path project, không biết YAML. Điều này giữ kernel thuần hơn và dễ test hơn.
+
+### 2. Config là trách nhiệm của composition layer
+
+`bootstrap.py` là nơi composition: ghép các object lại với nhau. Đây là chỗ phù hợp để đọc config và quyết định feature nào được nạp.
+
+### 3. Test dễ hơn
+
+Test có thể gọi:
+
+```python
+build_kernel({"features": {...}})
+```
+
+mà không cần tạo file YAML thật.
+
+### 4. Feature/plugin không làm lõi phình ra
+
+Feature được nạp qua `features.loader`. Kernel chỉ thấy registry sau khi feature đã đăng ký tool. Cách này giữ lõi ổn định khi số lượng feature tăng.
+
+## Quan hệ với file khác
+
+- `core/kernel.py`: class `AgentKernel` được tạo ở đây.
+- `core/registry.py`: cung cấp `CapabilityRegistry`.
+- `core/events.py`: cung cấp `EventBus`.
+- `core/state.py`: cung cấp `StateStore`.
+- `features/loader.py`: cài feature từ config.
+- `config/features.yaml`: config mặc định.
+
+## Tóm tắt một câu
+
+`core/bootstrap.py` là composition layer của project: đọc config, tạo dependency, lắp `AgentKernel`, nạp feature, và trả về runtime sẵn sàng sử dụng.
+
+
+
+================================================================================
+FILE: docs\core-init.md
+================================================================================
+
+# Giải thích `core/__init__.py`
+
+File `core/__init__.py` hiện tại đang rỗng.
+
+Dù không có code, file này vẫn có ý nghĩa trong cấu trúc Python package: nó đánh dấu thư mục `core/` là một package Python truyền thống, để các module như `core.kernel`, `core.bootstrap`, `core.registry` có thể được import ổn định.
+
+## Vai trò trong package
+
+Với cấu trúc:
+
+```text
+core/
+  __init__.py
+  bootstrap.py
+  events.py
+  kernel.py
+  ports.py
+  registry.py
+  schemas.py
+  state.py
+```
+
+các file khác có thể import:
+
+```python
+from core.kernel import AgentKernel
+from core.bootstrap import create_kernel
+from core.registry import CapabilityRegistry
+```
+
+`__init__.py` làm cho `core` trở thành package namespace rõ ràng.
+
+## Vì sao file rỗng vẫn hợp lý?
+
+Một `__init__.py` rỗng là lựa chọn tốt khi package không muốn expose API cấp package.
+
+Ví dụ project hiện không định nghĩa:
+
+```python
+from core import AgentKernel
+```
+
+Thay vào đó, caller import trực tiếp từ module cụ thể:
+
+```python
+from core.kernel import AgentKernel
+```
+
+Cách này giúp dependency rõ hơn:
+
+- cần kernel thì import `core.kernel`,
+- cần bootstrap thì import `core.bootstrap`,
+- cần schema thì import `core.schemas`.
+
+## Có nên export gì trong `__init__.py` không?
+
+Hiện tại chưa cần.
+
+Nếu sau này muốn public API gọn hơn, có thể thêm:
+
+```python
+from core.bootstrap import create_kernel
+from core.kernel import AgentKernel
+
+__all__ = ["AgentKernel", "create_kernel"]
+```
+
+Khi đó caller có thể dùng:
+
+```python
+from core import AgentKernel, create_kernel
+```
+
+Nhưng việc này cũng làm `core.__init__` import thêm module khi package được import. Với lõi đang muốn nhẹ và tránh coupling sớm, để rỗng là hợp lý.
+
+## Ý nghĩa kiến trúc
+
+`core/__init__.py` rỗng thể hiện project chưa gom toàn bộ core thành một API facade. Mỗi module vẫn có trách nhiệm riêng và được import trực tiếp.
+
+Điều này phù hợp với Sprint 0:
+
+- module nhỏ,
+- dependency rõ,
+- tránh import side effect,
+- tránh tạo API công khai quá sớm.
+
+## Tóm tắt một câu
+
+`core/__init__.py` hiện là marker package rỗng, giúp `core/` import được như Python package mà không tạo thêm side effect hay API facade chưa cần thiết.
+
+
+
+================================================================================
+FILE: docs\events.md
+================================================================================
+
+# Giải thích `core/events.py`
+
+File `core/events.py` định nghĩa một event bus tối giản cho runtime. Event bus cho phép kernel phát sự kiện, còn các thành phần khác như observability subscribe để ghi log hoặc tính metrics.
+
+Nói ngắn gọn: `events.py` là hệ thống pub/sub nhỏ bên trong agent.
+
+## Vai trò trong architecture
+
+Kernel cần thông báo các sự kiện như:
+
+- task đã được nhận,
+- tool được yêu cầu,
+- tool chạy xong,
+- tool thất bại.
+
+Nhưng kernel không nên biết log được ghi ra file nào, format gì, metrics tính ra sao. Vì vậy kernel chỉ publish event qua `EventBus`.
+
+`observability/event_log.py` có thể subscribe vào bus để ghi `events.jsonl`. Sau này UI, telemetry hoặc debugger cũng có thể subscribe mà không cần sửa kernel.
+
+## Các import
+
+```python
+from __future__ import annotations
+```
+
+Bật postponed evaluation cho annotation.
+
+```python
+from typing import Any, Callable
+```
+
+- `Any`: dùng cho payload event linh hoạt.
+- `Callable`: mô tả kiểu subscriber function.
+
+## Type alias `Subscriber`
+
+```python
+Subscriber = Callable[[str, dict[str, Any]], None]
+```
+
+`Subscriber` là một function nhận:
+
+1. `topic`: tên event, kiểu `str`.
+2. `payload`: dữ liệu event, kiểu `dict[str, Any]`.
+
+và không trả về gì.
+
+Ví dụ subscriber:
+
+```python
+def sink(topic: str, payload: dict[str, Any]) -> None:
+    print(topic, payload)
+```
+
+Ý nghĩa: event bus không cần biết subscriber là logger, metric collector hay test hook. Chỉ cần subscriber có đúng signature.
+
+## Class `EventBus`
+
+```python
+class EventBus:
+    """Minimal pub/sub. Observability subscribes here (E04)."""
+```
+
+`EventBus` là implementation pub/sub rất nhỏ.
+
+Nó có:
+
+- danh sách subscriber,
+- method để subscribe,
+- method để publish event.
+
+Docstring nói rõ observability sẽ subscribe ở đây.
+
+## Constructor `__init__`
+
+```python
+def __init__(self) -> None:
+    self._subscribers: list[Subscriber] = []
+```
+
+Khi tạo event bus, danh sách subscriber ban đầu rỗng.
+
+`_subscribers` là list các function có kiểu `Subscriber`.
+
+Prefix `_` cho thấy đây là internal state.
+
+## Method `subscribe`
+
+```python
+def subscribe(self, fn: Subscriber) -> None:
+    self._subscribers.append(fn)
+```
+
+Đăng ký một subscriber.
+
+Input:
+
+- `fn`: function nhận `(topic, payload)`.
+
+Sau khi subscribe, mỗi lần bus publish event, function này sẽ được gọi.
+
+Ví dụ:
+
+```python
+bus.subscribe(lambda topic, payload: print(topic, payload))
+```
+
+Trong observability:
+
+```python
+bus.subscribe(sink)
+```
+
+## Method `publish`
+
+```python
+def publish(self, topic: str, payload: dict[str, Any] | None = None) -> None:
+```
+
+Phát một event tới tất cả subscriber.
+
+Input:
+
+- `topic`: tên event.
+- `payload`: dữ liệu event, optional.
+
+### Chuẩn hóa payload
+
+```python
+data = payload or {}
+```
+
+Nếu caller không truyền payload hoặc truyền `None`, event bus dùng dict rỗng.
+
+### Duyệt subscriber
+
+```python
+for fn in list(self._subscribers):
+```
+
+Bus lặp qua bản copy của `_subscribers`.
+
+Việc dùng `list(...)` có ý nghĩa: nếu subscriber thêm/xóa subscriber trong lúc đang xử lý event, vòng lặp hiện tại ít bị ảnh hưởng hơn.
+
+### Gọi subscriber
+
+```python
+try:
+    fn(topic, data)
+except Exception:
+    # An observer must never break the runtime.
+    pass
+```
+
+Mỗi subscriber được gọi với `topic` và `data`.
+
+Nếu subscriber lỗi, exception bị nuốt.
+
+Comment trong code rất quan trọng:
+
+```python
+# An observer must never break the runtime.
+```
+
+Ý nghĩa: observer/logger/debugger không được làm sập agent runtime. Kernel là luồng chính; observability là phụ trợ. Nếu logger lỗi, agent vẫn nên tiếp tục.
+
+## Event topic hiện đang dùng
+
+Trong `core/kernel.py`, kernel publish:
+
+```python
+"task.accepted"
+"tool.requested"
+"tool.completed"
+"tool.failed"
+```
+
+Các topic này không được define thành enum trong `events.py`; hiện tại chúng là string convention.
+
+## Luồng publish event
+
+```mermaid
+flowchart TD
+    A["Kernel gọi events.publish(topic, payload)"] --> B["payload or {}"]
+    B --> C["Copy danh sách subscribers"]
+    C --> D["Gọi từng subscriber(topic, data)"]
+    D --> E{"Subscriber lỗi?"}
+    E -- "Có" --> F["Nuốt exception"]
+    E -- "Không" --> G["Tiếp tục subscriber kế tiếp"]
+    F --> G
+```
+
+## Vì sao EventBus được thiết kế tối giản?
+
+### 1. Đủ dùng cho Sprint 0
+
+Project đang ở nền móng. Event bus chỉ cần subscribe/publish để observability hoạt động.
+
+### 2. Không kéo dependency ngoài
+
+Không cần message queue, async framework hay event library phức tạp.
+
+### 3. Dễ test
+
+Test có thể subscribe lambda đơn giản:
+
+```python
+seen = []
+bus.subscribe(lambda topic, payload: seen.append(topic))
+```
+
+### 4. Runtime an toàn hơn
+
+Subscriber lỗi không phá runtime. Đây là nguyên tắc tốt cho logging/observability.
+
+## Giới hạn hiện tại
+
+Event bus hiện tại:
+
+- chạy đồng bộ,
+- không có unsubscribe,
+- không có topic filtering,
+- không có backpressure,
+- không log lỗi subscriber,
+- không thread-safe rõ ràng.
+
+Những giới hạn này chấp nhận được cho lõi ban đầu. Nếu runtime lớn hơn, có thể mở rộng sau.
+
+## Quan hệ với file khác
+
+- `core/kernel.py`: publish event vào bus.
+- `core/bootstrap.py`: tạo `EventBus` rồi inject vào `AgentKernel`.
+- `observability/event_log.py`: subscribe vào bus để ghi event log.
+- `tests/test_kernel.py`: subscribe để kiểm tra event được emit.
+
+## Tóm tắt một câu
+
+`core/events.py` cung cấp event bus pub/sub tối giản để kernel phát sự kiện mà không phụ thuộc trực tiếp vào logging, metrics hay observability.
+
+
+
+================================================================================
+FILE: docs\features-example-echo.md
+================================================================================
+
+# Giải thích `features/example_echo.py`
+
+File `features/example_echo.py` là một feature mẫu cung cấp tool `echo`. Tool này chỉ trả lại args nhận được, nhưng nó rất quan trọng vì minh họa toàn bộ pattern để viết feature/plugin trong project.
+
+Nói ngắn gọn: `example_echo.py` là feature mẫu để test registry, kernel và smoke flow.
+
+## Vai trò trong architecture
+
+Feature này chứng minh cơ chế plugin hoạt động:
+
+1. feature khai báo metadata bằng `FeatureDescriptor`,
+2. feature implement tool executor,
+3. feature expose `install(kernel)`,
+4. loader gọi `install(kernel)`,
+5. feature đăng ký tool vào `kernel.registry`,
+6. kernel có thể gọi `execute_tool("echo", args)`.
+
+Dù `echo` rất đơn giản, nó là mẫu chuẩn cho feature thật sau này.
+
+## Docstring đầu file
+
+```python
+"""Example feature - an echo tool used by smoke/tests and as the plugin pattern. Epic E01."""
+```
+
+Docstring nói rõ module này:
+
+- là example feature,
+- cung cấp echo tool,
+- dùng trong smoke/test,
+- làm mẫu plugin pattern,
+- thuộc Epic E01.
+
+## Các import
+
+```python
+from __future__ import annotations
+```
+
+Bật postponed evaluation cho type annotations.
+
+```python
+from typing import Any
+```
+
+`Any` dùng cho dict result của tool.
+
+```python
+from core.kernel import AgentKernel
+from core.schemas import FeatureDescriptor, ToolRequest
+```
+
+- `AgentKernel`: type của kernel truyền vào `install`.
+- `FeatureDescriptor`: metadata mô tả feature.
+- `ToolRequest`: request object mà executor nhận khi chạy tool.
+
+## Hằng số `FEATURE`
+
+```python
+FEATURE = FeatureDescriptor(
+    name="example_echo",
+    capabilities=("echo",),
+    description="Trivial echo tool used by smoke tests and as a feature-plugin example.",
+)
+```
+
+`FEATURE` mô tả feature này.
+
+### `name`
+
+```python
+name="example_echo"
+```
+
+Tên feature là `example_echo`.
+
+Tên này được registry lưu lại và xuất hiện trong `CapabilityResult["feature"]`.
+
+### `capabilities`
+
+```python
+capabilities=("echo",)
+```
+
+Feature này cung cấp một capability tên `echo`.
+
+Tuple có dấu phẩy vì đây là tuple một phần tử.
+
+### `description`
+
+```python
+description="Trivial echo tool used by smoke tests and as a feature-plugin example."
+```
+
+Mô tả ngắn cho introspection/debug.
+
+## Class `EchoTool`
+
+```python
+class EchoTool:
+    name = "echo_tool"
+```
+
+`EchoTool` là executor thực tế cho capability `echo`.
+
+Nó không kế thừa `ToolPort`, nhưng vẫn thỏa protocol vì có:
+
+- attribute `name`,
+- method `execute(request)`.
+
+### Attribute `name`
+
+```python
+name = "echo_tool"
+```
+
+Tên executor.
+
+Kernel dùng tên này trong metadata:
+
+```python
+"executor": "echo_tool"
+```
+
+## Method `EchoTool.execute`
+
+```python
+def execute(self, request: ToolRequest) -> dict[str, Any]:
+    return {"ok": True, "echo": dict(request.args)}
+```
+
+Method này nhận `ToolRequest` và trả về dict.
+
+Input:
+
+- `request.name`: tên tool được gọi, ở đây thường là `"echo"`.
+- `request.args`: args truyền từ caller.
+- `request.request_id`: id của lần gọi tool.
+
+Output:
+
+```python
+{"ok": True, "echo": dict(request.args)}
+```
+
+Ví dụ nếu caller gọi:
+
+```python
+kernel.execute_tool("echo", {"msg": "hi"})
+```
+
+tool trả raw result:
+
+```python
+{"ok": True, "echo": {"msg": "hi"}}
+```
+
+Sau đó kernel normalize thành `CapabilityResult`:
+
+```python
+{
+    "ok": True,
+    "capability": "echo",
+    "feature": "example_echo",
+    "data": {"echo": {"msg": "hi"}},
+    "error": None,
+    "metadata": {
+        "request_id": "...",
+        "executor": "echo_tool",
+        "raw_keys": ["echo", "ok"]
+    }
+}
+```
+
+`dict(request.args)` tạo copy nông của args để result không giữ reference trực tiếp tới dict gốc.
+
+## Function `install`
+
+```python
+def install(kernel: AgentKernel) -> None:
+    kernel.registry.register_feature(FEATURE)
+    kernel.registry.register_tools(FEATURE.capabilities, EchoTool(), feature_name=FEATURE.name)
+```
+
+Đây là contract chính của feature module.
+
+Feature loader yêu cầu mỗi module feature enabled phải có `install(kernel)`.
+
+### Đăng ký feature metadata
+
+```python
+kernel.registry.register_feature(FEATURE)
+```
+
+Lưu `FeatureDescriptor` vào registry.
+
+Nhờ đó `kernel.describe_capabilities()` có thể hiển thị feature `example_echo`.
+
+### Đăng ký tool/capability
+
+```python
+kernel.registry.register_tools(FEATURE.capabilities, EchoTool(), feature_name=FEATURE.name)
+```
+
+Đăng ký tất cả capability trong `FEATURE.capabilities` vào registry.
+
+Ở đây chỉ có một capability:
+
+```python
+"echo"
+```
+
+Executor là:
+
+```python
+EchoTool()
+```
+
+Feature name là:
+
+```python
+"example_echo"
+```
+
+Sau dòng này, registry biết:
+
+```text
+echo -> EchoTool() -> feature example_echo
+```
+
+## Luồng chạy echo
+
+```mermaid
+flowchart TD
+    A["config/features.yaml bật example_echo"] --> B["features.loader import features.example_echo"]
+    B --> C["Gọi install(kernel)"]
+    C --> D["register_feature(FEATURE)"]
+    C --> E["register_tools(('echo',), EchoTool())"]
+    E --> F["kernel.execute_tool('echo', args)"]
+    F --> G["registry.resolve_tool('echo')"]
+    G --> H["EchoTool.execute(request)"]
+    H --> I["Raw result {'ok': True, 'echo': args}"]
+    I --> J["Kernel wrap CapabilityResult"]
+```
+
+## Ý nghĩa thiết kế
+
+### 1. Đây là mẫu plugin nhỏ nhất
+
+Feature thật sau này có thể copy pattern này:
+
+- tạo `FEATURE`,
+- tạo executor,
+- tạo `install(kernel)`,
+- đăng ký vào registry.
+
+### 2. Test được kernel mà không cần LLM/network
+
+`echo` deterministic và offline, nên rất hợp cho smoke test.
+
+### 3. Chứng minh registry hoạt động
+
+Nếu `echo` được gọi thành công, nghĩa là config, loader, install, registry và kernel đều nối đúng.
+
+### 4. Raw result đơn giản nhưng vẫn được normalize
+
+Tool không cần tự tạo full `CapabilityResult`. Kernel làm việc đó.
+
+## Quan hệ với file khác
+
+- `config/features.yaml`: bật module `features.example_echo`.
+- `features/loader.py`: import module và gọi `install(kernel)`.
+- `core/registry.py`: nhận đăng ký feature/tool.
+- `core/kernel.py`: resolve và execute `echo`.
+- `run_smoke.py`: gọi `kernel.execute_tool("echo", {"msg": "hi"})`.
+- `tests/test_kernel.py`: kiểm tra `echo` được đăng ký và chạy đúng.
+
+## Tóm tắt một câu
+
+`features/example_echo.py` là feature mẫu tối giản: khai báo capability `echo`, implement executor trả lại args, và đăng ký vào kernel qua `install(kernel)`.
+
+
+
+================================================================================
+FILE: docs\features-init.md
+================================================================================
+
+# Giải thích `features/__init__.py`
+
+File `features/__init__.py` hiện tại đang rỗng.
+
+Dù không có code, file này đánh dấu thư mục `features/` là một Python package, giúp các module feature import được bằng đường dẫn như `features.example_echo`.
+
+## Vai trò trong package
+
+Cấu trúc hiện tại:
+
+```text
+features/
+  __init__.py
+  loader.py
+  example_echo.py
+```
+
+Nhờ có package `features`, config có thể khai báo:
+
+```yaml
+features:
+  example_echo:
+    enabled: true
+    module: features.example_echo
+```
+
+Sau đó `features.loader` có thể chạy:
+
+```python
+importlib.import_module("features.example_echo")
+```
+
+## Vì sao file rỗng vẫn hợp lý?
+
+Package `features` hiện chưa cần public API cấp package.
+
+Caller không cần:
+
+```python
+from features import example_echo
+```
+
+Thay vào đó, feature được nạp động bằng module path trong config.
+
+Để `__init__.py` rỗng giúp tránh side effect khi import package `features`.
+
+## Có nên export gì ở đây không?
+
+Hiện tại chưa cần.
+
+Nếu sau này muốn expose helper cấp package, có thể thêm:
+
+```python
+from features.loader import install_configured_features
+
+__all__ = ["install_configured_features"]
+```
+
+Nhưng điều đó làm `features` import `loader` ngay khi package được import. Với plugin system, tránh import sớm thường là lựa chọn sạch hơn.
+
+## Ý nghĩa kiến trúc
+
+`features/__init__.py` rỗng giữ package nhẹ và không tự kích hoạt feature nào.
+
+Feature chỉ được nạp khi:
+
+1. config bật feature,
+2. loader import module cụ thể,
+3. module có `install(kernel)`.
+
+Điều này giúp runtime kiểm soát rõ feature nào được cài.
+
+## Tóm tắt một câu
+
+`features/__init__.py` là package marker rỗng, cho phép dynamic import các feature module mà không tạo side effect ở cấp package.
+
+
+
+================================================================================
+FILE: docs\features-loader.md
+================================================================================
+
+# Giải thích `features/loader.py`
+
+File `features/loader.py` là bộ nạp feature/plugin theo config. Nó đọc phần `features` trong config, bỏ qua feature đang tắt, import module feature được bật, rồi gọi hàm `install(kernel)` của module đó.
+
+Nói ngắn gọn: `loader.py` là cầu nối giữa `config/features.yaml` và `CapabilityRegistry` trong kernel.
+
+## Vai trò trong architecture
+
+Project này muốn kernel không biết trực tiếp các feature cụ thể. Kernel chỉ có registry. Feature nào được bật, module nào được import, tool nào được đăng ký là trách nhiệm của feature loader.
+
+Luồng tổng quát:
+
+```text
+config/features.yaml -> features.loader -> import module -> install(kernel) -> registry.register_tools(...)
+```
+
+Nhờ vậy có thể thêm feature mới bằng cách:
+
+1. tạo module feature,
+2. module đó có hàm `install(kernel)`,
+3. thêm module vào `config/features.yaml`.
+
+Kernel không cần sửa.
+
+## Docstring đầu file
+
+```python
+"""Install the features that are enabled in config['features']. Epic E01."""
+```
+
+Docstring nói mục đích của module:
+
+- cài các feature được bật trong `config["features"]`,
+- thuộc Epic E01, tức phần kernel/capability registry nền tảng.
+
+## Các import
+
+```python
+from __future__ import annotations
+```
+
+Bật postponed evaluation cho type annotations.
+
+```python
+import importlib
+```
+
+`importlib` cho phép import module bằng string.
+
+Ví dụ:
+
+```python
+importlib.import_module("features.example_echo")
+```
+
+Điều này cần thiết vì config chỉ lưu module path dạng text.
+
+```python
+from typing import Any
+```
+
+`Any` dùng cho config vì YAML có thể chứa nhiều kiểu dữ liệu.
+
+```python
+from core.kernel import AgentKernel
+```
+
+Feature loader nhận một `AgentKernel` đã được bootstrap tạo ra, rồi truyền kernel đó cho từng feature để feature tự đăng ký capability.
+
+## Function `install_configured_features`
+
+```python
+def install_configured_features(kernel: AgentKernel, config: dict[str, Any]) -> None:
+    """Install each enabled feature declared in config['features']."""
+```
+
+Function này là API chính của module.
+
+Input:
+
+- `kernel`: kernel cần được cài feature.
+- `config`: dict config đã được parse từ YAML hoặc truyền trực tiếp trong test.
+
+Output:
+
+- không trả về gì,
+- tác dụng chính là làm thay đổi `kernel.registry` thông qua các hàm `install(kernel)` của feature.
+
+## Bước 1: lấy danh sách feature
+
+```python
+features = config.get("features", {}) or {}
+```
+
+Lấy key `features` từ config.
+
+Nếu config không có key này, hoặc value là `None`/falsy, dùng dict rỗng.
+
+Ví dụ config hợp lệ:
+
+```python
+{
+    "features": {
+        "example_echo": {
+            "enabled": True,
+            "module": "features.example_echo"
+        }
+    }
+}
+```
+
+## Bước 2: duyệt từng feature
+
+```python
+for name, spec in features.items():
+```
+
+Mỗi item gồm:
+
+- `name`: tên feature trong config, ví dụ `"example_echo"`.
+- `spec`: cấu hình của feature đó.
+
+## Bước 3: chuẩn hóa spec
+
+```python
+spec = spec or {}
+```
+
+Nếu spec là `None` hoặc falsy, dùng dict rỗng.
+
+Điều này giúp code phía sau không lỗi khi gọi `spec.get(...)`.
+
+## Bước 4: bỏ qua feature chưa enabled
+
+```python
+if not spec.get("enabled", False):
+    continue
+```
+
+Chỉ feature có:
+
+```yaml
+enabled: true
+```
+
+mới được nạp.
+
+Nếu thiếu `enabled`, mặc định là `False`, tức không nạp.
+
+Ý nghĩa: feature phải opt-in rõ ràng. Config có khai báo nhưng chưa bật thì registry không có tool của feature đó.
+
+## Bước 5: lấy module path
+
+```python
+module_path = spec.get("module")
+```
+
+Lấy đường dẫn module Python từ config.
+
+Ví dụ:
+
+```yaml
+module: features.example_echo
+```
+
+## Bước 6: validate module path
+
+```python
+if not module_path:
+    raise ValueError(f"Feature '{name}' is enabled but has no 'module'.")
+```
+
+Nếu feature bật mà không có `module`, đó là config lỗi.
+
+Function raise `ValueError` thay vì im lặng bỏ qua, vì trạng thái "enabled nhưng không biết import gì" gần như chắc chắn là lỗi cấu hình.
+
+## Bước 7: import module feature
+
+```python
+module = importlib.import_module(module_path)
+```
+
+Import module bằng string.
+
+Với config:
+
+```yaml
+module: features.example_echo
+```
+
+dòng này tương đương:
+
+```python
+import features.example_echo
+```
+
+nhưng dynamic hơn.
+
+## Bước 8: tìm hàm `install`
+
+```python
+install = getattr(module, "install", None)
+```
+
+Feature module phải expose hàm `install`.
+
+Contract là:
+
+```python
+def install(kernel: AgentKernel) -> None:
+    ...
+```
+
+## Bước 9: validate feature có `install(kernel)`
+
+```python
+if install is None:
+    raise ValueError(f"Feature module '{module_path}' has no install(kernel).")
+```
+
+Nếu module không có `install`, loader raise lỗi.
+
+Ý nghĩa: một module feature không chỉ được import thành công, nó còn phải biết cách tự cài vào kernel.
+
+## Bước 10: cài feature
+
+```python
+install(kernel)
+```
+
+Gọi hàm install của feature.
+
+Thông thường trong `install(kernel)`, feature sẽ:
+
+- đăng ký `FeatureDescriptor`,
+- đăng ký tool/capability vào `kernel.registry`.
+
+Ví dụ `features/example_echo.py`:
+
+```python
+kernel.registry.register_feature(FEATURE)
+kernel.registry.register_tools(FEATURE.capabilities, EchoTool(), feature_name=FEATURE.name)
+```
+
+## Luồng nạp feature
+
+```mermaid
+flowchart TD
+    A["install_configured_features(kernel, config)"] --> B["Lấy config['features']"]
+    B --> C["Duyệt từng feature"]
+    C --> D{"enabled == true?"}
+    D -- "Không" --> C
+    D -- "Có" --> E{"Có module?"}
+    E -- "Không" --> F["Raise ValueError"]
+    E -- "Có" --> G["importlib.import_module(module_path)"]
+    G --> H{"Module có install?"}
+    H -- "Không" --> I["Raise ValueError"]
+    H -- "Có" --> J["install(kernel)"]
+    J --> C
+```
+
+## Ý nghĩa thiết kế
+
+### 1. Kernel không import feature trực tiếp
+
+Feature loader là nơi duy nhất biết module path từ config. Kernel vẫn sạch và không phụ thuộc plugin cụ thể.
+
+### 2. Feature có contract đơn giản
+
+Một feature chỉ cần có:
+
+```python
+def install(kernel):
+    ...
+```
+
+Không cần subclass, decorator, framework phức tạp.
+
+### 3. Config quyết định runtime có gì
+
+Cùng một codebase có thể bật/tắt feature khác nhau bằng config.
+
+### 4. Lỗi config fail sớm
+
+Feature enabled mà thiếu module hoặc thiếu `install()` sẽ raise ngay trong bootstrap, thay vì tạo runtime nửa vời.
+
+## Quan hệ với file khác
+
+- `core/bootstrap.py`: gọi `install_configured_features(kernel, config)`.
+- `config/features.yaml`: khai báo feature enabled/module.
+- `features/example_echo.py`: ví dụ feature module hợp lệ.
+- `core/registry.py`: nơi feature đăng ký tool sau khi được loader gọi.
+
+## Tóm tắt một câu
+
+`features/loader.py` nạp các feature được bật trong config bằng dynamic import và gọi `install(kernel)`, giúp kernel mở rộng capability mà không phụ thuộc trực tiếp vào plugin cụ thể.
+
+
+
+================================================================================
+FILE: docs\HOW_TO_FOLLOW.md
+================================================================================
+
+# Cách theo dõi repo khi nó lớn dần
+
+Đừng đọc từng file rời rạc. Repo này có **5 lớp dẫn đường** liên kết nhau — đi từ trên xuống là hiểu, không lạc:
+
+## 1. `MAP.md` — "cái gì là cái gì" (1 dòng/module)
+Bảng tự sinh: mỗi module + một dòng mục đích + epic. Mở `MAP.md` để biết toàn bộ file đang có và làm gì.
+- Tự sinh, không sửa tay: `python tools/gen_map.py` (đọc docstring dòng đầu mỗi module).
+- Mình chạy lại sau mỗi lần thêm file → MAP luôn đúng.
+
+## 2. `CHANGELOG.md` — "thêm gì, vì sao, khi nào"
+Nhật ký theo **Sprint + Epic**. Đọc từ trên xuống để thấy repo lớn lên qua từng đợt: thêm module nào, thuộc epic nào, test gì. Đây là "câu chuyện" của repo.
+
+## 3. `../rebuild_spec/Exx_*/` — "tại sao / hợp đồng"
+Mỗi module truy được về một **epic** (E01..E20). Mỗi epic có `PRD.md` (vì sao + phạm vi), `stories.md` (ai cần gì), `acceptance.md` (Given/When/Then). Muốn hiểu *ý định* của một module → mở epic của nó.
+> Chuỗi truy vết: **file → epic (Exx) → acceptance criteria → test**.
+
+## 4. `tests/` — "hành vi kỳ vọng" (hợp đồng sống)
+Test phản chiếu acceptance criteria. Muốn biết một module *phải làm gì* mà không đọc hết code → đọc test của nó. `python -m pytest` luôn phải xanh; test đỏ = hợp đồng bị phá.
+
+## 5. `git log` — "dòng thời gian"
+Mỗi epic = một (cụm) commit với cú pháp `feat(Exx): ...`. `git log --oneline` đọc như mục lục. Muốn xem một epic đổi gì → `git show` commit đó.
+
+---
+
+## Convention mình sẽ tuân theo khi THÊM file (để bạn luôn theo dõi được)
+1. **Mỗi module mới có docstring dòng đầu**: `"""<mục đích 1 dòng>. Epic Exx."""` → tự vào `MAP.md`.
+2. **Mỗi năng lực mới có test** map tới acceptance criteria của epit.
+3. **Cập nhật `CHANGELOG.md`** một mục cho đợt thêm đó.
+4. **Chạy lại `python tools/gen_map.py`** để `MAP.md` cập nhật.
+5. **Commit theo epic**: `feat(E06): MCP tool layer + safety chokepoint`.
+6. Module mới thuộc package mới → `MAP.md` tự phát hiện package (không cần khai báo).
+
+## Thứ tự đọc đề xuất (cho người mới mở repo)
+`README.md` → `MAP.md` → `CHANGELOG.md` (mới nhất) → mở 1 epic ở `../rebuild_spec/` đang quan tâm → đọc `acceptance.md` rồi `tests/` rồi module tương ứng.
+
+## Kiểm tra nhanh "mình có hiểu đúng không"
+```
+python run_smoke.py     # CORE_AGENT_SMOKE_OK
+python -m pytest        # phải xanh hết
+python -m observability.inspect summary latest   # xem run gần nhất
+python tools/gen_map.py # xem lại MAP
+```
+Nếu cả bốn lệnh chạy ổn và bạn đọc được `MAP.md` + `CHANGELOG.md` mới nhất, bạn đang nắm đúng trạng thái repo.
+
+
+
+================================================================================
+FILE: docs\kernel.md
+================================================================================
+
+# Giải thích `core/kernel.py`
+
+File `core/kernel.py` định nghĩa `AgentKernel`, tức lõi runtime tối thiểu của agent. Đây là nơi gom lại các thành phần nền tảng như registry, event bus, state store và config để nhận task, gọi tool/capability, chuẩn hóa kết quả, rồi phát event cho observability hoặc các subscriber khác.
+
+Nói ngắn gọn: kernel không chứa hành vi nghiệp vụ cụ thể. Kernel chỉ điều phối. Tool thật sự làm gì sẽ nằm ở các feature/plugin được đăng ký vào `CapabilityRegistry`.
+
+## Vai trò của kernel trong architecture
+
+Project này đi theo hướng hexagonal architecture, hay còn gọi là ports and adapters.
+
+Trong cách thiết kế này:
+
+- `AgentKernel` là lõi điều phối.
+- `CapabilityRegistry` là nơi tra cứu capability/tool đã đăng ký.
+- Tool executor là adapter bên ngoài, chạy sau một port chung.
+- `EventBus` là kênh phát sự kiện runtime.
+- `StateStore` là nơi giữ state đơn giản của phiên chạy.
+- `CapabilityResult` là envelope chuẩn hóa kết quả trả về.
+
+Điểm quan trọng là kernel không import trực tiếp các tool như `echo`, browser, filesystem hay LLM. Kernel chỉ biết registry có thể resolve một tool theo tên. Nhờ vậy có thể thêm/bớt feature bằng config mà không phải sửa kernel.
+
+## Toàn bộ nội dung file
+
+```python
+from __future__ import annotations
+```
+
+Dòng này bật cơ chế postponed evaluation cho type annotations. Nhờ đó annotation kiểu `dict[str, Any] | None` hoặc tên class có thể được xử lý mềm hơn ở runtime, giảm rủi ro lỗi import vòng và làm type hint nhẹ hơn.
+
+```python
+from dataclasses import dataclass, field
+from typing import Any
+```
+
+Kernel dùng `@dataclass` để khai báo class chứa dependency một cách gọn.
+
+- `dataclass`: tự sinh `__init__`, repr và một số method cơ bản.
+- `field`: dùng để khai báo default factory cho field mutable.
+- `Any`: type hint cho dữ liệu chưa cố định schema, ví dụ config hoặc args.
+
+```python
+from core.events import EventBus
+from core.registry import CapabilityRegistry
+from core.schemas import CapabilityResult, TaskEnvelope, ToolRequest
+from core.state import StateStore
+```
+
+Đây là các dependency nội bộ của kernel:
+
+- `EventBus`: phát sự kiện như `task.accepted`, `tool.requested`, `tool.completed`, `tool.failed`.
+- `CapabilityRegistry`: lưu và resolve các tool/capability.
+- `CapabilityResult`: chuẩn hóa kết quả tool.
+- `TaskEnvelope`: bọc thông tin task người dùng đưa vào.
+- `ToolRequest`: bọc request gọi tool.
+- `StateStore`: lưu state runtime, hiện tại chủ yếu lưu `current_task`.
+
+## Class `AgentKernel`
+
+```python
+@dataclass
+class AgentKernel:
+```
+
+`AgentKernel` là object trung tâm của runtime. Nó được tạo trong `core/bootstrap.py`, thông qua `build_kernel()` hoặc `create_kernel()`.
+
+Docstring trong file:
+
+```python
+"""
+Minimal living core. Owns state, events, capability lookup.
+Concrete behavior lives behind ports/adapters in the registry.
+"""
+```
+
+Ý nghĩa:
+
+- `Minimal living core`: lõi nhỏ nhất nhưng chạy được.
+- `Owns state, events, capability lookup`: kernel sở hữu state, event bus và khả năng tìm tool.
+- `Concrete behavior lives behind ports/adapters`: hành vi cụ thể không nằm trong kernel, mà nằm sau registry dưới dạng executor/adapter.
+
+## Các field của `AgentKernel`
+
+```python
+registry: CapabilityRegistry
+events: EventBus
+state: StateStore
+config: dict[str, Any] = field(default_factory=dict)
+```
+
+### `registry`
+
+`registry` là bảng đăng ký capability. Khi kernel cần chạy tool tên `"echo"`, nó gọi:
+
+```python
+self.registry.resolve_tool(request.name)
+```
+
+Registry trả về executor tương ứng nếu tool tồn tại. Nếu không tồn tại, registry trả về null fallback để kernel vẫn sống và trả lỗi có cấu trúc.
+
+### `events`
+
+`events` là event bus nội bộ. Kernel không tự ghi log ra file. Thay vào đó, kernel publish event. Thành phần khác như `EventLogger` có thể subscribe vào bus để ghi JSONL hoặc tính metrics.
+
+Điểm hay là observability không làm kernel phụ thuộc vào logging cụ thể.
+
+### `state`
+
+`state` là kho state đơn giản. Trong file này kernel dùng state để lưu task hiện tại:
+
+```python
+self.state.set("current_task", task)
+```
+
+Sau này state có thể được mở rộng để giữ thông tin vòng lặp agent, validation status, history, hoặc context.
+
+### `config`
+
+`config` là dict cấu hình runtime. Trong kernel hiện tại, field này chưa được dùng trực tiếp nhiều. Nó được giữ để kernel biết cấu hình đã dùng khi bootstrap, và để các phần mở rộng sau này có thể đọc thông tin cần thiết.
+
+`field(default_factory=dict)` được dùng thay vì `config: dict = {}` để tránh dùng chung một mutable dict giữa nhiều instance.
+
+## Method `accept_task`
+
+```python
+def accept_task(self, user_request: str, context: dict[str, Any] | None = None) -> TaskEnvelope:
+```
+
+Method này nhận yêu cầu của user và biến nó thành `TaskEnvelope`.
+
+Input:
+
+- `user_request`: nội dung task gốc từ người dùng.
+- `context`: context bổ sung nếu có. Nếu không truyền thì dùng dict rỗng.
+
+Luồng chạy:
+
+```python
+task = TaskEnvelope(user_request=user_request, context=context or {})
+```
+
+Tạo envelope cho task. `TaskEnvelope` tự sinh `task_id`, nên mỗi task có định danh riêng.
+
+```python
+self.state.set("current_task", task)
+```
+
+Lưu task hiện tại vào state dưới key `"current_task"`.
+
+```python
+self.events.publish("task.accepted", {"task_id": task.task_id})
+```
+
+Phát event để hệ thống bên ngoài biết kernel đã nhận task. Event này có thể được logger ghi lại.
+
+```python
+return task
+```
+
+Trả lại `TaskEnvelope` cho caller.
+
+Ý nghĩa thiết kế: `accept_task()` là cổng vào chính thức của một task. Nó không chạy LLM, không gọi tool, không xử lý toàn bộ agent loop. Nó chỉ chuẩn hóa việc nhận task, lưu state và phát event.
+
+## Method `execute_tool`
+
+```python
+def execute_tool(self, tool_name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+```
+
+Đây là method quan trọng nhất của kernel hiện tại. Nó chạy một tool theo tên và args, sau đó luôn trả về một dict theo envelope chuẩn.
+
+Input:
+
+- `tool_name`: tên capability/tool cần gọi, ví dụ `"echo"`.
+- `args`: tham số truyền cho tool. Nếu không có thì dùng dict rỗng.
+
+### Bước 1: tạo `ToolRequest`
+
+```python
+request = ToolRequest(name=tool_name, args=args or {})
+```
+
+Thay vì truyền raw string và raw args xuống executor, kernel bọc chúng vào `ToolRequest`. `ToolRequest` có `request_id` riêng để trace từng lần gọi tool.
+
+### Bước 2: publish event `tool.requested`
+
+```python
+self.events.publish(
+    "tool.requested",
+    {"tool": request.name, "request_id": request.request_id, "args": request.args},
+)
+```
+
+Kernel phát event trước khi chạy tool. Event này cho biết:
+
+- tool nào được yêu cầu,
+- request id là gì,
+- args truyền vào là gì.
+
+Nhờ event này, observability có thể ghi lại đầy đủ lịch sử gọi tool.
+
+### Bước 3: resolve executor từ registry
+
+```python
+resolution = self.registry.resolve_tool(request.name)
+```
+
+Kernel hỏi registry: tool tên này sẽ do executor nào xử lý?
+
+`resolution` gồm:
+
+- `executor`: object có method `execute(request)`.
+- `feature`: tên feature sở hữu tool đó, ví dụ `"example_echo"`.
+
+Nếu tool không tồn tại, registry vẫn trả về `NullToolPort`. Đây là điểm rất quan trọng: missing tool không làm kernel crash.
+
+### Bước 4: chạy executor và bắt lỗi
+
+```python
+try:
+    result = resolution.executor.execute(request)
+except Exception as exc:
+    result = {"ok": False, "tool": request.name, "error": str(exc), "kernel_error": True}
+```
+
+Kernel gọi executor. Nếu executor ném exception, kernel bắt lại và biến lỗi thành result có cấu trúc.
+
+Ý nghĩa: tool không được phép làm sập kernel. Trong agent runtime, đây là nguyên tắc sống còn, vì tool có thể lỗi vì input sai, file thiếu, network lỗi hoặc bug nội bộ.
+
+`kernel_error: True` cho biết lỗi được kernel bắt lại trong quá trình execute.
+
+### Bước 5: đảm bảo result là dict
+
+```python
+if not isinstance(result, dict):
+    result = {
+        "ok": False,
+        "tool": request.name,
+        "error": f"Tool returned {type(result).__name__}, expected dict.",
+        "kernel_error": True,
+    }
+```
+
+Kernel yêu cầu executor phải trả về dict. Nếu tool trả về string/list/object khác, kernel coi đó là lỗi và normalize lại.
+
+Ý nghĩa: boundary giữa kernel và tool cần hợp đồng rõ ràng. Hợp đồng ở đây là tool executor phải trả dict.
+
+### Bước 6: bọc kết quả bằng `CapabilityResult`
+
+```python
+envelope = CapabilityResult.from_raw(
+    capability=request.name,
+    feature=resolution.feature,
+    result=result,
+    metadata={
+        "request_id": request.request_id,
+        "executor": getattr(resolution.executor, "name", resolution.executor.__class__.__name__),
+    },
+).as_dict()
+```
+
+Đây là bước chuẩn hóa quan trọng nhất.
+
+Dù tool trả về raw dict như:
+
+```python
+{"ok": True, "echo": {"msg": "hi"}}
+```
+
+Kernel sẽ chuyển thành envelope dạng chuẩn:
+
+```python
+{
+    "ok": True,
+    "capability": "echo",
+    "feature": "example_echo",
+    "data": {"echo": {"msg": "hi"}},
+    "error": None,
+    "metadata": {
+        "request_id": "...",
+        "executor": "echo_tool",
+        "raw_keys": ["echo", "ok"]
+    }
+}
+```
+
+Ý nghĩa từng field:
+
+- `ok`: tool thành công hay thất bại.
+- `capability`: capability được gọi.
+- `feature`: feature sở hữu capability.
+- `data`: payload thành công hoặc thông tin phụ.
+- `error`: message lỗi nếu có.
+- `metadata`: thông tin trace như request id, executor name.
+
+`getattr(resolution.executor, "name", resolution.executor.__class__.__name__)` nghĩa là:
+
+- nếu executor có attribute `name`, dùng nó;
+- nếu không, dùng tên class của executor.
+
+Nhờ đó metadata luôn có tên executor để debug.
+
+### Bước 7: publish event kết thúc
+
+```python
+self.events.publish(
+    "tool.completed" if envelope.get("ok") else "tool.failed",
+    {
+        "tool": request.name,
+        "request_id": request.request_id,
+        "ok": bool(envelope.get("ok")),
+        "error": envelope.get("error"),
+    },
+)
+```
+
+Nếu envelope có `ok=True`, kernel publish `tool.completed`. Nếu không, publish `tool.failed`.
+
+Payload gồm:
+
+- `tool`: tên tool,
+- `request_id`: id của lần gọi,
+- `ok`: trạng thái boolean,
+- `error`: lỗi nếu có.
+
+Observability dùng event này để tính metrics `tool_calls` và `tool_failures`.
+
+### Bước 8: trả envelope
+
+```python
+return envelope
+```
+
+Caller luôn nhận về dict chuẩn. Đây là thứ agent loop hoặc test có thể dùng tiếp.
+
+## Method `describe_capabilities`
+
+```python
+def describe_capabilities(self) -> dict[str, Any]:
+    return {"features": self.registry.list_features(), "tools": self.registry.list_tools()}
+```
+
+Method này trả về danh sách feature và tool đã đăng ký.
+
+Ví dụ khi `example_echo` bật:
+
+```python
+{
+    "features": [
+        {
+            "name": "example_echo",
+            "version": "0.1",
+            "capabilities": ["echo"],
+            "enabled": True,
+            "description": "..."
+        }
+    ],
+    "tools": [
+        {
+            "name": "echo",
+            "feature": "example_echo"
+        }
+    ]
+}
+```
+
+Ý nghĩa: đây là API introspection đơn giản để biết kernel hiện có thể làm gì.
+
+## Luồng `execute_tool` tổng quát
+
+```mermaid
+flowchart TD
+    A["Caller gọi kernel.execute_tool(tool_name, args)"] --> B["Tạo ToolRequest"]
+    B --> C["Publish tool.requested"]
+    C --> D["registry.resolve_tool(name)"]
+    D --> E["executor.execute(request)"]
+    E --> F{"Executor lỗi?"}
+    F -- "Có" --> G["Tạo error result có kernel_error=True"]
+    F -- "Không" --> H["Nhận raw result"]
+    G --> I{"Result là dict?"}
+    H --> I
+    I -- "Không" --> J["Tạo error result: expected dict"]
+    I -- "Có" --> K["CapabilityResult.from_raw(...)"]
+    J --> K
+    K --> L{"envelope.ok?"}
+    L -- "True" --> M["Publish tool.completed"]
+    L -- "False" --> N["Publish tool.failed"]
+    M --> O["Return envelope"]
+    N --> O
+```
+
+## Vì sao kernel được thiết kế như vậy?
+
+### 1. Kernel nhỏ và ổn định
+
+Kernel chỉ làm điều phối. Nó không chứa business logic, không chứa prompt, không gọi OpenAI trực tiếp, không biết feature cụ thể. Điều này giúp lõi ít thay đổi khi thêm tool mới.
+
+### 2. Tool lỗi không làm chết runtime
+
+`execute_tool()` bắt exception và kiểm tra kiểu return. Đây là safety boundary giữa lõi và adapter bên ngoài.
+
+### 3. Kết quả luôn đồng nhất
+
+Mọi tool call đều được bọc bằng `CapabilityResult`. Điều này làm phần agent loop sau này dễ viết hơn, vì không phải xử lý mỗi tool một kiểu response.
+
+### 4. Observability tách khỏi kernel
+
+Kernel chỉ publish event. Logger subscribe qua `EventBus`. Nhờ vậy có thể bật/tắt logging, thay logger hoặc thêm metrics mà không sửa kernel.
+
+### 5. Feature/plugin dễ mở rộng
+
+Tool được đăng ký vào registry. Feature mới chỉ cần có `install(kernel)` rồi gọi `kernel.registry.register_tools(...)`. Kernel không cần biết module đó là gì.
+
+## Quan hệ với các file khác
+
+- `core/bootstrap.py`: tạo `AgentKernel`, đọc config, cài feature.
+- `core/registry.py`: resolve tool executor cho kernel.
+- `core/schemas.py`: định nghĩa envelope/request/result mà kernel dùng.
+- `core/events.py`: cung cấp pub/sub cho kernel.
+- `core/state.py`: cung cấp state store cho kernel.
+- `features/loader.py`: nạp feature từ config.
+- `features/example_echo.py`: ví dụ feature đăng ký tool `echo`.
+- `observability/event_log.py`: subscribe vào event bus để ghi log.
+
+## Trạng thái hiện tại của kernel
+
+Kernel hiện tại là foundation, chưa phải một agent loop hoàn chỉnh.
+
+Nó đã có:
+
+- nhận task,
+- lưu current task,
+- gọi tool qua registry,
+- fallback khi tool thiếu,
+- bắt lỗi executor,
+- chuẩn hóa result,
+- publish event,
+- introspect capability.
+
+Nó chưa làm trực tiếp:
+
+- gọi LLM,
+- parse action JSON từ LLM,
+- quản lý loop nhiều bước,
+- condense tool result,
+- enforce budget,
+- check finish gate.
+
+Các phần đó đã có module riêng trong `llm/` và `discipline/`, nhưng chưa được nối thành vòng agent đầy đủ trong `AgentKernel`.
+
+## Tóm tắt một câu
+
+`core/kernel.py` là lõi điều phối an toàn và tối giản của agent: nhận task, gọi capability qua registry, chuẩn hóa kết quả, phát event, và giữ cho mọi hành vi cụ thể nằm bên ngoài kernel.
+
+
+
+================================================================================
+FILE: docs\llm-adapter.md
+================================================================================
+
+# Giải thích `llm/adapter.py`
+
+File `llm/adapter.py` định nghĩa adapter gọi LLM theo chuẩn OpenAI-compatible chat completions. Adapter này có ba đặc điểm chính: lazy client, JSON mode mặc định, và cho phép inject client để test offline.
+
+Nói ngắn gọn: `adapter.py` là lớp giao tiếp với LLM, nhưng được thiết kế để không làm network/client khởi tạo khi chỉ import module.
+
+## Vai trò trong architecture
+
+Project tách LLM ra khỏi kernel. Kernel hiện không gọi LLM trực tiếp. Khi agent loop hoàn chỉnh được xây, loop đó có thể gọi `call_llm()`, parse output bằng `discipline.parse_action()`, rồi gọi `kernel.execute_tool()`.
+
+Adapter này thuộc Epic E03, tức lớp LLM adapter.
+
+## Docstring đầu file
+
+```python
+"""OpenAI-compatible LLM adapter - JSON-mode, lazy client, injectable for tests. Epic E03."""
+```
+
+Docstring tóm tắt các quyết định thiết kế:
+
+- OpenAI-compatible API,
+- JSON-mode,
+- lazy client,
+- injectable cho test,
+- thuộc E03.
+
+## Các import
+
+```python
+from __future__ import annotations
+```
+
+Bật postponed evaluation cho type annotations.
+
+```python
+import json
+import os
+from typing import Any
+```
+
+- `json`: dùng để trả về JSON string có cấu trúc khi LLM call lỗi.
+- `os`: đọc biến môi trường cấu hình LLM.
+- `Any`: dùng vì client OpenAI/fake client không có type cụ thể trong module này.
+
+## Biến module `_client`
+
+```python
+_client: Any = None
+```
+
+Đây là cache client ở cấp module.
+
+Ban đầu là `None`. Client thật chỉ được tạo khi có call LLM đầu tiên mà caller không inject client.
+
+Comment trong code:
+
+```python
+# Lazy module-level client cache. Importing this module does NOT build a client
+# and does NOT import the openai package - that happens on first real call.
+```
+
+Ý nghĩa:
+
+- import `llm.adapter` không import package `openai`,
+- import module không mở connection,
+- test có thể import module mà không cần LLM server,
+- startup nhẹ hơn.
+
+## Function `_defaults`
+
+```python
+def _defaults() -> dict[str, Any]:
+```
+
+Function này đọc config LLM từ environment variables và trả về dict mặc định.
+
+```python
+return {
+    "base_url": os.getenv("LLM_BASE_URL", "http://localhost:1234/v1"),
+    "api_key": os.getenv("LLM_API_KEY", "lm-studio"),
+    "model": os.getenv("LLM_MODEL", "local-model"),
+    "max_tokens": int(os.getenv("LLM_MAX_TOKENS", "2048")),
+    "timeout": float(os.getenv("LLM_TIMEOUT", "600")),
+}
+```
+
+Các biến môi trường:
+
+- `LLM_BASE_URL`: endpoint OpenAI-compatible, mặc định `http://localhost:1234/v1`.
+- `LLM_API_KEY`: API key, mặc định `"lm-studio"`.
+- `LLM_MODEL`: tên model, mặc định `"local-model"`.
+- `LLM_MAX_TOKENS`: max tokens, mặc định `2048`.
+- `LLM_TIMEOUT`: timeout giây, mặc định `600`.
+
+Mặc định này gợi ý project ưu tiên local OpenAI-compatible server như LM Studio.
+
+## Function `_get_client`
+
+```python
+def _get_client() -> Any:
+```
+
+Function này trả về OpenAI client, tạo mới nếu chưa có.
+
+### Dùng global cache
+
+```python
+global _client
+if _client is None:
+```
+
+`global _client` cho phép function gán lại biến module `_client`.
+
+Nếu `_client` chưa được tạo, mới khởi tạo.
+
+### Lazy import OpenAI
+
+```python
+from openai import OpenAI  # lazy import
+```
+
+Package `openai` chỉ được import khi cần client thật.
+
+Điều này là cốt lõi của lazy-init.
+
+### Tạo client
+
+```python
+cfg = _defaults()
+_client = OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"], timeout=cfg["timeout"])
+```
+
+Client được tạo từ config environment.
+
+Lưu ý: model và max_tokens không nằm trong client, chúng được dùng khi gọi completion.
+
+### Trả client
+
+```python
+return _client
+```
+
+Những call sau sẽ dùng lại client đã cache.
+
+## Function `reset_client`
+
+```python
+def reset_client() -> None:
+    global _client
+    _client = None
+```
+
+Reset cache client về `None`.
+
+Ý nghĩa:
+
+- test có thể đảm bảo trạng thái sạch,
+- nếu config environment đổi, có thể reset để lần sau tạo client mới,
+- tránh state leak giữa test.
+
+Test `test_module_import_is_lazy` dùng function này để assert `_client is None`.
+
+## Function `call_llm`
+
+```python
+def call_llm(
+    messages: list[dict[str, str]],
+    *,
+    model: str | None = None,
+    temperature: float = 0.2,
+    json_mode: bool = True,
+    client: Any = None,
+) -> str:
+```
+
+Đây là API chính của adapter.
+
+Input:
+
+- `messages`: list chat messages theo format OpenAI.
+- `model`: override model nếu muốn.
+- `temperature`: sampling temperature, mặc định `0.2`.
+- `json_mode`: nếu `True`, yêu cầu response JSON object.
+- `client`: client inject tùy chọn, chủ yếu dùng cho test.
+
+Output:
+
+- string content từ response của model,
+- hoặc JSON string dạng `final` nếu request lỗi.
+
+## Docstring của `call_llm`
+
+```python
+"""
+Call an OpenAI-compatible chat endpoint.
+
+- `json_mode=True` sets response_format=json_object so the model returns JSON.
+- `client` can be injected (for tests); otherwise a lazy module client is used.
+- On error, returns a structured `final` JSON string (never raises into the loop).
+"""
+```
+
+Ba điểm quan trọng:
+
+1. gọi endpoint OpenAI-compatible,
+2. JSON mode mặc định,
+3. lỗi được biến thành JSON action thay vì raise.
+
+## Bước 1: đọc default config
+
+```python
+cfg = _defaults()
+```
+
+Mỗi lần gọi đọc lại environment defaults.
+
+Điều này cho phép các giá trị như `LLM_MODEL` hoặc `LLM_MAX_TOKENS` được lấy tại thời điểm call.
+
+## Bước 2: chọn client
+
+```python
+active = client if client is not None else _get_client()
+```
+
+Nếu caller truyền client, dùng client đó.
+
+Nếu không, dùng lazy module client.
+
+Ý nghĩa test:
+
+```python
+fake = _FakeClient()
+call_llm(messages, client=fake)
+```
+
+Không cần import/tạo OpenAI client thật, không cần network.
+
+## Bước 3: tạo kwargs cho chat completions
+
+```python
+kwargs: dict[str, Any] = {
+    "model": model or cfg["model"],
+    "messages": messages,
+    "temperature": temperature,
+    "max_tokens": cfg["max_tokens"],
+}
+```
+
+Các tham số gửi cho:
+
+```python
+active.chat.completions.create(**kwargs)
+```
+
+Nếu caller truyền `model`, dùng model đó. Nếu không, dùng `LLM_MODEL` hoặc default.
+
+## Bước 4: bật JSON mode nếu cần
+
+```python
+if json_mode:
+    kwargs["response_format"] = {"type": "json_object"}
+```
+
+Khi `json_mode=True`, adapter yêu cầu model trả JSON object.
+
+Đây là hợp đồng quan trọng với `discipline/json_gate.py`, vì agent loop kỳ vọng output là một JSON action object.
+
+Nếu `json_mode=False`, key `response_format` không được gửi.
+
+## Bước 5: gọi LLM
+
+```python
+try:
+    response = active.chat.completions.create(**kwargs)
+    return response.choices[0].message.content or ""
+```
+
+Adapter gọi chat completions API.
+
+Nó lấy content từ choice đầu tiên:
+
+```python
+response.choices[0].message.content
+```
+
+Nếu content là `None` hoặc falsy, trả string rỗng.
+
+## Bước 6: lỗi trả về structured final JSON
+
+```python
+except Exception as exc:
+    return json.dumps(
+        {"action": "final", "finish_reason": "error", "message": f"LLM request failed: {exc}"},
+        ensure_ascii=False,
+    )
+```
+
+Nếu request lỗi, function không raise exception ra ngoài.
+
+Thay vào đó trả string JSON:
+
+```json
+{"action": "final", "finish_reason": "error", "message": "LLM request failed: ..."}
+```
+
+Ý nghĩa: agent loop sau này có thể parse output bằng `parse_action()` và đi vào nhánh final/error một cách có kiểm soát.
+
+`ensure_ascii=False` giữ Unicode readable nếu message có ký tự không phải ASCII.
+
+## Luồng gọi LLM
+
+```mermaid
+flowchart TD
+    A["call_llm(messages, ...)"] --> B["Đọc _defaults() từ env"]
+    B --> C{"Có injected client?"}
+    C -- "Có" --> D["Dùng client được truyền"]
+    C -- "Không" --> E["_get_client() lazy init"]
+    D --> F["Build kwargs"]
+    E --> F
+    F --> G{"json_mode?"}
+    G -- "Có" --> H["Thêm response_format json_object"]
+    G -- "Không" --> I["Không thêm response_format"]
+    H --> J["chat.completions.create(**kwargs)"]
+    I --> J
+    J --> K{"Call thành công?"}
+    K -- "Có" --> L["Return message.content hoặc ''"]
+    K -- "Không" --> M["Return structured final JSON error"]
+```
+
+## Ý nghĩa thiết kế
+
+### 1. Lazy client giúp import an toàn
+
+Import module không cần package `openai` được load ngay và không tạo client sớm.
+
+### 2. Injectable client giúp test offline
+
+Test có thể truyền fake client và kiểm tra kwargs mà không gọi network.
+
+### 3. JSON mode nằm ở LLM layer
+
+Agent loop không cần nhớ set `response_format`; adapter làm mặc định.
+
+### 4. Lỗi LLM không phá loop
+
+Lỗi được biến thành JSON action `final` với `finish_reason="error"`.
+
+## Quan hệ với file khác
+
+- `llm/__init__.py`: export `call_llm` và `reset_client`.
+- `discipline/json_gate.py`: parse string output từ LLM thành action object.
+- `tests/test_llm_adapter.py`: kiểm tra lazy import, injected client, JSON mode và error fallback.
+
+## Tóm tắt một câu
+
+`llm/adapter.py` cung cấp hàm `call_llm()` để gọi OpenAI-compatible chat API theo JSON mode, lazy-init client, test được bằng fake client, và luôn trả string có thể xử lý thay vì ném lỗi ra agent loop.
+
+
+
+================================================================================
+FILE: docs\llm-init.md
+================================================================================
+
+# Giải thích `llm/__init__.py`
+
+File `llm/__init__.py` định nghĩa public API cấp package cho module `llm`.
+
+Nó export hai function từ `llm.adapter`:
+
+```python
+from llm.adapter import call_llm, reset_client
+
+__all__ = ["call_llm", "reset_client"]
+```
+
+## Vai trò trong package
+
+Nhờ file này, caller có thể import ngắn:
+
+```python
+from llm import call_llm, reset_client
+```
+
+thay vì:
+
+```python
+from llm.adapter import call_llm, reset_client
+```
+
+Đây là facade nhỏ cho package `llm`.
+
+## Import `call_llm` và `reset_client`
+
+```python
+from llm.adapter import call_llm, reset_client
+```
+
+Hai function được đưa lên package-level:
+
+- `call_llm`: gọi OpenAI-compatible chat endpoint.
+- `reset_client`: reset lazy client cache.
+
+Vì `llm.adapter` được thiết kế lazy, import package `llm` vẫn không tạo OpenAI client thật. Client chỉ được tạo khi `call_llm()` cần `_get_client()`.
+
+## Biến `__all__`
+
+```python
+__all__ = ["call_llm", "reset_client"]
+```
+
+`__all__` khai báo public symbols của package khi dùng:
+
+```python
+from llm import *
+```
+
+Nó cũng là tín hiệu cho người đọc: package `llm` muốn expose chính thức hai API này.
+
+## Ý nghĩa kiến trúc
+
+Khác với `core/__init__.py` và `features/__init__.py`, file này không rỗng. Lý do là package `llm` có một API nhỏ, rõ ràng:
+
+- gọi LLM,
+- reset client cho test.
+
+Export ở đây giúp phần còn lại của codebase không cần biết adapter đang nằm ở file nào.
+
+## Quan hệ với file khác
+
+- `llm/adapter.py`: nơi implement thật `call_llm` và `reset_client`.
+- `tests/test_llm_adapter.py`: import trực tiếp adapter để kiểm tra `_client`, nhưng app code có thể import từ `llm`.
+
+## Tóm tắt một câu
+
+`llm/__init__.py` là facade package nhỏ, export `call_llm` và `reset_client` như public API chính của lớp LLM adapter.
+
+
+
+================================================================================
+FILE: docs\observability-event-log.md
+================================================================================
+
+# Giải thích `observability/event_log.py`
+
+File `observability/event_log.py` định nghĩa hệ thống ghi event log cho agent runtime. Nó tạo thư mục run, ghi event theo JSONL, giữ metrics đơn giản, ghi `summary.json`, và có helper để subscribe vào `EventBus` của kernel.
+
+Nói ngắn gọn: `event_log.py` biến các sự kiện runtime thành log có thể inspect sau.
+
+## Vai trò trong architecture
+
+Kernel chỉ publish event qua `EventBus`. Nó không biết log ghi đi đâu.
+
+`EventLogger` là observer bên ngoài:
+
+1. subscribe vào event bus,
+2. nhận event kernel,
+3. ghi ra `events.jsonl`,
+4. cập nhật metrics,
+5. ghi summary khi run kết thúc.
+
+Điều này giữ observability tách khỏi kernel.
+
+## Docstring đầu file
+
+```python
+"""EventLogger - JSONL event log + summary.json + metrics; subscribes to the EventBus. Epic E04."""
+```
+
+Module này thuộc Epic E04, phụ trách observability.
+
+## Các import
+
+```python
+from __future__ import annotations
+```
+
+Bật postponed evaluation cho type annotations.
+
+```python
+import json
+import os
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+```
+
+- `json`: serialize event và summary.
+- `os`: đọc env var cấu hình logging.
+- `uuid`: tạo suffix run id.
+- `datetime`, `timezone`: timestamp UTC.
+- `Path`: thao tác đường dẫn.
+- `Any`: payload event linh hoạt.
+
+```python
+from core.events import EventBus
+```
+
+`attach_to_bus()` nhận `EventBus` để subscribe logger.
+
+## Hằng số `PROJECT_DIR`
+
+```python
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+```
+
+Xác định thư mục gốc project từ vị trí file.
+
+Vì file nằm ở:
+
+```text
+observability/event_log.py
+```
+
+`.parent` là `observability/`, `.parent.parent` là project root.
+
+## Hằng số `_METRICS`
+
+```python
+_METRICS = (
+    "steps",
+    "llm_calls",
+    "tool_calls",
+    "tool_failures",
+    "parse_errors",
+    "policy_blocks",
+    "finish_gate_blocks",
+    "condensed",
+)
+```
+
+Đây là danh sách metrics chuẩn mà logger theo dõi.
+
+Hiện tại `attach_to_bus()` tự tăng:
+
+- `tool_calls`,
+- `tool_failures`.
+
+Các metric khác được chuẩn bị cho agent loop sau này:
+
+- `steps`,
+- `llm_calls`,
+- `parse_errors`,
+- `policy_blocks`,
+- `finish_gate_blocks`,
+- `condensed`.
+
+## Function `runs_dir`
+
+```python
+def runs_dir() -> Path:
+    return Path(os.getenv("AGENT_RUNS_DIR", str(PROJECT_DIR / "var" / "agent_runs")))
+```
+
+Trả về thư mục lưu run log.
+
+Nếu env var `AGENT_RUNS_DIR` tồn tại, dùng nó.
+
+Nếu không, dùng mặc định:
+
+```text
+var/agent_runs
+```
+
+Ý nghĩa:
+
+- production/dev dùng default,
+- test có thể set `AGENT_RUNS_DIR` vào temp dir,
+- không hard-code path trong test.
+
+## Function `_now`
+
+```python
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+```
+
+Trả timestamp hiện tại theo UTC ở dạng ISO string.
+
+Ví dụ:
+
+```text
+2026-06-16T06:02:59.123456+00:00
+```
+
+Tên bắt đầu bằng `_` vì đây là helper nội bộ.
+
+## Class `EventLogger`
+
+```python
+class EventLogger:
+```
+
+`EventLogger` quản lý một run log.
+
+Một instance tương ứng với một run id và một thư mục:
+
+```text
+var/agent_runs/<run_id>/
+```
+
+Trong đó có thể có:
+
+```text
+events.jsonl
+summary.json
+```
+
+## Constructor `__init__`
+
+```python
+def __init__(self, run_id: str | None = None, *, enabled: bool | None = None) -> None:
+```
+
+Input:
+
+- `run_id`: id run tùy chọn. Nếu không truyền, tự sinh.
+- `enabled`: bật/tắt ghi file. Nếu `None`, đọc env `AGENT_EVENT_LOG`.
+
+### Xác định logging enabled
+
+```python
+self.enabled = (os.getenv("AGENT_EVENT_LOG", "1") != "0") if enabled is None else enabled
+```
+
+Nếu caller truyền `enabled`, dùng giá trị đó.
+
+Nếu không, đọc env:
+
+- `AGENT_EVENT_LOG=0`: tắt ghi file,
+- mặc định: bật.
+
+### Tạo run id
+
+```python
+self.run_id = run_id or (datetime.now().strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:8])
+```
+
+Nếu caller không truyền run id, logger tự tạo dạng:
+
+```text
+20260616_100259_f73860fe
+```
+
+Gồm timestamp local format và 8 ký tự UUID.
+
+### Khởi tạo sequence
+
+```python
+self.seq = 0
+```
+
+Mỗi event sẽ tăng `sequence` lên 1.
+
+Sequence giúp đọc event theo thứ tự ghi.
+
+### Khởi tạo metrics
+
+```python
+self.metrics: dict[str, int] = {k: 0 for k in _METRICS}
+```
+
+Tạo dict metric, tất cả bắt đầu từ 0.
+
+### Xác định path
+
+```python
+self.run_dir = runs_dir() / self.run_id
+self.events_path = self.run_dir / "events.jsonl"
+```
+
+Mỗi run có thư mục riêng.
+
+File event chính là:
+
+```text
+events.jsonl
+```
+
+### Tạo thư mục nếu enabled
+
+```python
+if self.enabled:
+    self.run_dir.mkdir(parents=True, exist_ok=True)
+```
+
+Nếu logging bật, tạo thư mục run.
+
+Nếu logging tắt, không tạo gì.
+
+### Emit `run_started`
+
+```python
+self.emit("StateEvent", status="run_started")
+```
+
+Ngay khi tạo logger, nó ghi event bắt đầu run.
+
+Nếu `enabled=False`, event vẫn được tạo và return từ `emit`, nhưng không ghi ra file.
+
+## Method `emit`
+
+```python
+def emit(self, kind: str, **fields: Any) -> dict[str, Any]:
+```
+
+Ghi một event.
+
+Input:
+
+- `kind`: loại event, ví dụ `"StateEvent"`, `"KernelEvent"`, `"ActionEvent"`.
+- `**fields`: các field bổ sung.
+
+### Tăng sequence
+
+```python
+self.seq += 1
+```
+
+Mỗi event có số thứ tự tăng dần.
+
+### Tạo event object
+
+```python
+event = {"sequence": self.seq, "timestamp": _now(), "run_id": self.run_id, "kind": kind, **fields}
+```
+
+Event luôn có:
+
+- `sequence`,
+- `timestamp`,
+- `run_id`,
+- `kind`.
+
+Sau đó merge thêm các field tùy ý.
+
+Ví dụ:
+
+```python
+logger.emit("ActionEvent", action="tool", tool="echo")
+```
+
+tạo event có thêm `action` và `tool`.
+
+### Ghi JSONL nếu enabled
+
+```python
+if self.enabled:
+    with self.events_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+```
+
+Mỗi event được ghi thành một dòng JSON.
+
+JSONL phù hợp cho event log vì:
+
+- append đơn giản,
+- đọc từng dòng dễ,
+- không cần giữ toàn bộ file là JSON array hợp lệ trong lúc đang chạy.
+
+`ensure_ascii=False` giữ Unicode readable.
+
+### Return event
+
+```python
+return event
+```
+
+Kể cả khi logging disabled, caller vẫn nhận event object.
+
+## Method `count`
+
+```python
+def count(self, metric: str, n: int = 1) -> None:
+    if metric in self.metrics:
+        self.metrics[metric] += n
+```
+
+Tăng metric.
+
+Input:
+
+- `metric`: tên metric.
+- `n`: số lượng tăng, mặc định 1.
+
+Nếu metric không nằm trong `_METRICS`, function bỏ qua.
+
+Ý nghĩa: metrics có whitelist, tránh vô tình thêm key linh tinh.
+
+## Method `finish`
+
+```python
+def finish(self, status: str = "completed", **extra: Any) -> dict[str, Any]:
+```
+
+Kết thúc run và ghi summary.
+
+### Emit event kết thúc
+
+```python
+self.emit("StateEvent", status="run_finished", result_status=status)
+```
+
+Ghi event cho biết run đã kết thúc.
+
+### Tạo summary
+
+```python
+summary = {"run_id": self.run_id, "status": status, "metrics": dict(self.metrics), **extra}
+```
+
+Summary gồm:
+
+- `run_id`,
+- `status`,
+- `metrics`,
+- các field extra nếu caller truyền.
+
+### Ghi `summary.json`
+
+```python
+if self.enabled:
+    (self.run_dir / "summary.json").write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+```
+
+Ghi summary readable với indent 2.
+
+### Append vào `index.jsonl`
+
+```python
+with (runs_dir() / "index.jsonl").open("a", encoding="utf-8") as handle:
+    handle.write(json.dumps({"run_id": self.run_id, "status": status}, ensure_ascii=False) + "\n")
+```
+
+Index lưu danh sách run ngắn gọn.
+
+Mỗi dòng chứa:
+
+- `run_id`,
+- `status`.
+
+### Return summary
+
+```python
+return summary
+```
+
+Caller có thể dùng summary ngay mà không cần đọc file.
+
+## Function `attach_to_bus`
+
+```python
+def attach_to_bus(logger: EventLogger, bus: EventBus) -> None:
+    """Mirror kernel events into the event log and update metrics."""
+```
+
+Function này nối `EventLogger` với `EventBus`.
+
+Sau khi attach, mọi event kernel publish sẽ được logger ghi lại dưới dạng `KernelEvent`.
+
+## Nested function `sink`
+
+```python
+def sink(topic: str, payload: dict[str, Any]) -> None:
+```
+
+`sink` là subscriber được đăng ký vào bus.
+
+### Mirror kernel event
+
+```python
+logger.emit("KernelEvent", topic=topic, **payload)
+```
+
+Mọi event từ kernel được ghi với:
+
+- `kind="KernelEvent"`,
+- `topic=<topic gốc>`,
+- payload gốc được merge vào event.
+
+### Cập nhật metrics tool
+
+```python
+if topic == "tool.completed":
+    logger.count("tool_calls")
+elif topic == "tool.failed":
+    logger.count("tool_calls")
+    logger.count("tool_failures")
+```
+
+Nếu tool completed, tăng `tool_calls`.
+
+Nếu tool failed, tăng cả:
+
+- `tool_calls`,
+- `tool_failures`.
+
+## Subscribe sink vào bus
+
+```python
+bus.subscribe(sink)
+```
+
+Sau dòng này, logger bắt đầu nhận event từ bus.
+
+## Luồng observability
+
+```mermaid
+flowchart TD
+    A["Kernel publish event"] --> B["EventBus"]
+    B --> C["sink(topic, payload)"]
+    C --> D["logger.emit('KernelEvent', topic, payload)"]
+    D --> E["Append events.jsonl"]
+    C --> F{"topic là tool.completed/tool.failed?"}
+    F -- "Có" --> G["Update metrics"]
+    F -- "Không" --> H["Không đổi metrics"]
+    I["logger.finish(status)"] --> J["Emit run_finished"]
+    J --> K["Write summary.json"]
+    K --> L["Append index.jsonl"]
+```
+
+## Ý nghĩa thiết kế
+
+### 1. Observability từ ngày đầu
+
+Mỗi run có event log và summary. Điều này giúp debug agent dễ hơn khi loop phức tạp lên.
+
+### 2. Kernel không phụ thuộc logger
+
+Logger subscribe vào bus. Kernel không import `EventLogger`.
+
+### 3. JSONL thân thiện với stream
+
+Append event từng dòng đơn giản và ổn định.
+
+### 4. Test dễ
+
+Test set `AGENT_RUNS_DIR` vào temp dir để kiểm tra file output mà không đụng vào `var/`.
+
+## Quan hệ với file khác
+
+- `core/events.py`: cung cấp `EventBus`.
+- `core/kernel.py`: publish event vào bus.
+- `observability/inspect.py`: đọc `summary.json` và `events.jsonl`.
+- `observability/__init__.py`: export `EventLogger`, `attach_to_bus`, `runs_dir`.
+- `run_smoke.py`: tạo logger và attach vào kernel event bus.
+- `tests/test_observability.py`: kiểm tra ghi event/summary và disabled logging.
+
+## Tóm tắt một câu
+
+`observability/event_log.py` cung cấp event logger JSONL cho agent runtime, tách khỏi kernel qua EventBus, có metrics và summary để inspect lại từng run.
+
+
+
+================================================================================
+FILE: docs\observability-init.md
+================================================================================
+
+# Giải thích `observability/__init__.py`
+
+File `observability/__init__.py` định nghĩa public API cấp package cho observability.
+
+Nó export các thành phần chính từ `observability.event_log`:
+
+```python
+from observability.event_log import EventLogger, attach_to_bus, runs_dir
+
+__all__ = ["EventLogger", "attach_to_bus", "runs_dir"]
+```
+
+## Vai trò trong package
+
+Nhờ file này, caller có thể viết:
+
+```python
+from observability import EventLogger, attach_to_bus
+```
+
+thay vì:
+
+```python
+from observability.event_log import EventLogger, attach_to_bus
+```
+
+Đây là facade nhỏ cho phần logging runtime.
+
+## Export `EventLogger`
+
+```python
+from observability.event_log import EventLogger
+```
+
+`EventLogger` là class ghi event log JSONL, summary và metrics.
+
+Đây là API chính mà runner dùng.
+
+Ví dụ trong `run_smoke.py`:
+
+```python
+logger = EventLogger()
+```
+
+## Export `attach_to_bus`
+
+```python
+from observability.event_log import attach_to_bus
+```
+
+`attach_to_bus()` nối logger với `EventBus` của kernel.
+
+Ví dụ:
+
+```python
+attach_to_bus(logger, kernel.events)
+```
+
+Sau đó kernel events sẽ được ghi vào log.
+
+## Export `runs_dir`
+
+```python
+from observability.event_log import runs_dir
+```
+
+`runs_dir()` trả thư mục chứa run logs.
+
+Nó hữu ích cho code cần biết log nằm ở đâu mà không hard-code path.
+
+## Biến `__all__`
+
+```python
+__all__ = ["EventLogger", "attach_to_bus", "runs_dir"]
+```
+
+`__all__` khai báo public symbols khi dùng:
+
+```python
+from observability import *
+```
+
+Nó cũng thể hiện package observability muốn expose ba API chính này.
+
+## Vì sao không export `inspect` ở đây?
+
+`observability.inspect` là CLI/reader module riêng.
+
+Không export nó ở `__init__.py` giúp package-level API tập trung vào runtime logging:
+
+- tạo logger,
+- attach vào bus,
+- biết runs dir.
+
+Muốn dùng inspect, caller có thể import trực tiếp:
+
+```python
+from observability import inspect as insp
+```
+
+hoặc chạy CLI:
+
+```bash
+python -m observability.inspect summary latest
+```
+
+## Ý nghĩa kiến trúc
+
+File này đóng vai trò public facade cho phần observability runtime. Nó giúp runner import ngắn gọn mà không làm lộ quá nhiều chi tiết module nội bộ.
+
+## Quan hệ với file khác
+
+- `observability/event_log.py`: nơi implement các symbol được export.
+- `observability/inspect.py`: module sibling, không export qua `__all__`.
+- `run_smoke.py`: import `EventLogger`, `attach_to_bus` từ package.
+- `tests/test_observability.py`: import `EventLogger` từ package.
+
+## Tóm tắt một câu
+
+`observability/__init__.py` là facade package, export `EventLogger`, `attach_to_bus` và `runs_dir` như API chính để gắn observability vào runtime.
+
+
+
+================================================================================
+FILE: docs\observability-inspect.md
+================================================================================
+
+# Giải thích `observability/inspect.py`
+
+File `observability/inspect.py` cung cấp API và CLI để xem lại các run log đã được ghi bởi `EventLogger`. Nó có thể list run, đọc summary, đọc events, và lọc event theo `kind` hoặc `topic`.
+
+Nói ngắn gọn: `inspect.py` là công cụ đọc log sau khi agent chạy.
+
+## Vai trò trong architecture
+
+`event_log.py` ghi dữ liệu.
+
+`inspect.py` đọc dữ liệu đó.
+
+Hai file này tách nhau để:
+
+- runtime logging đơn giản,
+- inspection dùng được từ CLI,
+- test có thể gọi function đọc summary/events trực tiếp,
+- người dùng có thể xem run mới nhất bằng command.
+
+## Docstring đầu file
+
+```python
+"""CLI to inspect runs - list / summary / events from the event log. Epic E04."""
+```
+
+Module này thuộc Epic E04, phần observability.
+
+## Các import
+
+```python
+from __future__ import annotations
+```
+
+Bật postponed evaluation cho annotation.
+
+```python
+import json
+import sys
+from pathlib import Path
+from typing import Any
+```
+
+- `json`: parse/print JSON.
+- `sys`: đọc command-line args.
+- `Path`: thao tác file path.
+- `Any`: type cho dict summary/event.
+
+```python
+from observability.event_log import runs_dir
+```
+
+`inspect.py` dùng cùng `runs_dir()` với logger để biết log nằm ở đâu.
+
+Nhờ vậy nếu env `AGENT_RUNS_DIR` được set, cả logger và inspector cùng nhìn vào một thư mục.
+
+## Function `_run_dirs`
+
+```python
+def _run_dirs() -> list[Path]:
+```
+
+Trả danh sách thư mục run, sắp xếp mới nhất trước.
+
+### Lấy base dir
+
+```python
+base = runs_dir()
+```
+
+Base mặc định là:
+
+```text
+var/agent_runs
+```
+
+hoặc env `AGENT_RUNS_DIR`.
+
+### Nếu base chưa tồn tại
+
+```python
+if not base.exists():
+    return []
+```
+
+Chưa có run nào thì trả list rỗng.
+
+### Lọc thư mục và sort
+
+```python
+return sorted((p for p in base.iterdir() if p.is_dir()), key=lambda p: p.name, reverse=True)
+```
+
+Chỉ lấy directory con.
+
+Sort theo tên giảm dần. Vì run id mặc định bắt đầu bằng timestamp dạng `YYYYMMDD_HHMMSS_...`, sort theo tên cũng gần tương đương sort mới nhất trước.
+
+## Function `_resolve`
+
+```python
+def _resolve(run_id: str | None) -> Path | None:
+```
+
+Chuyển `run_id` thành path thư mục run.
+
+Input có thể là:
+
+- `None`,
+- `"latest"`,
+- run id cụ thể.
+
+### Lấy danh sách run
+
+```python
+dirs = _run_dirs()
+if not dirs:
+    return None
+```
+
+Nếu không có run nào, trả `None`.
+
+### Resolve latest
+
+```python
+if run_id in (None, "latest"):
+    return dirs[0]
+```
+
+Nếu không truyền run id hoặc truyền `"latest"`, lấy run đầu tiên trong list đã sort.
+
+### Tìm run cụ thể
+
+```python
+for p in dirs:
+    if p.name == run_id:
+        return p
+return None
+```
+
+Nếu tìm thấy thư mục có tên đúng run id, trả path. Nếu không, trả `None`.
+
+## Function `list_runs`
+
+```python
+def list_runs() -> list[str]:
+    return [p.name for p in _run_dirs()]
+```
+
+Trả danh sách run id.
+
+Function này dùng cho CLI command:
+
+```bash
+python -m observability.inspect list
+```
+
+## Function `read_summary`
+
+```python
+def read_summary(run_id: str | None = None) -> dict[str, Any] | None:
+```
+
+Đọc file `summary.json` của một run.
+
+Nếu không truyền run id, mặc định đọc latest.
+
+### Resolve run path
+
+```python
+run = _resolve(run_id)
+if run is None:
+    return None
+```
+
+Không tìm thấy run thì trả `None`.
+
+### Xác định file summary
+
+```python
+summary = run / "summary.json"
+if not summary.exists():
+    return None
+```
+
+Nếu run chưa có summary, trả `None`.
+
+### Parse JSON
+
+```python
+return json.loads(summary.read_text(encoding="utf-8"))
+```
+
+Đọc UTF-8 và parse JSON thành dict.
+
+## Function `read_events`
+
+```python
+def read_events(run_id: str | None = None, *, kind: str | None = None, topic: str | None = None) -> list[dict[str, Any]]:
+```
+
+Đọc file `events.jsonl` của một run.
+
+Input:
+
+- `run_id`: run cụ thể hoặc latest.
+- `kind`: lọc theo event kind, ví dụ `"KernelEvent"`.
+- `topic`: lọc theo topic, ví dụ `"tool.completed"`.
+
+### Resolve run và file path
+
+```python
+run = _resolve(run_id)
+if run is None:
+    return []
+path = run / "events.jsonl"
+if not path.exists():
+    return []
+```
+
+Không tìm thấy run hoặc file events thì trả list rỗng.
+
+### Đọc từng dòng JSONL
+
+```python
+events: list[dict[str, Any]] = []
+for line in path.read_text(encoding="utf-8").splitlines():
+    if not line.strip():
+        continue
+    event = json.loads(line)
+```
+
+File JSONL được đọc từng dòng.
+
+Dòng rỗng bị bỏ qua.
+
+### Lọc theo kind
+
+```python
+if kind and event.get("kind") != kind:
+    continue
+```
+
+Nếu caller truyền `kind`, chỉ giữ event có `event["kind"]` tương ứng.
+
+### Lọc theo topic
+
+```python
+if topic and event.get("topic") != topic:
+    continue
+```
+
+Nếu caller truyền `topic`, chỉ giữ event có `event["topic"]` tương ứng.
+
+### Append event
+
+```python
+events.append(event)
+```
+
+Cuối cùng trả list event đã lọc.
+
+## Function `main`
+
+```python
+def main(argv: list[str] | None = None) -> int:
+```
+
+Entry point CLI.
+
+Nếu `argv` là `None`, lấy args từ `sys.argv[1:]`.
+
+Nếu truyền `argv`, dùng list đó. Điều này giúp test dễ hơn nếu cần.
+
+### Parse command
+
+```python
+args = list(sys.argv[1:] if argv is None else argv)
+cmd = args[0] if args else "list"
+```
+
+Nếu không có command, mặc định là `list`.
+
+## Command `list` / `ls`
+
+```python
+if cmd in {"list", "ls"}:
+    for name in list_runs():
+        print(name)
+    return 0
+```
+
+In danh sách run id, mỗi dòng một run.
+
+Exit code `0` nghĩa là thành công.
+
+## Command `summary`
+
+```python
+if cmd == "summary":
+    run_id = args[1] if len(args) > 1 else "latest"
+    summary = read_summary(run_id)
+    print(json.dumps(summary, ensure_ascii=False, indent=2) if summary else "No summary found.")
+    return 0
+```
+
+Đọc summary của run cụ thể hoặc latest.
+
+Ví dụ:
+
+```bash
+python -m observability.inspect summary latest
+python -m observability.inspect summary 20260616_100259_f73860fe
+```
+
+Nếu không có summary, in:
+
+```text
+No summary found.
+```
+
+## Command `events`
+
+```python
+if cmd == "events":
+    run_id = args[1] if len(args) > 1 else "latest"
+    kind = None
+    if "--kind" in args:
+        kind = args[args.index("--kind") + 1]
+    for event in read_events(run_id, kind=kind):
+        print(json.dumps(event, ensure_ascii=False))
+    return 0
+```
+
+Đọc events của run.
+
+Ví dụ:
+
+```bash
+python -m observability.inspect events latest
+python -m observability.inspect events latest --kind KernelEvent
+```
+
+Hiện CLI hỗ trợ filter `--kind`, nhưng chưa expose filter `topic` trên command line dù function `read_events()` đã hỗ trợ tham số `topic`.
+
+Lưu ý nhỏ: nếu user truyền `--kind` mà không truyền giá trị phía sau, dòng `args[args.index("--kind") + 1]` có thể gây `IndexError`. Với CLI nội bộ tối giản, điều này tạm chấp nhận được.
+
+## Command không hợp lệ
+
+```python
+print("usage: inspect [list | summary [run|latest] | events [run|latest] --kind KIND]")
+return 2
+```
+
+Nếu command không nhận diện được, in usage và trả exit code `2`.
+
+## Entrypoint module
+
+```python
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+Cho phép chạy module trực tiếp:
+
+```bash
+python -m observability.inspect list
+```
+
+`main()` trả int, `SystemExit` dùng int đó làm process exit code.
+
+## Luồng CLI
+
+```mermaid
+flowchart TD
+    A["python -m observability.inspect ..."] --> B["main(argv=None)"]
+    B --> C{"cmd?"}
+    C -- "list/ls" --> D["list_runs() -> print run ids"]
+    C -- "summary" --> E["read_summary(run_id) -> print JSON"]
+    C -- "events" --> F["read_events(run_id, kind?) -> print từng event"]
+    C -- "khác" --> G["print usage, return 2"]
+```
+
+## Ý nghĩa thiết kế
+
+### 1. Log có công cụ đọc ngay
+
+Không chỉ ghi log, project có CLI inspect để xem lại nhanh.
+
+### 2. Function API và CLI dùng chung
+
+`list_runs()`, `read_summary()`, `read_events()` dùng được cả trong test và CLI.
+
+### 3. `latest` tiện cho smoke/debug
+
+Sau khi chạy `run_smoke.py`, có thể xem ngay:
+
+```bash
+python -m observability.inspect summary latest
+```
+
+### 4. Cùng source of truth với logger
+
+Inspector dùng `runs_dir()` từ `event_log.py`, nên không lệch thư mục với logger.
+
+## Quan hệ với file khác
+
+- `observability/event_log.py`: ghi file mà inspector đọc.
+- `observability/__init__.py`: không export inspect API, nhưng vẫn có thể import `observability.inspect`.
+- `tests/test_observability.py`: gọi `insp.list_runs()`, `insp.read_summary()`, `insp.read_events()`.
+- `README.md`: hướng dẫn dùng `python -m observability.inspect ...`.
+
+## Tóm tắt một câu
+
+`observability/inspect.py` là CLI/API đọc lại run logs, giúp list run, xem summary và xem events đã được `EventLogger` ghi ra disk.
+
+
+
+================================================================================
+FILE: docs\ports.md
+================================================================================
+
+# Giải thích `core/ports.py`
+
+File `core/ports.py` định nghĩa protocol cho tool executor. Đây là phần "port" trong kiến trúc ports and adapters: kernel có thể nói chuyện với tool thông qua một interface chung, còn implementation cụ thể nằm ở adapter/feature bên ngoài.
+
+Nói ngắn gọn: `ports.py` định nghĩa hình dạng tối thiểu của một tool.
+
+## Vai trò trong architecture
+
+Trong project này, tool cụ thể như `EchoTool` không cần kế thừa class base. Nó chỉ cần có:
+
+- attribute `name`,
+- method `execute(request: ToolRequest) -> dict[str, Any]`.
+
+`ToolPort` mô tả hợp đồng đó bằng `Protocol`.
+
+Điều này giúp kiến trúc linh hoạt:
+
+- tool có thể là class bất kỳ,
+- không cần inheritance cứng,
+- type checker vẫn hiểu object nào có thể dùng như tool,
+- kernel/registry chỉ dựa vào behavior, không dựa vào class cụ thể.
+
+## Các import
+
+```python
+from __future__ import annotations
+```
+
+Bật postponed evaluation cho annotation.
+
+```python
+from typing import Any, Protocol, runtime_checkable
+```
+
+- `Any`: dùng cho dict result linh hoạt.
+- `Protocol`: tạo structural interface.
+- `runtime_checkable`: cho phép kiểm tra protocol bằng `isinstance()` ở runtime nếu cần.
+
+```python
+from core.schemas import ToolRequest
+```
+
+`ToolRequest` là object được truyền vào method `execute()`.
+
+## Decorator `@runtime_checkable`
+
+```python
+@runtime_checkable
+class ToolPort(Protocol):
+```
+
+`Protocol` mặc định chủ yếu phục vụ static type checking. Khi thêm `@runtime_checkable`, có thể kiểm tra:
+
+```python
+isinstance(obj, ToolPort)
+```
+
+Lưu ý: runtime check với protocol chỉ kiểm tra sự tồn tại của attribute/method ở mức cơ bản, không kiểm tra sâu signature hoặc type runtime.
+
+Trong code hiện tại, project chưa dùng `isinstance(..., ToolPort)`, nhưng decorator này chuẩn bị sẵn cho validation sau này.
+
+## Class `ToolPort`
+
+```python
+class ToolPort(Protocol):
+    """A tool executor. Concrete behavior lives behind this port."""
+```
+
+`ToolPort` không phải implementation thật. Nó là interface dạng structural typing.
+
+Docstring nói rõ: behavior cụ thể nằm sau port này.
+
+## Attribute `name`
+
+```python
+name: str
+```
+
+Mỗi tool executor nên có `name`.
+
+Ví dụ:
+
+```python
+class EchoTool:
+    name = "echo_tool"
+```
+
+Kernel dùng tên executor để ghi metadata:
+
+```python
+getattr(resolution.executor, "name", resolution.executor.__class__.__name__)
+```
+
+Nếu executor không có `name`, kernel fallback về tên class. Nhưng theo protocol, executor nên có `name`.
+
+## Method `execute`
+
+```python
+def execute(self, request: ToolRequest) -> dict[str, Any]:
+    ...
+```
+
+Đây là method bắt buộc của một tool executor.
+
+Input:
+
+- `request`: `ToolRequest` gồm `name`, `args`, `request_id`.
+
+Output:
+
+- dict kết quả.
+
+Tool có thể trả raw dict như:
+
+```python
+{"ok": True, "echo": {"msg": "hi"}}
+```
+
+hoặc trả envelope chuẩn như:
+
+```python
+{
+    "ok": True,
+    "capability": "echo",
+    "feature": "example_echo",
+    "data": {"echo": {"msg": "hi"}},
+    "error": None,
+    "metadata": {}
+}
+```
+
+Kernel sẽ normalize bằng `CapabilityResult.from_raw()`.
+
+Dấu `...` nghĩa là protocol chỉ khai báo signature, không implement logic.
+
+## Ví dụ implementation hợp lệ
+
+```python
+from typing import Any
+
+from core.schemas import ToolRequest
+
+
+class EchoTool:
+    name = "echo_tool"
+
+    def execute(self, request: ToolRequest) -> dict[str, Any]:
+        return {"ok": True, "echo": dict(request.args)}
+```
+
+Class này hợp lệ với `ToolPort` vì có `name` và `execute()`.
+
+## Vì sao dùng Protocol thay vì abstract base class?
+
+### 1. Structural typing
+
+Object được xem là hợp lệ nếu có đúng hình dạng, không cần kế thừa.
+
+### 2. Feature/plugin linh hoạt hơn
+
+Plugin bên ngoài không cần import base class chỉ để subclass. Chỉ cần implement đúng method.
+
+### 3. Giảm coupling
+
+Kernel không phụ thuộc vào class hierarchy của tool.
+
+### 4. Vẫn có lợi cho type checker
+
+Type checker có thể hiểu contract của executor mà không ép inheritance.
+
+## Quan hệ với file khác
+
+- `core/kernel.py`: gọi `resolution.executor.execute(request)`.
+- `core/registry.py`: lưu executor trong registry.
+- `core/schemas.py`: cung cấp `ToolRequest`.
+- `features/example_echo.py`: `EchoTool` là một implementation thực tế của port này.
+
+## Giới hạn hiện tại
+
+`ToolPort` hiện chỉ định nghĩa sync execute.
+
+Chưa có:
+
+- async tool execution,
+- streaming result,
+- schema cho args,
+- schema cho output cụ thể,
+- cancellation,
+- timeout,
+- permission boundary.
+
+Các phần đó có thể được thêm sau nếu runtime cần.
+
+## Tóm tắt một câu
+
+`core/ports.py` định nghĩa contract tối thiểu cho tool executor: có `name` và method `execute(ToolRequest) -> dict`, giúp kernel gọi tool qua interface chung mà không phụ thuộc implementation cụ thể.
+
+
+
+================================================================================
+FILE: docs\registry.md
+================================================================================
+
+# Giải thích `core/registry.py`
+
+File `core/registry.py` định nghĩa nơi đăng ký và tra cứu capability/tool của agent. Đây là cầu nối giữa kernel và các tool cụ thể: kernel chỉ biết tên tool, còn registry quyết định executor nào sẽ xử lý tên đó.
+
+Nói ngắn gọn: registry là bảng định tuyến capability.
+
+## Vai trò trong architecture
+
+Trong kiến trúc hiện tại, `AgentKernel` không import trực tiếp bất kỳ tool nào. Tool được feature/plugin đăng ký vào `CapabilityRegistry`.
+
+Khi kernel cần chạy:
+
+```python
+kernel.execute_tool("echo", {"msg": "hi"})
+```
+
+kernel sẽ gọi:
+
+```python
+registry.resolve_tool("echo")
+```
+
+Registry trả về executor tương ứng, hoặc fallback/null executor nếu không tìm thấy.
+
+Điều này giúp:
+
+- thêm tool mà không sửa kernel,
+- tắt/bật feature bằng config,
+- giữ kernel không phụ thuộc vào implementation cụ thể,
+- xử lý missing tool bằng kết quả có cấu trúc thay vì crash.
+
+## Các import
+
+```python
+from __future__ import annotations
+```
+
+Bật postponed evaluation cho type annotations.
+
+```python
+from typing import Any, NamedTuple
+```
+
+- `Any`: dùng vì executor có thể là bất kỳ object nào có method `execute`.
+- `NamedTuple`: dùng để tạo object trả về từ `resolve_tool()`.
+
+```python
+from core.schemas import FeatureDescriptor, ToolRequest
+```
+
+- `FeatureDescriptor`: mô tả feature được đăng ký.
+- `ToolRequest`: request object được truyền vào executor.
+
+## Class `ToolResolution`
+
+```python
+class ToolResolution(NamedTuple):
+    executor: Any
+    feature: str | None
+```
+
+`ToolResolution` là kết quả của việc resolve một tool name.
+
+Nó gồm:
+
+- `executor`: object sẽ thực thi tool.
+- `feature`: tên feature sở hữu tool, hoặc `None` nếu không có.
+
+Ví dụ:
+
+```python
+ToolResolution(executor=EchoTool(), feature="example_echo")
+```
+
+Ý nghĩa thiết kế: kernel cần cả executor để chạy tool và feature name để ghi metadata vào `CapabilityResult`.
+
+## Class `NullToolPort`
+
+```python
+class NullToolPort:
+    """Keeps the kernel alive when a tool is missing."""
+```
+
+`NullToolPort` là executor mặc định khi tool không tồn tại.
+
+Thay vì raise exception khi gọi tool chưa đăng ký, registry trả về `NullToolPort`. Kernel sau đó vẫn gọi `execute()`, và nhận về lỗi có cấu trúc.
+
+### Field `name`
+
+```python
+name = "null_tool"
+```
+
+Tên executor dùng cho metadata/debug.
+
+### Method `execute`
+
+```python
+def execute(self, request: ToolRequest) -> dict[str, Any]:
+```
+
+Nhận một `ToolRequest` và trả về dict lỗi.
+
+```python
+return {
+    "ok": False,
+    "tool": request.name,
+    "missing_capability": True,
+    "error": f"No tool capability is registered for '{request.name}'.",
+}
+```
+
+Kết quả có:
+
+- `ok: False`: tool call thất bại.
+- `tool`: tên tool được yêu cầu.
+- `missing_capability: True`: đánh dấu lỗi do thiếu capability.
+- `error`: message mô tả.
+
+Ý nghĩa: thiếu tool là một trạng thái runtime có thể quan sát và xử lý, không phải lỗi làm sập chương trình.
+
+## Class `CapabilityRegistry`
+
+```python
+class CapabilityRegistry:
+    """Exact registration wins; optional fallback; else NullToolPort."""
+```
+
+`CapabilityRegistry` quản lý:
+
+- danh sách tool executor,
+- danh sách feature descriptor,
+- quan hệ tool -> feature,
+- fallback executor tùy chọn,
+- null executor mặc định.
+
+Docstring nói rõ thứ tự resolve:
+
+1. Nếu tool được đăng ký chính xác, dùng executor đó.
+2. Nếu có fallback executor, dùng fallback.
+3. Nếu không có gì, dùng `NullToolPort`.
+
+## Constructor `__init__`
+
+```python
+def __init__(self, *, null_tool: Any = None) -> None:
+```
+
+`null_tool` là dependency tùy chọn, cho phép inject null tool khác khi test hoặc custom behavior.
+
+### Internal storage
+
+```python
+self._tools: dict[str, Any] = {}
+self._features: dict[str, FeatureDescriptor] = {}
+self._tool_features: dict[str, str] = {}
+self._fallback: Any = None
+self._fallback_feature: str | None = None
+self._null = null_tool or NullToolPort()
+```
+
+Ý nghĩa từng field:
+
+- `_tools`: map `tool_name -> executor`.
+- `_features`: map `feature_name -> FeatureDescriptor`.
+- `_tool_features`: map `tool_name -> feature_name`.
+- `_fallback`: executor dùng khi tool không match chính xác.
+- `_fallback_feature`: feature name của fallback executor.
+- `_null`: executor cuối cùng nếu không có tool và không có fallback.
+
+Các field dùng prefix `_` để biểu thị internal state, không phải API công khai.
+
+## Method `register_feature`
+
+```python
+def register_feature(self, descriptor: FeatureDescriptor) -> None:
+    self._features[descriptor.name] = descriptor
+```
+
+Đăng ký metadata của một feature.
+
+Input là `FeatureDescriptor`, gồm:
+
+- name,
+- version,
+- capabilities,
+- enabled,
+- description.
+
+Ví dụ trong `features/example_echo.py`:
+
+```python
+kernel.registry.register_feature(FEATURE)
+```
+
+Ý nghĩa: registry không chỉ biết tool nào chạy được, mà còn biết feature nào đang được cài.
+
+## Method `register_tool`
+
+```python
+def register_tool(self, name: str, executor: Any, *, feature_name: str | None = None) -> None:
+```
+
+Đăng ký một tool cụ thể.
+
+```python
+self._tools[name] = executor
+```
+
+Map tên tool sang executor.
+
+```python
+if feature_name:
+    self._tool_features[name] = feature_name
+```
+
+Nếu có feature name, lưu quan hệ tool -> feature.
+
+Ví dụ:
+
+```python
+register_tool("echo", EchoTool(), feature_name="example_echo")
+```
+
+Sau đó:
+
+- `resolve_tool("echo")` trả về `EchoTool()`,
+- `list_tools()` biết tool `echo` thuộc feature `example_echo`,
+- `CapabilityResult` có thể ghi `feature="example_echo"`.
+
+Nếu đăng ký cùng một `name` nhiều lần, executor mới sẽ ghi đè executor cũ. Đây là hành vi "last registration wins".
+
+## Method `register_tools`
+
+```python
+def register_tools(self, names, executor: Any, *, feature_name: str | None = None) -> None:
+    for name in names:
+        self.register_tool(name, executor, feature_name=feature_name)
+```
+
+Helper để đăng ký nhiều tool name cho cùng một executor.
+
+Ví dụ:
+
+```python
+register_tools(("read_file", "write_file"), FileTool(), feature_name="filesystem")
+```
+
+Trong project hiện tại, `example_echo` dùng:
+
+```python
+kernel.registry.register_tools(FEATURE.capabilities, EchoTool(), feature_name=FEATURE.name)
+```
+
+Ý nghĩa: feature có thể khai báo nhiều capability và đăng ký chúng gọn hơn.
+
+## Method `set_fallback_tool_executor`
+
+```python
+def set_fallback_tool_executor(self, executor: Any, *, feature_name: str | None = None) -> None:
+```
+
+Đặt fallback executor.
+
+Fallback được dùng khi tool name không có trong `_tools`, nhưng hệ thống vẫn muốn một executor chung xử lý.
+
+```python
+self._fallback = executor
+self._fallback_feature = feature_name if executor is not None else None
+```
+
+Nếu `executor` là `None`, fallback feature cũng bị clear.
+
+Ý nghĩa: fallback có thể dùng cho các kiểu dynamic tool, router tool, hoặc một adapter biết tự xử lý nhiều capability chưa đăng ký tĩnh.
+
+Hiện project chưa dùng fallback này trong smoke test, nhưng registry đã chuẩn bị sẵn cơ chế.
+
+## Method `resolve_tool`
+
+```python
+def resolve_tool(self, name: str) -> ToolResolution:
+```
+
+Đây là method quan trọng nhất của registry. Nó nhận tool name và trả về `ToolResolution`.
+
+### Ưu tiên 1: tool đăng ký chính xác
+
+```python
+if name in self._tools:
+    return ToolResolution(self._tools[name], self._tool_features.get(name))
+```
+
+Nếu tool tồn tại trong `_tools`, trả executor đó.
+
+Feature lấy từ `_tool_features`, có thể là `None` nếu tool được đăng ký không kèm `feature_name`.
+
+### Ưu tiên 2: fallback executor
+
+```python
+if self._fallback is not None:
+    return ToolResolution(self._fallback, self._fallback_feature)
+```
+
+Nếu không có exact match nhưng đã set fallback, trả fallback.
+
+### Ưu tiên 3: null tool
+
+```python
+return ToolResolution(self._null, None)
+```
+
+Nếu không có exact match và không có fallback, trả `NullToolPort`.
+
+Ý nghĩa thiết kế: `resolve_tool()` luôn trả về một executor. Nhờ vậy kernel không cần xử lý case `None`, và missing capability được biến thành một tool result thất bại có cấu trúc.
+
+## Method `has_tool`
+
+```python
+def has_tool(self, name: str) -> bool:
+    return name in self._tools
+```
+
+Kiểm tra tool có được đăng ký chính xác không.
+
+Lưu ý: method này không tính fallback. Nếu fallback tồn tại nhưng tool name không có trong `_tools`, `has_tool()` vẫn trả `False`.
+
+Ý nghĩa: dùng cho test hoặc introspection để biết capability cụ thể đã được cài chưa.
+
+## Method `list_tools`
+
+```python
+def list_tools(self) -> list[dict[str, Any]]:
+    return [{"name": n, "feature": self._tool_features.get(n)} for n in sorted(self._tools)]
+```
+
+Trả danh sách tool đã đăng ký, sắp xếp theo tên.
+
+Mỗi item gồm:
+
+- `name`: tên tool,
+- `feature`: feature sở hữu tool, nếu có.
+
+Ví dụ:
+
+```python
+[
+    {"name": "echo", "feature": "example_echo"}
+]
+```
+
+Ý nghĩa: phục vụ `kernel.describe_capabilities()` và các nhu cầu inspect/debug.
+
+## Method `list_features`
+
+```python
+def list_features(self) -> list[dict[str, Any]]:
+    return [d.as_dict() for d in self._features.values()]
+```
+
+Trả danh sách feature đã đăng ký, convert từng `FeatureDescriptor` thành dict bằng `as_dict()`.
+
+Ý nghĩa: cung cấp metadata feature cho caller, logger, UI hoặc test.
+
+## Luồng resolve tool
+
+```mermaid
+flowchart TD
+    A["resolve_tool(name)"] --> B{"name có trong _tools?"}
+    B -- "Có" --> C["Return executor đã đăng ký + feature"]
+    B -- "Không" --> D{"Có _fallback?"}
+    D -- "Có" --> E["Return fallback executor + fallback feature"]
+    D -- "Không" --> F["Return NullToolPort + feature None"]
+```
+
+## Vì sao registry quan trọng?
+
+### 1. Tách kernel khỏi tool cụ thể
+
+Kernel không cần biết `EchoTool`, `FileTool`, `BrowserTool` hay bất kỳ tool nào. Kernel chỉ gọi registry.
+
+### 2. Feature/plugin có thể tự đăng ký
+
+Mỗi feature chỉ cần có `install(kernel)` và gọi `kernel.registry.register_tool(...)`.
+
+### 3. Missing tool là failure có kiểm soát
+
+`NullToolPort` giúp kernel trả result thất bại thay vì raise exception.
+
+### 4. Dễ introspect
+
+`list_tools()` và `list_features()` cho phép xem runtime hiện có khả năng gì.
+
+## Quan hệ với file khác
+
+- `core/kernel.py`: gọi `resolve_tool()` khi execute tool.
+- `core/schemas.py`: cung cấp `FeatureDescriptor` và `ToolRequest`.
+- `features/example_echo.py`: đăng ký feature/tool vào registry.
+- `tests/test_kernel.py`: kiểm tra registered tool, disabled feature và null fallback.
+
+## Tóm tắt một câu
+
+`core/registry.py` là bảng định tuyến capability của agent: feature đăng ký tool vào đây, kernel resolve tool từ đây, và missing tool được chuyển thành failure có cấu trúc.
+
+
+
+================================================================================
+FILE: docs\schemas.md
+================================================================================
+
+# Giải thích `core/schemas.py`
+
+File `core/schemas.py` định nghĩa các data structure chuẩn dùng trong lõi agent. Đây là nơi đặt hợp đồng dữ liệu giữa task, tool request, tool result và feature metadata.
+
+Nói ngắn gọn: `schemas.py` là ngôn ngữ chung của core.
+
+## Vai trò trong architecture
+
+Các module trong `core/` cần trao đổi dữ liệu với nhau theo format ổn định. Thay vì truyền raw dict/string khắp nơi, project định nghĩa một số schema nhỏ:
+
+- `TaskEnvelope`: bọc task người dùng.
+- `ToolRequest`: bọc request gọi tool.
+- `CapabilityResult`: bọc kết quả tool theo format thống nhất.
+- `FeatureDescriptor`: mô tả feature/plugin.
+- `is_capability_result()`: kiểm tra một dict đã là result envelope chuẩn chưa.
+
+Schema này giúp kernel, registry, feature và test cùng nói chung một kiểu dữ liệu.
+
+## Các import
+
+```python
+from __future__ import annotations
+```
+
+Bật postponed evaluation cho annotation.
+
+```python
+import uuid
+```
+
+Dùng để sinh id ngẫu nhiên cho task và tool request.
+
+```python
+from dataclasses import dataclass, field
+from typing import Any
+```
+
+- `dataclass`: khai báo object dữ liệu gọn.
+- `field`: dùng cho default factory.
+- `Any`: dùng cho các payload linh hoạt như context, metadata, data.
+
+## Hằng số `_ENVELOPE_KEYS`
+
+```python
+_ENVELOPE_KEYS = {"ok", "capability", "feature", "data", "error", "metadata"}
+```
+
+Đây là tập key tối thiểu để một dict được xem là `CapabilityResult` envelope chuẩn.
+
+Một result chuẩn phải có đủ các key:
+
+- `ok`
+- `capability`
+- `feature`
+- `data`
+- `error`
+- `metadata`
+
+Tên bắt đầu bằng `_` cho thấy đây là chi tiết nội bộ của module.
+
+## Class `TaskEnvelope`
+
+```python
+@dataclass(frozen=True)
+class TaskEnvelope:
+    user_request: str
+    context: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    task_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+```
+
+`TaskEnvelope` bọc yêu cầu gốc từ người dùng.
+
+`frozen=True` nghĩa là object gần như immutable sau khi tạo. Điều này giúp task envelope ổn định hơn, tránh việc bị sửa ngoài ý muốn.
+
+### Field `user_request`
+
+```python
+user_request: str
+```
+
+Nội dung task gốc.
+
+Ví dụ:
+
+```python
+"smoke: echo + discipline"
+```
+
+### Field `context`
+
+```python
+context: dict[str, Any] = field(default_factory=dict)
+```
+
+Context bổ sung cho task. Có thể chứa thông tin môi trường, dữ liệu session, hoặc tham số runtime.
+
+Dùng `default_factory=dict` để mỗi `TaskEnvelope` có dict riêng.
+
+### Field `metadata`
+
+```python
+metadata: dict[str, Any] = field(default_factory=dict)
+```
+
+Metadata phụ cho task. Khác với `context`, metadata thường dùng cho tracking, tags, hoặc thông tin hệ thống.
+
+Hiện tại kernel chưa dùng nhiều field này, nhưng schema đã chuẩn bị sẵn.
+
+### Field `task_id`
+
+```python
+task_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+```
+
+Mỗi task tự sinh một id bằng UUID hex.
+
+Ví dụ:
+
+```text
+9f1a0e31f3d74fb7a4c0db5c9a9a2e21
+```
+
+Ý nghĩa: event log và runtime có thể trace task theo id.
+
+## Class `ToolRequest`
+
+```python
+@dataclass(frozen=True)
+class ToolRequest:
+    name: str
+    args: dict[str, Any] = field(default_factory=dict)
+    request_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+```
+
+`ToolRequest` bọc một lần gọi tool.
+
+### Field `name`
+
+```python
+name: str
+```
+
+Tên tool/capability cần gọi.
+
+Ví dụ:
+
+```python
+"echo"
+```
+
+### Field `args`
+
+```python
+args: dict[str, Any] = field(default_factory=dict)
+```
+
+Tham số truyền vào tool.
+
+Ví dụ:
+
+```python
+{"msg": "hi"}
+```
+
+### Field `request_id`
+
+```python
+request_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+```
+
+Id riêng cho từng lần gọi tool.
+
+Ý nghĩa: một task có thể gọi nhiều tool; mỗi call cần id riêng để trace event `tool.requested` và `tool.completed`.
+
+## Function `is_capability_result`
+
+```python
+def is_capability_result(result: Any) -> bool:
+    return isinstance(result, dict) and _ENVELOPE_KEYS <= set(result)
+```
+
+Function này kiểm tra `result` có phải envelope chuẩn chưa.
+
+Điều kiện:
+
+1. `result` phải là dict.
+2. Tập `_ENVELOPE_KEYS` phải là subset của các key trong dict.
+
+Toán tử:
+
+```python
+_ENVELOPE_KEYS <= set(result)
+```
+
+nghĩa là mọi key cần thiết đều có trong `result`.
+
+Ví dụ trả `True`:
+
+```python
+{
+    "ok": True,
+    "capability": "echo",
+    "feature": "example_echo",
+    "data": {},
+    "error": None,
+    "metadata": {}
+}
+```
+
+Ví dụ trả `False`:
+
+```python
+{"ok": True, "echo": {"msg": "hi"}}
+```
+
+Dict thứ hai chưa phải envelope chuẩn, nên `CapabilityResult.from_raw()` sẽ normalize nó.
+
+## Class `CapabilityResult`
+
+```python
+@dataclass(frozen=True)
+class CapabilityResult:
+    """Uniform envelope every tool call returns."""
+```
+
+`CapabilityResult` là schema quan trọng nhất trong file. Nó đảm bảo mọi tool call trả về cùng một format.
+
+### Các field
+
+```python
+ok: bool
+capability: str
+feature: str | None = None
+data: dict[str, Any] = field(default_factory=dict)
+error: str | None = None
+metadata: dict[str, Any] = field(default_factory=dict)
+```
+
+Ý nghĩa:
+
+- `ok`: tool call thành công hay thất bại.
+- `capability`: tên capability được gọi.
+- `feature`: feature sở hữu capability, nếu có.
+- `data`: payload chính của kết quả.
+- `error`: lỗi nếu thất bại.
+- `metadata`: thông tin phụ để trace/debug.
+
+## Classmethod `CapabilityResult.from_raw`
+
+```python
+@classmethod
+def from_raw(
+    cls,
+    *,
+    capability: str,
+    feature: str | None,
+    result: dict[str, Any],
+    metadata: dict[str, Any] | None = None,
+) -> "CapabilityResult":
+```
+
+Method này chuyển raw result của tool thành `CapabilityResult`.
+
+Input:
+
+- `capability`: tên capability kernel đang gọi.
+- `feature`: feature sở hữu capability.
+- `result`: raw dict do executor trả về.
+- `metadata`: metadata bổ sung từ kernel, ví dụ `request_id`, `executor`.
+
+### Chuẩn bị metadata phụ
+
+```python
+extra = dict(metadata or {})
+```
+
+Nếu metadata là `None`, dùng dict rỗng. Nếu có, copy thành dict mới để tránh sửa object bên ngoài.
+
+### Case 1: result đã là envelope chuẩn
+
+```python
+if is_capability_result(result):
+```
+
+Nếu tool đã trả về đúng format `CapabilityResult`, method không wrap lại theo kiểu raw nữa. Nó chỉ merge metadata.
+
+```python
+meta = dict(result.get("metadata") or {})
+meta.update(extra)
+```
+
+Metadata có sẵn trong result được copy ra, rồi metadata từ kernel ghi đè/bổ sung.
+
+```python
+return cls(
+    ok=bool(result.get("ok")),
+    capability=str(result.get("capability") or capability),
+    feature=result.get("feature") if result.get("feature") is not None else feature,
+    data=dict(result.get("data") or {}),
+    error=result.get("error"),
+    metadata=meta,
+)
+```
+
+Ý nghĩa từng dòng:
+
+- `ok`: ép về bool.
+- `capability`: ưu tiên capability trong result, fallback về capability truyền vào.
+- `feature`: nếu result có feature khác `None`, dùng nó; nếu không, dùng feature truyền vào.
+- `data`: đảm bảo là dict.
+- `error`: giữ nguyên error.
+- `metadata`: metadata đã merge.
+
+### Case 2: result là raw dict chưa chuẩn
+
+Nếu result chưa có đủ envelope keys, method normalize nó.
+
+```python
+ok = bool(result.get("ok", False))
+```
+
+Nếu raw result có key `ok`, dùng nó. Nếu không có, mặc định là `False`.
+
+```python
+error = None if ok else str(result.get("error") or "Capability execution failed.")
+```
+
+Nếu thành công, `error=None`.
+
+Nếu thất bại, lấy `result["error"]` nếu có; nếu không, dùng message mặc định.
+
+```python
+data = {k: v for k, v in result.items() if k not in {"ok", "error", "metadata"}}
+```
+
+Toàn bộ key không phải `ok`, `error`, `metadata` được gom vào `data`.
+
+Ví dụ raw:
+
+```python
+{"ok": True, "echo": {"msg": "hi"}}
+```
+
+sẽ thành:
+
+```python
+data = {"echo": {"msg": "hi"}}
+```
+
+```python
+meta = dict(result.get("metadata") or {})
+meta.update(extra)
+meta.setdefault("raw_keys", sorted(result))
+```
+
+Metadata được lấy từ raw result nếu có, merge với metadata ngoài, rồi thêm `raw_keys` nếu chưa có.
+
+`raw_keys` giúp debug tool ban đầu đã trả những key nào.
+
+```python
+return cls(ok=ok, capability=capability, feature=feature, data=data, error=error, metadata=meta)
+```
+
+Trả về envelope chuẩn.
+
+## Method `as_dict`
+
+```python
+def as_dict(self) -> dict[str, Any]:
+```
+
+Chuyển `CapabilityResult` dataclass thành dict thường.
+
+```python
+return {
+    "ok": self.ok,
+    "capability": self.capability,
+    "feature": self.feature,
+    "data": dict(self.data),
+    "error": self.error,
+    "metadata": dict(self.metadata),
+}
+```
+
+Kernel dùng:
+
+```python
+CapabilityResult.from_raw(...).as_dict()
+```
+
+Ý nghĩa: public API của `execute_tool()` trả dict, không trả dataclass. Điều này tiện cho JSON logging, tests, và integration.
+
+## Class `FeatureDescriptor`
+
+```python
+@dataclass(frozen=True)
+class FeatureDescriptor:
+    name: str
+    version: str = "0.1"
+    capabilities: tuple[str, ...] = ()
+    enabled: bool = True
+    description: str = ""
+```
+
+`FeatureDescriptor` mô tả một feature/plugin.
+
+### Field `name`
+
+Tên feature.
+
+Ví dụ:
+
+```python
+"example_echo"
+```
+
+### Field `version`
+
+Version feature, mặc định `"0.1"`.
+
+### Field `capabilities`
+
+Tuple tên capability mà feature cung cấp.
+
+Ví dụ:
+
+```python
+("echo",)
+```
+
+Dùng tuple thay vì list vì dataclass frozen nên dữ liệu nên bất biến.
+
+### Field `enabled`
+
+Cho biết feature đang enabled hay không. Mặc định `True`.
+
+Lưu ý: config loader quyết định feature có được install hay không; field này là metadata của descriptor.
+
+### Field `description`
+
+Mô tả ngắn về feature.
+
+## Method `FeatureDescriptor.as_dict`
+
+```python
+def as_dict(self) -> dict[str, Any]:
+```
+
+Chuyển descriptor thành dict.
+
+```python
+return {
+    "name": self.name,
+    "version": self.version,
+    "capabilities": list(self.capabilities),
+    "enabled": self.enabled,
+    "description": self.description,
+}
+```
+
+`capabilities` được convert từ tuple sang list để thân thiện hơn với JSON.
+
+Registry dùng method này trong `list_features()`.
+
+## Luồng normalize result
+
+```mermaid
+flowchart TD
+    A["Raw tool result"] --> B{"Có đủ envelope keys?"}
+    B -- "Có" --> C["Giữ envelope, merge metadata"]
+    B -- "Không" --> D["Đọc ok/error"]
+    D --> E["Gom key còn lại vào data"]
+    E --> F["Merge metadata + raw_keys"]
+    C --> G["Return CapabilityResult"]
+    F --> G
+    G --> H["as_dict()"]
+```
+
+## Vì sao schemas quan trọng?
+
+### 1. Tạo hợp đồng dữ liệu ổn định
+
+Kernel, registry, feature và observability có thể dựa vào cùng một format.
+
+### 2. Giảm logic đặc biệt theo từng tool
+
+Tool có thể trả raw dict đơn giản, nhưng kernel vẫn normalize thành envelope chuẩn.
+
+### 3. Trace dễ hơn
+
+`task_id`, `request_id`, `capability`, `feature`, `metadata` giúp đọc event log dễ hơn.
+
+### 4. Chuẩn bị cho agent loop
+
+Một agent loop cần dữ liệu ổn định để parse, route, condense, retry và final. `schemas.py` đặt nền cho việc đó.
+
+## Quan hệ với file khác
+
+- `core/kernel.py`: dùng `TaskEnvelope`, `ToolRequest`, `CapabilityResult`.
+- `core/registry.py`: dùng `FeatureDescriptor`, `ToolRequest`.
+- `features/example_echo.py`: tạo `FeatureDescriptor`, nhận `ToolRequest`.
+- `tests/test_kernel.py`: assert result envelope sau khi execute tool.
+
+## Tóm tắt một câu
+
+`core/schemas.py` định nghĩa các hợp đồng dữ liệu cốt lõi của agent, đặc biệt là `CapabilityResult`, giúp mọi tool call được chuẩn hóa thành cùng một envelope.
+
+
+
+================================================================================
+FILE: docs\state.md
+================================================================================
+
+# Giải thích `core/state.py`
+
+File `core/state.py` định nghĩa `StateStore`, một kho key-value đơn giản dùng để giữ state runtime của agent.
+
+Nói ngắn gọn: `state.py` là bộ nhớ tạm trong kernel.
+
+## Vai trò trong architecture
+
+Agent runtime cần một nơi để lưu trạng thái đang chạy, ví dụ:
+
+- task hiện tại,
+- trạng thái validation,
+- dữ liệu vòng lặp,
+- context tạm,
+- cờ báo code đã thay đổi,
+- kết quả tool gần nhất.
+
+Ở Sprint 0, state store được giữ rất đơn giản: chỉ là một dict bọc trong class.
+
+Kernel hiện dùng state để lưu:
+
+```python
+self.state.set("current_task", task)
+```
+
+trong `accept_task()`.
+
+## Các import
+
+```python
+from __future__ import annotations
+```
+
+Bật postponed evaluation cho annotation.
+
+```python
+from typing import Any
+```
+
+`Any` được dùng vì state có thể chứa nhiều kiểu dữ liệu khác nhau: string, dict, dataclass, bool, list, v.v.
+
+## Class `StateStore`
+
+```python
+class StateStore:
+```
+
+`StateStore` là wrapper nhỏ quanh dict.
+
+Thay vì để kernel dùng dict trực tiếp, project đặt một class riêng để sau này có thể mở rộng mà không đổi API kernel quá nhiều.
+
+Ví dụ các hướng mở rộng sau này:
+
+- validate key,
+- emit event khi state thay đổi,
+- snapshot state,
+- persist state ra file,
+- namespace state theo task/session,
+- thêm lock nếu cần thread-safe.
+
+## Constructor `__init__`
+
+```python
+def __init__(self) -> None:
+    self._data: dict[str, Any] = {}
+```
+
+Khi tạo `StateStore`, nó khởi tạo dict rỗng `_data`.
+
+`_data` là internal storage.
+
+Key là `str`, value là `Any`.
+
+## Method `get`
+
+```python
+def get(self, key: str, default: Any = None) -> Any:
+    return self._data.get(key, default)
+```
+
+Lấy giá trị theo key.
+
+Input:
+
+- `key`: tên state cần lấy.
+- `default`: giá trị trả về nếu key không tồn tại.
+
+Ví dụ:
+
+```python
+task = state.get("current_task")
+```
+
+Nếu `"current_task"` chưa tồn tại, trả `None`.
+
+Ví dụ với default:
+
+```python
+count = state.get("steps", 0)
+```
+
+Nếu `"steps"` chưa tồn tại, trả `0`.
+
+## Method `set`
+
+```python
+def set(self, key: str, value: Any) -> None:
+    self._data[key] = value
+```
+
+Ghi giá trị vào state.
+
+Input:
+
+- `key`: tên state.
+- `value`: giá trị cần lưu.
+
+Ví dụ:
+
+```python
+state.set("current_task", task)
+state.set("validation_passed", True)
+```
+
+Method không return gì.
+
+Nếu key đã tồn tại, value cũ bị ghi đè.
+
+## Method `as_dict`
+
+```python
+def as_dict(self) -> dict[str, Any]:
+    return dict(self._data)
+```
+
+Trả về bản copy nông của state hiện tại.
+
+Ví dụ:
+
+```python
+snapshot = state.as_dict()
+```
+
+Vì dùng `dict(self._data)`, caller nhận một dict mới. Việc thêm/xóa key trong snapshot không làm thay đổi `_data` bên trong.
+
+Lưu ý: đây chỉ là shallow copy. Nếu value bên trong là dict/list/object mutable, object đó vẫn được share reference.
+
+## Luồng dùng hiện tại
+
+```mermaid
+flowchart TD
+    A["AgentKernel.accept_task(user_request)"] --> B["Tạo TaskEnvelope"]
+    B --> C["state.set('current_task', task)"]
+    C --> D["Publish task.accepted"]
+```
+
+## Vì sao không dùng dict trực tiếp?
+
+### 1. Có API rõ ràng
+
+Kernel gọi `state.get()` và `state.set()` thay vì thao tác trực tiếp trên dict.
+
+### 2. Dễ mở rộng
+
+Nếu sau này muốn persist state, log state changes, hoặc validate state key, có thể sửa `StateStore` mà ít ảnh hưởng phần còn lại.
+
+### 3. Dễ inject trong test
+
+Bootstrap tạo `StateStore()` rồi inject vào kernel. Test cũng có thể tạo state riêng.
+
+## Giới hạn hiện tại
+
+`StateStore` hiện tại:
+
+- không thread-safe,
+- không persist ra disk,
+- không có schema validation,
+- không có namespace,
+- không có transaction/snapshot sâu.
+
+Đây là lựa chọn hợp lý cho Sprint 0 vì mục tiêu là giữ lõi nhỏ.
+
+## Quan hệ với file khác
+
+- `core/bootstrap.py`: tạo `StateStore` và inject vào `AgentKernel`.
+- `core/kernel.py`: dùng state để lưu `current_task`.
+- `discipline/finish_gate.py`: dùng state dạng dict để kiểm tra `code_changed` và `validation_passed`, dù chưa nối trực tiếp với `StateStore`.
+
+## Tóm tắt một câu
+
+`core/state.py` cung cấp một key-value store tối giản để kernel lưu state runtime, hiện dùng cho `current_task` và sẵn sàng mở rộng cho agent loop sau này.
+
+
+
+================================================================================
+FILE: features\__init__.py
+================================================================================
+
+
+
+
+================================================================================
+FILE: features\example_echo.py
+================================================================================
+
+"""Example feature — an echo tool used by smoke/tests and as the plugin pattern. Epic E01."""
+from __future__ import annotations
+
+from typing import Any
+
+from core.kernel import AgentKernel
+from core.schemas import FeatureDescriptor, ToolRequest
+
+FEATURE = FeatureDescriptor(
+    name="example_echo",
+    capabilities=("echo",),
+    description="Trivial echo tool used by smoke tests and as a feature-plugin example.",
+)
+
+
+class EchoTool:
+    name = "echo_tool"
+
+    def execute(self, request: ToolRequest) -> dict[str, Any]:
+        return {"ok": True, "echo": dict(request.args)}
+
+
+def install(kernel: AgentKernel) -> None:
+    kernel.registry.register_feature(FEATURE)
+    kernel.registry.register_tools(FEATURE.capabilities, EchoTool(), feature_name=FEATURE.name)
+
+
+
+================================================================================
+FILE: features\loader.py
+================================================================================
+
+"""Install the features that are enabled in config['features']. Epic E01."""
+from __future__ import annotations
+
+import importlib
+from typing import Any
+
+from core.kernel import AgentKernel
+
+
+def install_configured_features(kernel: AgentKernel, config: dict[str, Any]) -> None:
+    """Install each enabled feature declared in config['features']."""
+    features = config.get("features", {}) or {}
+    for name, spec in features.items():
+        spec = spec or {}
+        if not spec.get("enabled", False):
+            continue
+        module_path = spec.get("module")
+        if not module_path:
+            raise ValueError(f"Feature '{name}' is enabled but has no 'module'.")
+        module = importlib.import_module(module_path)
+        install = getattr(module, "install", None)
+        if install is None:
+            raise ValueError(f"Feature module '{module_path}' has no install(kernel).")
+        install(kernel)
+
+
+
+================================================================================
+FILE: llm\__init__.py
+================================================================================
+
+from llm.adapter import call_llm, reset_client
+
+__all__ = ["call_llm", "reset_client"]
+
+
+
+================================================================================
+FILE: llm\adapter.py
+================================================================================
+
+"""OpenAI-compatible LLM adapter — JSON-mode, lazy client, injectable for tests. Epic E03."""
+from __future__ import annotations
+
+import json
+import os
+from typing import Any
+
+# Lazy module-level client cache. Importing this module does NOT build a client
+# and does NOT import the openai package — that happens on first real call.
+_client: Any = None
+
+
+def _defaults() -> dict[str, Any]:
+    return {
+        "base_url": os.getenv("LLM_BASE_URL", "http://localhost:1234/v1"),
+        "api_key": os.getenv("LLM_API_KEY", "lm-studio"),
+        "model": os.getenv("LLM_MODEL", "local-model"),
+        "max_tokens": int(os.getenv("LLM_MAX_TOKENS", "2048")),
+        "timeout": float(os.getenv("LLM_TIMEOUT", "600")),
+    }
+
+
+def _get_client() -> Any:
+    global _client
+    if _client is None:
+        from openai import OpenAI  # lazy import
+
+        cfg = _defaults()
+        _client = OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"], timeout=cfg["timeout"])
+    return _client
+
+
+def reset_client() -> None:
+    global _client
+    _client = None
+
+
+def call_llm(
+    messages: list[dict[str, str]],
+    *,
+    model: str | None = None,
+    temperature: float = 0.2,
+    json_mode: bool = True,
+    client: Any = None,
+) -> str:
+    """
+    Call an OpenAI-compatible chat endpoint.
+
+    - `json_mode=True` sets response_format=json_object so the model returns JSON.
+    - `client` can be injected (for tests); otherwise a lazy module client is used.
+    - On error, returns a structured `final` JSON string (never raises into the loop).
+    """
+    cfg = _defaults()
+    active = client if client is not None else _get_client()
+    kwargs: dict[str, Any] = {
+        "model": model or cfg["model"],
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": cfg["max_tokens"],
+    }
+    if json_mode:
+        kwargs["response_format"] = {"type": "json_object"}
+
+    try:
+        response = active.chat.completions.create(**kwargs)
+        return response.choices[0].message.content or ""
+    except Exception as exc:
+        return json.dumps(
+            {"action": "final", "finish_reason": "error", "message": f"LLM request failed: {exc}"},
+            ensure_ascii=False,
+        )
+
+
+
+================================================================================
+FILE: MAP.md
+================================================================================
+
+# MAP — chỉ mục module
+
+> Thường TỰ SINH bằng `python tools/gen_map.py` (đọc docstring dòng đầu mỗi module).
+> Bản này điền chuẩn bằng file tool do mount sandbox đang đọc lỗi; trên máy bạn cứ chạy `python tools/gen_map.py` để tái tạo.
+
+## core/
+
+| module | mục đích |
+|---|---|
+| `core/bootstrap.py` | Build a kernel and install features from config/features.yaml. Epic E01. |
+| `core/events.py` | EventBus — minimal pub/sub that the observability layer subscribes to. Epic E01/E04. |
+| `core/kernel.py` | AgentKernel — minimal core owning state, events, and capability execution. Epic E01. |
+| `core/ports.py` | ToolPort protocol — the seam every concrete tool implements. Epic E01. |
+| `core/registry.py` | CapabilityRegistry + NullToolPort — resolve a tool name to an executor, with graceful fallback. Epic E01. |
+| `core/schemas.py` | Core data contracts: TaskEnvelope, ToolRequest, CapabilityResult envelope, FeatureDescriptor. Epic E01. |
+| `core/state.py` | StateStore — in-memory run state held by the kernel. Epic E01. |
+
+## discipline/
+
+| module | mục đích |
+|---|---|
+| `discipline/budget.py` | Loop budgets — steps, parse-errors, same-tool repeats (parse errors do not consume steps). Epic E02. |
+| `discipline/condense.py` | Condense large tool results before re-feeding them to the model. Epic E02. |
+| `discipline/finish_gate.py` | Finish gate — block a final when code changed but no validation passed. Epic E02. |
+| `discipline/json_gate.py` | Parse + repair the model's JSON action; raise JsonGateError on failure. Epic E02. |
+
+## features/
+
+| module | mục đích |
+|---|---|
+| `features/example_echo.py` | Example feature — an echo tool used by smoke/tests and as the plugin pattern. Epic E01. |
+| `features/loader.py` | Install the features that are enabled in config['features']. Epic E01. |
+
+## llm/
+
+| module | mục đích |
+|---|---|
+| `llm/adapter.py` | OpenAI-compatible LLM adapter — JSON-mode, lazy client, injectable for tests. Epic E03. |
+
+## observability/
+
+| module | mục đích |
+|---|---|
+| `observability/event_log.py` | EventLogger — JSONL event log + summary.json + metrics; subscribes to the EventBus. Epic E04. |
+| `observability/inspect.py` | CLI to inspect runs — list / summary / events from the event log. Epic E04. |
+
+## tools/
+
+| module | mục đích |
+|---|---|
+| `tools/gen_map.py` | Regenerate MAP.md from each module's first docstring line. |
+
+## (root)
+
+| file | mục đích |
+|---|---|
+| `run_smoke.py` | Deterministic Sprint 0 smoke — no LLM, no network. Prints CORE_AGENT_SMOKE_OK. |
+
+
+
+================================================================================
+FILE: observability\__init__.py
+================================================================================
+
+from observability.event_log import EventLogger, attach_to_bus, runs_dir
+
+__all__ = ["EventLogger", "attach_to_bus", "runs_dir"]
+
+
+
+================================================================================
+FILE: observability\event_log.py
+================================================================================
+
+"""EventLogger — JSONL event log + summary.json + metrics; subscribes to the EventBus. Epic E04."""
+from __future__ import annotations
+
+import json
+import os
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from core.events import EventBus
+
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+
+_METRICS = (
+    "steps",
+    "llm_calls",
+    "tool_calls",
+    "tool_failures",
+    "parse_errors",
+    "policy_blocks",
+    "finish_gate_blocks",
+    "condensed",
+)
+
+
+def runs_dir() -> Path:
+    return Path(os.getenv("AGENT_RUNS_DIR", str(PROJECT_DIR / "var" / "agent_runs")))
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+class EventLogger:
+    def __init__(self, run_id: str | None = None, *, enabled: bool | None = None) -> None:
+        self.enabled = (os.getenv("AGENT_EVENT_LOG", "1") != "0") if enabled is None else enabled
+        self.run_id = run_id or (datetime.now().strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:8])
+        self.seq = 0
+        self.metrics: dict[str, int] = {k: 0 for k in _METRICS}
+        self.run_dir = runs_dir() / self.run_id
+        self.events_path = self.run_dir / "events.jsonl"
+        if self.enabled:
+            self.run_dir.mkdir(parents=True, exist_ok=True)
+        self.emit("StateEvent", status="run_started")
+
+    def emit(self, kind: str, **fields: Any) -> dict[str, Any]:
+        self.seq += 1
+        event = {"sequence": self.seq, "timestamp": _now(), "run_id": self.run_id, "kind": kind, **fields}
+        if self.enabled:
+            with self.events_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+        return event
+
+    def count(self, metric: str, n: int = 1) -> None:
+        if metric in self.metrics:
+            self.metrics[metric] += n
+
+    def finish(self, status: str = "completed", **extra: Any) -> dict[str, Any]:
+        self.emit("StateEvent", status="run_finished", result_status=status)
+        summary = {"run_id": self.run_id, "status": status, "metrics": dict(self.metrics), **extra}
+        if self.enabled:
+            (self.run_dir / "summary.json").write_text(
+                json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            with (runs_dir() / "index.jsonl").open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps({"run_id": self.run_id, "status": status}, ensure_ascii=False) + "\n")
+        return summary
+
+
+def attach_to_bus(logger: EventLogger, bus: EventBus) -> None:
+    """Mirror kernel events into the event log and update metrics."""
+
+    def sink(topic: str, payload: dict[str, Any]) -> None:
+        logger.emit("KernelEvent", topic=topic, **payload)
+        if topic == "tool.completed":
+            logger.count("tool_calls")
+        elif topic == "tool.failed":
+            logger.count("tool_calls")
+            logger.count("tool_failures")
+
+    bus.subscribe(sink)
+
+
+
+================================================================================
+FILE: observability\inspect.py
+================================================================================
+
+"""CLI to inspect runs — list / summary / events from the event log. Epic E04."""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+from observability.event_log import runs_dir
+
+
+def _run_dirs() -> list[Path]:
+    base = runs_dir()
+    if not base.exists():
+        return []
+    return sorted((p for p in base.iterdir() if p.is_dir()), key=lambda p: p.name, reverse=True)
+
+
+def _resolve(run_id: str | None) -> Path | None:
+    dirs = _run_dirs()
+    if not dirs:
+        return None
+    if run_id in (None, "latest"):
+        return dirs[0]
+    for p in dirs:
+        if p.name == run_id:
+            return p
+    return None
+
+
+def list_runs() -> list[str]:
+    return [p.name for p in _run_dirs()]
+
+
+def read_summary(run_id: str | None = None) -> dict[str, Any] | None:
+    run = _resolve(run_id)
+    if run is None:
+        return None
+    summary = run / "summary.json"
+    if not summary.exists():
+        return None
+    return json.loads(summary.read_text(encoding="utf-8"))
+
+
+def read_events(run_id: str | None = None, *, kind: str | None = None, topic: str | None = None) -> list[dict[str, Any]]:
+    run = _resolve(run_id)
+    if run is None:
+        return []
+    path = run / "events.jsonl"
+    if not path.exists():
+        return []
+    events: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        event = json.loads(line)
+        if kind and event.get("kind") != kind:
+            continue
+        if topic and event.get("topic") != topic:
+            continue
+        events.append(event)
+    return events
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    cmd = args[0] if args else "list"
+    if cmd in {"list", "ls"}:
+        for name in list_runs():
+            print(name)
+        return 0
+    if cmd == "summary":
+        run_id = args[1] if len(args) > 1 else "latest"
+        summary = read_summary(run_id)
+        print(json.dumps(summary, ensure_ascii=False, indent=2) if summary else "No summary found.")
+        return 0
+    if cmd == "events":
+        run_id = args[1] if len(args) > 1 else "latest"
+        kind = None
+        if "--kind" in args:
+            kind = args[args.index("--kind") + 1]
+        for event in read_events(run_id, kind=kind):
+            print(json.dumps(event, ensure_ascii=False))
+        return 0
+    print("usage: inspect [list | summary [run|latest] | events [run|latest] --kind KIND]")
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+
+================================================================================
+FILE: pyproject.toml
+================================================================================
+
+[project]
+name = "core_agent"
+version = "0.0.1"
+description = "Clean rebuild of the agent system — Sprint 0 (kernel, discipline, llm adapter, observability)."
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.0",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.5"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.pytest.ini_options]
+addopts = "-q -p no:cacheprovider"
+testpaths = ["tests"]
+
+
+
+================================================================================
+FILE: read_file_and_list.py
+================================================================================
+
+from pathlib import Path
+from datetime import datetime
+
+# =========================
+# CONFIG
+# =========================
+
+ROOT_DIR = Path(".").resolve()
+OUTPUT_FILE = ROOT_DIR / "project_context.txt"
+
+MAX_FILE_SIZE_MB = 2
+
+EXCLUDE_DIRS = {
+    "OpenHands",
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "node_modules",
+    "dist",
+    "build",
+    ".idea",
+    ".vscode",
+}
+
+EXCLUDE_FILES = {
+    "project_context.txt",
+    "dump_project_context.py",
+    ".env",
+    ".env.local",
+    ".env.production",
+}
+
+BINARY_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico",
+    ".pdf", ".zip", ".rar", ".7z",
+    ".exe", ".dll", ".so", ".bin",
+    ".mp4", ".mp3", ".wav",
+    ".pkl", ".pt", ".onnx",
+}
+
+TEXT_EXTENSIONS = {
+    ".py", ".txt", ".md", ".json", ".yaml", ".yml",
+    ".toml", ".ini", ".cfg",
+    ".html", ".css", ".js", ".ts",
+    ".bat", ".sh", ".ps1",
+    ".log",
+    ".gitignore",
+}
+
+
+# =========================
+# HELPER FUNCTIONS
+# =========================
+
+def should_exclude_path(path: Path) -> bool:
+    parts = set(path.parts)
+
+    if parts & EXCLUDE_DIRS:
+        return True
+
+    if path.name in EXCLUDE_FILES:
+        return True
+
+    if path.suffix.lower() in BINARY_EXTENSIONS:
+        return True
+
+    return False
+
+
+def is_probably_text_file(path: Path) -> bool:
+    if path.suffix.lower() in TEXT_EXTENSIONS:
+        return True
+
+    if path.name in TEXT_EXTENSIONS:
+        return True
+
+    return False
+
+
+def safe_read_text(path: Path) -> str:
+    max_size = MAX_FILE_SIZE_MB * 1024 * 1024
+
+    try:
+        if path.stat().st_size > max_size:
+            return f"[SKIPPED: file too large > {MAX_FILE_SIZE_MB}MB]"
+
+        if not is_probably_text_file(path):
+            return "[SKIPPED: not recognized as text file]"
+
+        return path.read_text(encoding="utf-8", errors="replace")
+
+    except Exception as e:
+        return f"[ERROR READING FILE: {e}]"
+
+
+def build_tree(root: Path) -> str:
+    lines = []
+
+    def walk(current: Path, prefix: str = ""):
+        items = sorted(
+            [p for p in current.iterdir() if not should_exclude_path(p)],
+            key=lambda p: (p.is_file(), p.name.lower())
+        )
+
+        for index, item in enumerate(items):
+            connector = "└── " if index == len(items) - 1 else "├── "
+            lines.append(prefix + connector + item.name)
+
+            if item.is_dir():
+                extension = "    " if index == len(items) - 1 else "│   "
+                walk(item, prefix + extension)
+
+    lines.append(root.name + "/")
+    walk(root)
+
+    return "\n".join(lines)
+
+
+def collect_files(root: Path):
+    files = []
+
+    for path in root.rglob("*"):
+        if path.is_file() and not should_exclude_path(path):
+            files.append(path)
+
+    return sorted(files, key=lambda p: str(p.relative_to(root)).lower())
+
+
+# =========================
+# MAIN
+# =========================
+
+def main():
+    tree_text = build_tree(ROOT_DIR)
+    files = collect_files(ROOT_DIR)
+
+    with OUTPUT_FILE.open("w", encoding="utf-8") as out:
+        out.write("# PROJECT CONTEXT DUMP\n\n")
+        out.write(f"Generated at: {datetime.now().isoformat(timespec='seconds')}\n")
+        out.write(f"Root directory: {ROOT_DIR}\n\n")
+
+        out.write("=" * 80 + "\n")
+        out.write("PROJECT FILE TREE\n")
+        out.write("=" * 80 + "\n\n")
+        out.write(tree_text)
+        out.write("\n\n")
+
+        out.write("=" * 80 + "\n")
+        out.write("FILES WITH CONTENT\n")
+        out.write("=" * 80 + "\n\n")
+
+        for file_path in files:
+            relative_path = file_path.relative_to(ROOT_DIR)
+            content = safe_read_text(file_path)
+
+            out.write("\n")
+            out.write("=" * 80 + "\n")
+            out.write(f"FILE: {relative_path}\n")
+            out.write("=" * 80 + "\n\n")
+            out.write(content)
+            out.write("\n\n")
+
+    print(f"Done. Project context saved to:")
+    print(OUTPUT_FILE)
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+FILE: README.md
+================================================================================
+
+# core_agent
+
+Clean rebuild of the agent system. **Sprint 0** implements the foundation (P0):
+
+- **E01 Kernel** — `core/`: hexagonal kernel, capability registry (+ null fallback), `CapabilityResult` envelope, feature plugins from `config/features.yaml`.
+- **E02 Output Discipline** — `discipline/`: JSON parse + repair, condense, finish-gate, budgets (shared module).
+- **E03 LLM Adapter** — `llm/`: OpenAI-compatible, JSON-mode, **lazy-init**, injectable client.
+- **E04 Observability** — `observability/`: event log (JSONL) + summary + inspect CLI.
+
+Spec: see `../rebuild_spec/` (E01–E04 PRD/stories/acceptance) and `../NEW_REPO_BUILD_GUIDE.md`.
+
+## Requirements
+Python 3.11+.
+
+```bash
+python -m pip install -e ".[dev]"   # or: pip install openai PyYAML pytest
+```
+
+## Run
+```bash
+# deterministic smoke (no LLM/network):
+python run_smoke.py
+
+# tests (offline):
+python -m pytest
+
+# inspect a run's events:
+python -m observability.inspect list
+python -m observability.inspect summary latest
+```
+
+## Layout
+```
+core/          kernel, registry, schemas (envelope), events, state, bootstrap
+discipline/    json_gate, condense, finish_gate, budget   (shared)
+llm/           adapter (lazy, JSON-mode)
+observability/ event_log + inspect CLI
+features/      loader + example_echo (plugin pattern)
+config/        features.yaml
+tests/         offline tests for E01–E04
+var/           (gitignored) agent_runs/<run_id>/{events.jsonl,summary.json}
+```
+
+## Principles (baked in)
+One graph substrate later (single = 1 node); discipline shared (no duplication); JSON-mode at the LLM layer; safety = one chokepoint; observability from commit 1; lazy LLM client; UTF-8 no BOM; `var/` gitignored.
+
+
+
+================================================================================
+FILE: run_smoke.py
+================================================================================
+
+"""Deterministic Sprint 0 smoke — no LLM, no network. Prints CORE_AGENT_SMOKE_OK on success."""
+from __future__ import annotations
+
+from core.bootstrap import create_kernel
+from discipline import check_finish, parse_action
+from observability import EventLogger, attach_to_bus
+
+
+def main() -> int:
+    kernel = create_kernel()
+    logger = EventLogger()
+    attach_to_bus(logger, kernel.events)
+
+    kernel.accept_task("smoke: echo + discipline")
+    logger.count("steps")
+
+    ok = kernel.execute_tool("echo", {"msg": "hi"})
+    assert ok["ok"] and ok["data"]["echo"] == {"msg": "hi"}, ok
+
+    missing = kernel.execute_tool("does_not_exist")
+    assert missing["ok"] is False and missing["data"].get("missing_capability") is True, missing
+
+    action = parse_action('```json\n{"action": "final", "message": "done",}\n```')
+    assert action["action"] == "final", action
+
+    gate = check_finish({"code_changed": True, "validation_passed": False}, finish_reason="validated")
+    assert gate["allowed"] is False, gate
+
+    summary = logger.finish("completed")
+    print("CORE_AGENT_SMOKE_OK run_id=" + summary["run_id"])
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+
+================================================================================
+FILE: tests\__init__.py
+================================================================================
+
+
+
+
+================================================================================
+FILE: tests\test_discipline.py
+================================================================================
+
+import pytest
+
+from discipline import Budget, JsonGateError, check_finish, condense, parse_action
+
+
+def test_parse_clean():
+    assert parse_action('{"action": "tool", "tool": "echo", "args": {}}')["action"] == "tool"
+
+
+def test_parse_repairs_fences_and_trailing_comma():
+    assert parse_action('```json\n{"action": "final", "message": "ok",}\n```')["action"] == "final"
+
+
+def test_parse_extracts_embedded_object():
+    assert parse_action('action: {"action":"final","message":"x"} thanks')["action"] == "final"
+
+
+def test_missing_action_raises():
+    with pytest.raises(JsonGateError) as ei:
+        parse_action('{"tool": "echo"}')
+    assert ei.value.stage == "schema"
+
+
+def test_garbage_raises():
+    with pytest.raises(JsonGateError):
+        parse_action("not json at all")
+
+
+def test_condense_truncates():
+    out = condense({"text": "x" * 5000}, max_chars=100)
+    assert len(out["text"]) < 200
+    assert "+4900" in out["text"]
+
+
+def test_condense_lists():
+    out = condense({"items": list(range(50))}, max_list=5)
+    assert len(out["items"]) == 6
+
+
+def test_finish_gate_blocks_unvalidated_code():
+    res = check_finish({"code_changed": True, "validation_passed": False}, finish_reason="validated")
+    assert res["allowed"] is False
+
+
+def test_finish_gate_allows_blocker():
+    assert check_finish({"code_changed": True, "validation_passed": False}, finish_reason="blocker")["allowed"]
+
+
+def test_finish_gate_allows_validated():
+    assert check_finish({"code_changed": True, "validation_passed": True})["allowed"]
+
+
+def test_budget_parse_does_not_consume_steps():
+    b = Budget(max_steps=3, max_parse_errors=2)
+    b.record_parse_error()
+    b.record_parse_error()
+    assert b.parse_exceeded() is True
+    assert b.steps == 0
+
+
+def test_budget_same_tool():
+    b = Budget(max_same_tool_calls=2)
+    key = Budget.tool_key("echo", {"a": 1})
+    for _ in range(3):
+        b.record_tool_call(key)
+    assert b.same_tool_exceeded(key) is True
+
+
+
+================================================================================
+FILE: tests\test_kernel.py
+================================================================================
+
+from core.bootstrap import build_kernel, create_kernel
+
+ECHO = {"features": {"example_echo": {"enabled": True, "module": "features.example_echo"}}}
+DISABLED = {"features": {"example_echo": {"enabled": False, "module": "features.example_echo"}}}
+
+
+def test_execute_registered_tool():
+    k = build_kernel(ECHO)
+    r = k.execute_tool("echo", {"msg": "hi"})
+    assert r["ok"] is True
+    assert r["capability"] == "echo"
+    assert r["feature"] == "example_echo"
+    assert r["data"]["echo"] == {"msg": "hi"}
+
+
+def test_unknown_tool_null_fallback():
+    k = build_kernel(ECHO)
+    r = k.execute_tool("nope")
+    assert r["ok"] is False
+    assert r["data"].get("missing_capability") is True
+
+
+def test_disabled_feature_not_registered():
+    k = build_kernel(DISABLED)
+    assert k.registry.has_tool("echo") is False
+    r = k.execute_tool("echo")
+    assert r["ok"] is False
+    assert r["data"].get("missing_capability") is True
+
+
+def test_events_emitted():
+    k = build_kernel(ECHO)
+    seen: list[str] = []
+    k.events.subscribe(lambda topic, payload: seen.append(topic))
+    k.execute_tool("echo", {"a": 1})
+    assert "tool.requested" in seen
+    assert "tool.completed" in seen
+
+
+def test_describe_capabilities():
+    k = build_kernel(ECHO)
+    desc = k.describe_capabilities()
+    assert "echo" in [t["name"] for t in desc["tools"]]
+    assert any(f["name"] == "example_echo" for f in desc["features"])
+
+
+def test_default_config_loads():
+    k = create_kernel()
+    assert k.registry.has_tool("echo")
+
+
+
+================================================================================
+FILE: tests\test_llm_adapter.py
+================================================================================
+
+import llm.adapter as adapter
+from discipline import parse_action
+
+
+class _FakeChoiceMsg:
+    def __init__(self, content: str) -> None:
+        self.message = type("M", (), {"content": content})()
+
+
+class _FakeClient:
+    def __init__(self, content: str = '{"action":"final","message":"ok"}', boom: bool = False) -> None:
+        self.content = content
+        self.boom = boom
+        self.kwargs: dict | None = None
+        outer = self
+
+        class _Completions:
+            def create(self, **kwargs):
+                outer.kwargs = kwargs
+                if outer.boom:
+                    raise RuntimeError("boom")
+                return type("R", (), {"choices": [_FakeChoiceMsg(outer.content)]})()
+
+        self.chat = type("C", (), {"completions": _Completions()})()
+
+
+def test_module_import_is_lazy():
+    adapter.reset_client()
+    assert adapter._client is None  # no client built just by importing/using helpers
+
+
+def test_injected_client_json_mode():
+    fake = _FakeClient()
+    out = adapter.call_llm([{"role": "user", "content": "hi"}], model="m1", client=fake)
+    assert out == '{"action":"final","message":"ok"}'
+    assert fake.kwargs["response_format"] == {"type": "json_object"}
+    assert fake.kwargs["model"] == "m1"
+    assert adapter._client is None  # injected client must not populate the cache
+
+
+def test_json_mode_off():
+    fake = _FakeClient()
+    adapter.call_llm([{"role": "user", "content": "hi"}], json_mode=False, client=fake)
+    assert "response_format" not in fake.kwargs
+
+
+def test_error_returns_structured_final():
+    fake = _FakeClient(boom=True)
+    action = parse_action(adapter.call_llm([{"role": "user", "content": "hi"}], client=fake))
+    assert action["action"] == "final"
+    assert action["finish_reason"] == "error"
+
+
+
+================================================================================
+FILE: tests\test_observability.py
+================================================================================
+
+from observability import EventLogger
+from observability import inspect as insp
+
+
+def test_run_writes_events_and_summary(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_RUNS_DIR", str(tmp_path))
+    logger = EventLogger(run_id="testrun")
+    logger.emit("ActionEvent", action="tool", tool="echo")
+    logger.count("tool_calls")
+    summary = logger.finish("completed")
+
+    assert (tmp_path / "testrun" / "events.jsonl").exists()
+    assert (tmp_path / "testrun" / "summary.json").exists()
+    assert summary["metrics"]["tool_calls"] == 1
+
+    assert "testrun" in insp.list_runs()
+    assert insp.read_summary("testrun")["status"] == "completed"
+    events = insp.read_events("testrun", kind="ActionEvent")
+    assert len(events) == 1 and events[0]["tool"] == "echo"
+
+
+def test_disabled_logging_writes_nothing(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_RUNS_DIR", str(tmp_path))
+    logger = EventLogger(run_id="off", enabled=False)
+    logger.emit("StateEvent", status="x")
+    logger.finish("completed")
+    assert not (tmp_path / "off").exists()
+
+
+
+================================================================================
+FILE: tools\gen_map.py
+================================================================================
+
+"""Regenerate MAP.md from each module's first docstring line. Run: python tools/gen_map.py. Epic: tooling."""
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+DENY = {"tests", "var", "tools", ".git", "__pycache__", ".venv", ".ruff_cache", ".pytest_cache", ".egg-info"}
+
+
+def first_doc(path: Path) -> str:
+    try:
+        doc = ast.get_docstring(ast.parse(path.read_text(encoding="utf-8")))
+    except Exception as exc:  # pragma: no cover
+        return f"(parse error: {exc})"
+    return doc.splitlines()[0].strip() if doc else "(thiếu module docstring — thêm 1 dòng + epic)"
+
+
+def packages() -> list[str]:
+    return [
+        p.name
+        for p in sorted(ROOT.iterdir())
+        if p.is_dir() and p.name not in DENY and not p.name.endswith(".egg-info") and any(p.glob("*.py"))
+    ]
+
+
+def main() -> int:
+    lines = [
+        "# MAP — chỉ mục module (TỰ SINH bởi `tools/gen_map.py`)",
+        "",
+        "Mỗi module + một dòng mục đích + epic. **Chạy lại `python tools/gen_map.py`** sau khi thêm/đổi file.",
+        "",
+    ]
+    for pkg in packages():
+        lines += [f"## {pkg}/", "", "| module | mục đích |", "|---|---|"]
+        for f in sorted((ROOT / pkg).glob("*.py")):
+            if f.name == "__init__.py":
+                continue
+            lines.append(f"| `{pkg}/{f.name}` | {first_doc(f)} |")
+        lines.append("")
+    root_py = sorted(ROOT.glob("*.py"))
+    if root_py:
+        lines += ["## (root)", "", "| file | mục đích |", "|---|---|"]
+        for f in root_py:
+            lines.append(f"| `{f.name}` | {first_doc(f)} |")
+        lines.append("")
+    (ROOT / "MAP.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print("wrote", ROOT / "MAP.md")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+
+================================================================================
+FILE: var\agent_runs\20260616_100259_f73860fe\events.jsonl
+================================================================================
+
+[SKIPPED: not recognized as text file]
+
+
+================================================================================
+FILE: var\agent_runs\20260616_100259_f73860fe\summary.json
+================================================================================
+
+{
+  "run_id": "20260616_100259_f73860fe",
+  "status": "completed",
+  "metrics": {
+    "steps": 1,
+    "llm_calls": 0,
+    "tool_calls": 2,
+    "tool_failures": 1,
+    "parse_errors": 0,
+    "policy_blocks": 0,
+    "finish_gate_blocks": 0,
+    "condensed": 0
+  }
+}
+
+
+================================================================================
+FILE: var\agent_runs\index.jsonl
+================================================================================
+
+[SKIPPED: not recognized as text file]
+
