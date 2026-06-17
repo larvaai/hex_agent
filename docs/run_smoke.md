@@ -1,5 +1,6 @@
 run_smoke.py (line 1) là script kiểm tra nhanh toàn hệ nền Sprint 0. Nó chạy offline, không gọi LLM, không cần network. Nếu mọi thứ ổn, nó in:
 CORE_AGENT_SMOKE_OK run_id=<run_id>
+
 Luồng chạy:
 Tạo kernel
 kernel = create_kernel()
@@ -28,8 +29,10 @@ Test finish gate
 gate = check_finish({"code_changed": True, "validation_passed": False}, finish_reason="validated")
 assert gate["allowed"] is False, gate
 Kiểm tra rule an toàn: nếu code đã thay đổi nhưng validation chưa pass, agent không được final với lý do "validated".
+
 Kết thúc logger và in success
 summary = logger.finish("completed")
 print("CORE_AGENT_SMOKE_OK run_id=" + summary["run_id"])
 Logger ghi summary.json, append index.jsonl, rồi script in success marker.
+
 Tóm lại: run_smoke.py là bài kiểm tra end-to-end nhỏ nhất cho nền agent: bootstrap config, nạp feature, chạy tool thành công, fallback tool thiếu, parse JSON action, finish gate, và observability log.

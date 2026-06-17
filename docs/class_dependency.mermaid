@@ -1,0 +1,29 @@
+flowchart TD
+    graph_["graph · E05<br/>AgentState · run_agent"]
+    toolbox["toolbox · E06<br/>FsRead/Write/List · Terminal"]
+    safety["safety · E06<br/>ToolPolicy · SafeToolPort · PolicyDecision · SandboxError"]
+    observability["observability · E04<br/>EventLogger"]
+    features["features · E01<br/>EchoTool"]
+    discipline["discipline · E02<br/>Budget · JsonGateError"]
+    llm["llm · E03<br/>call_llm"]
+    core["core · E01<br/>AgentKernel · CapabilityRegistry · EventBus · StateStore · schemas · ToolPort"]
+
+    graph_ --> core
+    graph_ --> observability
+    graph_ --> discipline
+    graph_ --> llm
+    toolbox --> safety
+    toolbox --> core
+    safety --> core
+    observability --> core
+    features --> core
+
+    classDef e01 fill:#F1EFE8,stroke:#5F5E5A,color:#2C2C2A;
+    classDef e02 fill:#E1F5EE,stroke:#0F6E56,color:#04342C;
+    classDef e05 fill:#EEEDFE,stroke:#534AB7,color:#26215C;
+    classDef e06 fill:#FAECE7,stroke:#993C1D,color:#4A1B0C;
+
+    class core,features e01;
+    class discipline,llm,observability e02;
+    class graph_ e05;
+    class toolbox,safety e06;

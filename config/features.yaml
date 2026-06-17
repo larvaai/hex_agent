@@ -2,3 +2,6 @@ features:
   example_echo:
     enabled: true
     module: features.example_echo
+  toolbox:
+    enabled: true
+    module: toolbox.feature

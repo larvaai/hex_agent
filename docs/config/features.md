@@ -11,6 +11,9 @@ features:
   example_echo:
     enabled: true
     module: features.example_echo
+  toolbox:
+    enabled: true
+    module: toolbox.feature
 ```
 
 ## Vai trò trong architecture
@@ -22,7 +25,7 @@ core.bootstrap.load_config()
   -> đọc config/features.yaml
   -> core.bootstrap.build_kernel(config)
   -> features.loader.install_configured_features(kernel, config)
-  -> import features.example_echo
+  -> import module feature được bật
   -> gọi install(kernel)
   -> feature đăng ký tool vào kernel.registry
 ```
@@ -101,6 +104,25 @@ Nếu feature enabled nhưng thiếu `module`, loader sẽ raise `ValueError`.
 
 Nếu module không có `install`, loader cũng raise `ValueError`.
 
+## Feature `toolbox`
+
+```yaml
+toolbox:
+  enabled: true
+  module: toolbox.feature
+```
+
+`toolbox` là feature cung cấp các tool thao tác workspace:
+
+- `fs_read`
+- `fs_write`
+- `fs_list`
+- `terminal_run`
+
+Module `toolbox.feature` đăng ký các tool này vào registry và bọc từng tool bằng `SafeToolPort`, tức mọi call đi qua safety policy trước khi tool thật chạy.
+
+Ý nghĩa: khi `toolbox` bật, agent graph có thể đọc/ghi/list file trong workspace và chạy terminal argv an toàn.
+
 ## Luồng nạp feature từ YAML
 
 ```mermaid
@@ -108,11 +130,12 @@ flowchart TD
     A["config/features.yaml"] --> B["load_config()"]
     B --> C["build_kernel(config)"]
     C --> D["install_configured_features(kernel, config)"]
-    D --> E{"example_echo enabled?"}
-    E -- "Không" --> F["Bỏ qua"]
-    E -- "Có" --> G["import features.example_echo"]
-    G --> H["Gọi install(kernel)"]
-    H --> I["Register feature + echo tool"]
+    D --> E["Duyệt example_echo, toolbox"]
+    E --> F{"enabled?"}
+    F -- "Không" --> G["Bỏ qua"]
+    F -- "Có" --> H["import module"]
+    H --> I["Gọi install(kernel)"]
+    I --> J["Register feature + tools"]
 ```
 
 ## Cách thêm feature mới
@@ -155,9 +178,11 @@ Feature enabled nhưng thiếu module/install sẽ lỗi ngay lúc bootstrap.
 
 - `core/bootstrap.py`: đọc file này qua `load_config()`.
 - `features/loader.py`: đọc `config["features"]` và import module.
-- `features/example_echo.py`: module hiện đang được bật.
+- `features/example_echo.py`: module echo hiện đang được bật.
+- `toolbox/feature.py`: module toolbox hiện đang được bật.
 - `tests/test_kernel.py`: `test_default_config_loads()` xác nhận config mặc định nạp `echo`.
+- `tests/test_graph.py`: bật `toolbox` trong config test để agent dùng filesystem tools.
 
 ## Tóm tắt một câu
 
-`config/features.yaml` là danh sách feature được bật cho runtime; hiện nó bật `example_echo` để kernel có capability `echo` phục vụ smoke test và plugin pattern.
+`config/features.yaml` là danh sách feature được bật cho runtime; hiện nó bật `example_echo` cho capability `echo` và `toolbox` cho filesystem/terminal tools có safety gate.
