@@ -28,11 +28,16 @@ class AgentKernel:
         self.events.publish("task.accepted", {"task_id": task.task_id})
         return task
 
+    def _current_task_id(self) -> str | None:
+        task = self.state.get("current_task")
+        return getattr(task, "task_id", None)
+
     def execute_tool(self, tool_name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         request = ToolRequest(name=tool_name, args=args or {})
+        task_id = self._current_task_id()
         self.events.publish(
             "tool.requested",
-            {"tool": request.name, "request_id": request.request_id, "args": request.args},
+            {"task_id": task_id, "tool": request.name, "request_id": request.request_id, "args": request.args},
         )
 
         resolution = self.registry.resolve_tool(request.name)
@@ -54,6 +59,7 @@ class AgentKernel:
             feature=resolution.feature,
             result=result,
             metadata={
+                "task_id": task_id,
                 "request_id": request.request_id,
                 "executor": getattr(resolution.executor, "name", resolution.executor.__class__.__name__),
             },
@@ -62,6 +68,7 @@ class AgentKernel:
         self.events.publish(
             "tool.completed" if envelope.get("ok") else "tool.failed",
             {
+                "task_id": task_id,
                 "tool": request.name,
                 "request_id": request.request_id,
                 "ok": bool(envelope.get("ok")),

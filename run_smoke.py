@@ -16,6 +16,7 @@ def main() -> int:
 
     ok = kernel.execute_tool("echo", {"msg": "hi"})
     assert ok["ok"] and ok["data"]["echo"] == {"msg": "hi"}, ok
+    assert ok["metadata"]["task_id"], ok  # B: result is traceable back to the accepted task
 
     missing = kernel.execute_tool("does_not_exist")
     assert missing["ok"] is False and missing["data"].get("missing_capability") is True, missing

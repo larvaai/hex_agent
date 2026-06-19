@@ -15,6 +15,7 @@ PROJECT_DIR = Path(__file__).resolve().parent.parent
 _METRICS = (
     "steps",
     "llm_calls",
+    "llm_failures",
     "tool_calls",
     "tool_failures",
     "parse_errors",
@@ -72,11 +73,20 @@ def attach_to_bus(logger: EventLogger, bus: EventBus) -> None:
     """Mirror kernel events into the event log and update metrics."""
 
     def sink(topic: str, payload: dict[str, Any]) -> None:
-        logger.emit("KernelEvent", topic=topic, **payload)
+        tool = payload.get("tool", "")
+        is_llm = isinstance(tool, str) and tool.startswith("llm.")
+        # LLM calls recorded under a distinct kind so events.jsonl is filterable;
+        # transport stays uniform (tool.*) so the chokepoint need not special-case LLM.
+        logger.emit("LLMCallEvent" if is_llm else "KernelEvent", topic=topic, **payload)
         if topic == "tool.completed":
             logger.count("tool_calls")
+            if is_llm:
+                logger.count("llm_calls")
         elif topic == "tool.failed":
             logger.count("tool_calls")
             logger.count("tool_failures")
+            if is_llm:
+                logger.count("llm_calls")
+                logger.count("llm_failures")
 
     bus.subscribe(sink)
