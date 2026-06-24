@@ -1,0 +1,9 @@
+name: correctness
+purpose: Find logic errors, missing edge cases, and unhandled failures.
+allowed_tools:
+  - fs_read
+forbidden_tools:
+  - fs_write
+output_schema:
+  verdict: string
+  issues: list

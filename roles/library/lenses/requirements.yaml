@@ -1,0 +1,6 @@
+name: requirements
+purpose: Surface ambiguity, acceptance criteria, and out-of-scope assumptions.
+output_schema:
+  goals: list
+  acceptance: list
+  open_questions: list
