@@ -13,16 +13,18 @@
 | E06 tools + safety | ✅ | `toolbox/` + `safety/` — tool qua `execute_tool` |
 | Delegation chokepoint | ✅ | `DelegationManager` + `DelegationServicePort` + `delegation/registry.py` |
 | Delegation adapter | ⚠️ v1 | `adapters/agents/langgraph_agent.py`: `InMemorySaver`, **no recursion, no child persistence** |
-| **E09 agent registry/roles** | ❌ **BLOCKER** | chưa tồn tại; chỉ có 1 target `agent:general`. E10 cần A/B/C có role+prompt+scope |
+| **E09 agent registry/roles** | ❌ **làm trước (S2)** | chưa tồn tại; chỉ có 1 target `agent:general`. E10 cần A/B/C có role+prompt+scope |
 
-**Quyết định sequencing:** không build full E09 trước. Slice 1 của E10 chạy **offline với scripted
-agents** (tái dùng `adapters/agents/scripted.py`) qua một **agent-registry seam tối thiểu** → chứng
-minh plumbing loop/blackboard/AC-gate **không cần LLM**. E09 thật land trước Slice 2. Cách này cho E10
-khởi động song song E09 ở mức contract, đúng kỷ luật "deterministic smoke offline trước".
+**Quyết định sequencing (chốt với user):** theo đúng build order — **E07 → E08 → E09 (S2) xong trước
+E10 (S3)**. Agent registry/roles (A/B/C có prompt+scope) lấy từ **E09 thật**, không dùng seam tạm.
+Trong nội bộ E10, Slice 1 vẫn nên là **offline-deterministic** (scripted O + scripted `DelegationPort`
+qua `adapters/agents/scripted.py`) để test plumbing loop/blackboard/AC-gate **không cần LLM** — nhưng
+worker là agent của E09, không phải stub.
 
 ## 1. Contracts / seams cần lock (interface trước)
 
-### 1a. Agent registry tối thiểu (tiền-E09, đặt ở `agents/registry.py`)
+### 1a. Agent registry — DO E09 CUNG CẤP (E10 chỉ tiêu thụ)
+E10 không tự định nghĩa registry. Đây là hợp đồng E10 **kỳ vọng E09 expose** (E09 build trước):
 ```python
 @dataclass(frozen=True)
 class RoleSpec:
@@ -32,10 +34,10 @@ class RoleSpec:
     default_scope: frozenset[str] # capability mặc định của role (least privilege)
 
 class AgentRegistry:              # map agent_id -> DelegationPort (qua delegation registry)
-    def list_roles(self) -> tuple[RoleSpec, ...]: ...
+    def list_roles(self) -> tuple[RoleSpec, ...]: ...   # O đọc available_agents từ đây
     def get(self, agent_id: str) -> RoleSpec: ...
 ```
-> E09 thật sẽ thay phần "role config" này; seam giữ nguyên để O đọc `available_agents`.
+> Khi viết PRD E09, chốt đúng interface này để E10 cắm vào không sửa.
 
 ### 1b. Mở rộng `DelegationSpec` (`core/schemas.py`) — backward compatible
 ```python
@@ -147,7 +149,7 @@ tests/test_{supervisor_loop,context_broker,acceptance_gate,loop_guard,capability
 | Slice | Nội dung | DoD (AC xanh) |
 |---|---|---|
 | **S0 prep** | seam stubs (1a–1g) không logic + test skeleton (skip/xfail) | import sạch; `pytest` xanh (skips) |
-| **S1 offline** | scripted O + scripted agents; loop/blackboard/AC-gate/loop-guard; **no LLM/network** | S10.1,2,3,5,6,7,8,9,11,14 xanh offline; có `task_loop_result` |
+| **S1 offline** | scripted O + E09 agents (qua scripted `DelegationPort`); loop/blackboard/AC-gate/loop-guard; **no LLM/network** | S10.1,2,3,5,6,7,8,9,11,14 xanh offline; có `task_loop_result` |
 | **S2 live** | O + Broker là `llm.chat`; ContextPacket từ store thật; judge LLM | task nhỏ LLM thật hội tụ; S10.4 + judge thực |
 | **S3 hardening** | capability `kind`+retry-fix; checkpoint/resume mid-loop (cần adapter SQLite); `loop.*` events | S10.10,12,13 xanh |
 
