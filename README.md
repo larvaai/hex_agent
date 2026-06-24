@@ -7,7 +7,7 @@ Clean rebuild of the agent system. **Sprint 0** implements the foundation (P0):
 - **E03 LLM Adapter** — `llm/`: OpenAI-compatible, JSON-mode, **lazy-init**, injectable client.
 - **E04 Observability** — `observability/`: event log (JSONL) + summary + inspect CLI.
 
-Spec: see `../rebuild_spec/` (E01–E04 PRD/stories/acceptance) and `../NEW_REPO_BUILD_GUIDE.md`.
+Spec: see `docs/rebuild_from_zero/` (E01–E04 PRD/stories/acceptance) and `docs/rebuild_from_zero/NEW_REPO_BUILD_GUIDE.md`.
 
 ## Requirements
 Python 3.11+.
@@ -35,6 +35,8 @@ python -m ui.server
 ## Layout
 ```
 core/          kernel, registry, schemas (envelope), events, state, bootstrap
+adapters/      concrete implementations of core ports
+delegation/    framework-neutral manager, registry, policy, progress store
 discipline/    json_gate, condense, finish_gate, budget   (shared)
 graph/         serializable state, nodes, compiled LangGraph runtime
 orchestrator/  stable run/resume facade + SQLite checkpointer
@@ -43,14 +45,15 @@ observability/ event_log + inspect CLI
 ui/            Dracula console: runs, prompts, state, logs, file explorer
 features/      loader + example_echo (plugin pattern)
 config/        features.yaml
-tests/         offline tests for E01–E04
+tests/         offline unit, concurrency, resume, and delegation tests
 var/           (gitignored) agent_runs/<run_id>/{events.jsonl,summary.json,langgraph.sqlite,checkpoint.json}
 ```
 
 ## Principles (baked in)
-One compiled LangGraph substrate; kernel stays framework-agnostic; every LLM/tool call crosses `execute_tool`; discipline shared (no duplication); SQLite is checkpoint truth; JSON-mode at the LLM layer; observability from commit 1; lazy LLM client; UTF-8 no BOM; `var/` gitignored.
+One compiled LangGraph substrate; `AgentKernel` is shared/frozen while `KernelSession` owns run state; every LLM/tool call crosses `execute_tool`; delegation uses a separate framework-neutral chokepoint; discipline shared (no duplication); SQLite is parent-graph checkpoint truth; JSON-mode at the LLM layer; thread-safe observability; lazy LLM client; UTF-8 no BOM; `var/` gitignored.
 
 ## Design docs
 
-- [MCP tool architecture, scaling and safety](docs/architecture/MCP_TOOLS.md)
-- [LangGraph runtime architecture](docs/architecture/LANGGRAPH.md)
+- [Runtime flow — how a task runs input → output (current reality)](docs/RUNTIME_FLOW.md)
+- [Known risks — dangerous files & behavioral footguns (read before editing)](docs/KNOWN_RISKS.md)
+- [MCP tool architecture, scaling and safety](docs/MCP_TOOLS.md) — *proposal, not yet implemented*

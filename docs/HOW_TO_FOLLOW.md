@@ -10,7 +10,7 @@ Bảng tự sinh: mỗi module + một dòng mục đích + epic. Mở `MAP.md` 
 ## 2. `CHANGELOG.md` — "thêm gì, vì sao, khi nào"
 Nhật ký theo **Sprint + Epic**. Đọc từ trên xuống để thấy repo lớn lên qua từng đợt: thêm module nào, thuộc epic nào, test gì. Đây là "câu chuyện" của repo.
 
-## 3. `../rebuild_spec/Exx_*/` — "tại sao / hợp đồng"
+## 3. `rebuild_from_zero/Exx_*/` — "tại sao / hợp đồng"
 Mỗi module truy được về một **epic** (E01..E20). Mỗi epic có `PRD.md` (vì sao + phạm vi), `stories.md` (ai cần gì), `acceptance.md` (Given/When/Then). Muốn hiểu *ý định* của một module → mở epic của nó.
 > Chuỗi truy vết: **file → epic (Exx) → acceptance criteria → test**.
 
@@ -31,7 +31,9 @@ Mỗi epic = một (cụm) commit với cú pháp `feat(Exx): ...`. `git log --o
 6. Module mới thuộc package mới → `MAP.md` tự phát hiện package (không cần khai báo).
 
 ## Thứ tự đọc đề xuất (cho người mới mở repo)
-`README.md` → `MAP.md` → `CHANGELOG.md` (mới nhất) → mở 1 epic ở `../rebuild_spec/` đang quan tâm → đọc `acceptance.md` rồi `tests/` rồi module tương ứng.
+`README.md` → `MAP.md` → `RUNTIME_FLOW.md` (cách một task chạy) → `CHANGELOG.md` (mới nhất) → mở 1 epic ở `rebuild_from_zero/` đang quan tâm → đọc `acceptance.md` rồi `tests/` rồi module tương ứng.
+
+> Trước khi **sửa** (không phải đọc) một module lõi: mở `KNOWN_RISKS.md` để biết file đó có giữ invariant gì và sửa sai thì vỡ gì.
 
 ## Kiểm tra nhanh "mình có hiểu đúng không"
 ```

@@ -1,5 +1,7 @@
 # Bách khoa class — core_agent (Sprint 0 + 1)
 
+> Historical snapshot: this encyclopedia predates `KernelSession`, LangGraph schema v2, and delegation. For the current runtime flow (kernel session + delegation) use `docs/RUNTIME_FLOW.md` and `docs/class_dependency.mermaid`.
+
 > Mọi class trong repo: **ý nghĩa**, API chính, **phụ thuộc vào** (→) và **được dùng bởi** (←), kèm epic.
 > Quy ước phụ thuộc: A → B nghĩa là "A cần/biết B". Toàn bộ tạo thành một DAG sạch (không vòng) — xem mục cuối + sơ đồ.
 
