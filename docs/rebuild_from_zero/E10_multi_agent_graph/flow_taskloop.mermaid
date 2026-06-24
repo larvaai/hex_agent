@@ -1,0 +1,46 @@
+%% E10 — Multi-agent TaskLoop flow (Agent O + Context Broker + Acceptance gate)
+%% Đây là NGUỒN của flow; cần sửa thì sửa file này.
+flowchart TD
+    IN["Task vào (từ E12 dispatch)<br/>objective + acceptance_criteria[]<br/>+ available_agents + constraints"]
+
+    IN --> COMPOSE["compose_team — Agent O<br/>chọn team tối thiểu<br/>→ SessionPlan (lý do từng agent)"]
+    COMPOSE --> ODECIDE
+
+    ODECIDE{"o_decide — Agent O<br/>đọc Blackboard + AC status<br/>→ decision JSON"}
+    ODECIDE -->|finished| FINISH
+    ODECIDE -->|blocked / failed| FAIL
+    ODECIDE -->|need_tool| TOOL
+    ODECIDE -->|continue| ASSIGN
+
+    %% ----- run_round: lặp cho TỪNG selected agent -----
+    ASSIGN["O giao assignment cho 1 agent<br/>objective + scope_of_work + allowed_caps"]
+    ASSIGN --> BROKER["broker (AGENT)<br/>đọc assignment + lát cắt store liên quan<br/>→ TỰ VIẾT Context Packet<br/>+source_ids · size cap · KHÔNG cấp scope"]
+    BROKER --> DELEGATE["delegate() — worker<br/>child session CÔ LẬP<br/>chỉ thấy packet · scope ⊆ parent"]
+    DELEGATE --> COLLECT["collect<br/>append turn + ArtifactEnvelope → Blackboard"]
+    COLLECT --> NEXTAGENT{"còn agent<br/>trong vòng?"}
+    NEXTAGENT -->|còn| ASSIGN
+    NEXTAGENT -->|hết| JUDGE
+
+    %% ----- tool path -----
+    TOOL["tool — execute_tool (CHOKEPOINT)<br/>policy + scope → result = artifact"]
+    TOOL --> ODECIDE
+
+    %% ----- acceptance + loop guard -----
+    JUDGE["judge_acceptance<br/>deterministic + (tùy) LLM judge<br/>cập nhật AC: passed/failed/missing + evidence"]
+    JUDGE --> GUARD{"loop guard<br/>có tiến triển? round < max?<br/>decision không lặp?"}
+    GUARD -->|ok| ODECIDE
+    GUARD -->|kẹt / max_rounds| FAIL
+
+    %% ----- terminal -----
+    FINISH["finish<br/>MỌI AC passed + có evidence<br/>→ complete_task → task_loop_result"]
+    FAIL["fail<br/>→ fail_task (kèm lý do)"]
+    FINISH --> OUT["Kết quả → E12 / caller"]
+    FAIL --> OUT
+
+    %% ----- nguồn sự thật -----
+    BB[("Blackboard / Store<br/>NGUỒN SỰ THẬT<br/>serializable · checkpoint SQLite")]
+    BB -.->|đọc| ODECIDE
+    BB -.->|đọc lát cắt| BROKER
+    COLLECT -.->|ghi| BB
+    TOOL -.->|ghi| BB
+    JUDGE -.->|ghi AC| BB
