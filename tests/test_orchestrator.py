@@ -75,3 +75,17 @@ def test_loop_step_budget_fails():
     out = run(k, "loop forever", budget=Budget(max_steps=2))
     assert out["status"] == "failed"
     assert "step budget" in out["result"]["reason"]
+
+
+def test_loop_same_tool_budget_blocks_before_an_extra_execution():
+    k = _agent(_always_tool_client())
+    completed_echoes = []
+    k.events.subscribe(
+        lambda topic, payload: completed_echoes.append(payload)
+        if topic == "tool.completed" and payload.get("tool") == "echo"
+        else None
+    )
+    out = run(k, "do not repeat forever", budget=Budget(max_steps=10, max_same_tool_calls=2))
+    assert out["status"] == "failed"
+    assert "repeated the same tool" in out["result"]["reason"]
+    assert len(completed_echoes) == 2

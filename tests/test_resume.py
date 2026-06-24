@@ -3,7 +3,13 @@ from core.bootstrap import build_kernel
 from core.schemas import TaskEnvelope
 from features.llm_chat import FEATURE, LLMChatTool
 from orchestrator import resume, run
-from orchestrator.checkpoint import Checkpoint, load_checkpoint, save_checkpoint
+from orchestrator.checkpoint import (
+    Checkpoint,
+    checkpoint_db_path,
+    checkpoint_path,
+    load_checkpoint,
+    save_checkpoint,
+)
 
 
 def _client(script):
@@ -34,7 +40,8 @@ def test_run_writes_checkpoint(tmp_path, monkeypatch):
     out = run(k, "x", run_id="run42")
     assert out["status"] == "completed"
     cp = load_checkpoint("run42")
-    assert cp is not None and cp.status == "completed"
+    assert cp is not None and cp.status == "completed" and cp.backend == "langgraph"
+    assert checkpoint_db_path("run42").exists()
 
 
 def test_resume_completed_returns_stored_result(tmp_path, monkeypatch):
@@ -44,6 +51,15 @@ def test_resume_completed_returns_stored_result(tmp_path, monkeypatch):
     k2 = _agent(_client(['{"action":"final","message":"SHOULD-NOT-RUN"}']))
     out = resume(k2, "r-done")
     assert out["status"] == "completed" and out["result"] == "done-once"
+
+
+def test_run_can_disable_durable_checkpoint(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_RUNS_DIR", str(tmp_path))
+    k = _agent(_client(['{"action":"final","message":"ephemeral","finish_reason":"done"}']))
+    out = run(k, "x", run_id="off", checkpoint=False)
+    assert out["status"] == "completed" and out["result"] == "ephemeral"
+    assert not checkpoint_db_path("off").exists()
+    assert not checkpoint_path("off").exists()
 
 
 def test_resume_continues_interrupted_run(tmp_path, monkeypatch):
@@ -76,3 +92,27 @@ def test_resume_missing_raises(tmp_path, monkeypatch):
         assert False, "expected FileNotFoundError"
     except FileNotFoundError:
         pass
+
+
+def test_resume_continues_from_langgraph_node_checkpoint(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_RUNS_DIR", str(tmp_path))
+    first = _agent(_client([]))
+    original_execute = first.execute_tool
+
+    def crash_once(tool_name, args=None):
+        if tool_name == "llm.chat":
+            raise RuntimeError("simulated process crash")
+        return original_execute(tool_name, args)
+
+    first.execute_tool = crash_once
+    try:
+        run(first, "survive restart", run_id="r-crash")
+        assert False, "expected simulated crash"
+    except RuntimeError as exc:
+        assert "simulated process crash" in str(exc)
+
+    persisted_task_id = load_checkpoint("r-crash").state["current_task"].task_id
+    second = _agent(_client(['{"action":"final","message":"recovered","finish_reason":"done"}']))
+    out = resume(second, "r-crash")
+    assert out["status"] == "completed" and out["result"] == "recovered"
+    assert out["task_id"] == persisted_task_id

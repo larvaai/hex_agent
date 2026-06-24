@@ -164,7 +164,7 @@ def main():
             out.write(content)
             out.write("\n\n")
 
-    print(f"Done. Project context saved to:")
+    print("Done. Project context saved to:")
     print(OUTPUT_FILE)
 
 

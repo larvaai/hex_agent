@@ -36,18 +36,21 @@ python -m ui.server
 ```
 core/          kernel, registry, schemas (envelope), events, state, bootstrap
 discipline/    json_gate, condense, finish_gate, budget   (shared)
+graph/         serializable state, nodes, compiled LangGraph runtime
+orchestrator/  stable run/resume facade + SQLite checkpointer
 llm/           adapter (lazy, JSON-mode)
 observability/ event_log + inspect CLI
 ui/            Dracula console: runs, prompts, state, logs, file explorer
 features/      loader + example_echo (plugin pattern)
 config/        features.yaml
 tests/         offline tests for E01–E04
-var/           (gitignored) agent_runs/<run_id>/{events.jsonl,summary.json}
+var/           (gitignored) agent_runs/<run_id>/{events.jsonl,summary.json,langgraph.sqlite,checkpoint.json}
 ```
 
 ## Principles (baked in)
-One graph substrate later (single = 1 node); discipline shared (no duplication); JSON-mode at the LLM layer; safety = one chokepoint; observability from commit 1; lazy LLM client; UTF-8 no BOM; `var/` gitignored.
+One compiled LangGraph substrate; kernel stays framework-agnostic; every LLM/tool call crosses `execute_tool`; discipline shared (no duplication); SQLite is checkpoint truth; JSON-mode at the LLM layer; observability from commit 1; lazy LLM client; UTF-8 no BOM; `var/` gitignored.
 
 ## Design docs
 
 - [MCP tool architecture, scaling and safety](docs/architecture/MCP_TOOLS.md)
+- [LangGraph runtime architecture](docs/architecture/LANGGRAPH.md)

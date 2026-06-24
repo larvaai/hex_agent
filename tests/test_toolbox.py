@@ -1,3 +1,5 @@
+import sys
+
 from core.bootstrap import build_kernel
 
 TOOLBOX = {"features": {"toolbox": {"enabled": True, "module": "toolbox.feature"}}}
@@ -25,7 +27,7 @@ def test_fs_read_escape_blocked(tmp_path, monkeypatch):
 
 def test_terminal_argv_runs(tmp_path, monkeypatch):
     k = _kernel(tmp_path, monkeypatch)
-    r = k.execute_tool("terminal_run", {"argv": ["python3", "-c", "print('hi')"]})
+    r = k.execute_tool("terminal_run", {"argv": [sys.executable, "-c", "print('hi')"]})
     assert r["ok"] is True
     assert "hi" in r["data"]["stdout"]
 

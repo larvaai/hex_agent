@@ -179,6 +179,7 @@ def read_file_snapshot(scope: str, relative_path: str) -> dict[str, Any]:
         content = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ValueError("file is not UTF-8 text") from exc
+    content = content.replace("\r\n", "\n").replace("\r", "\n")
     return {
         "scope": scope,
         "path": relative.as_posix(),

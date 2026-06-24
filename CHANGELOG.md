@@ -2,6 +2,15 @@
 
 Mỗi mục = một đợt thêm/sửa, gắn với **Sprint + Epic**, để theo dõi "thêm gì, vì sao". Mục mới nhất ở trên.
 
+## Sprint 3 — LangGraph runtime consolidation · 2026-06-24
+
+- Thay hai handwritten agent loop bằng một compiled `StateGraph`; `orchestrator.run/resume` giữ nguyên public API.
+- Giữ `AgentKernel` framework-agnostic: node LLM và tool đều gọi `execute_tool`, nên middleware, safety, envelope và trace ID không bị bypass.
+- Chuyển checkpoint thật sang `langgraph.sqlite` theo từng run; `checkpoint.json` chỉ là projection nguyên tử cho UI. Resume giữ nguyên `run_id`, `task_id`, messages, budget và kernel state qua process restart.
+- Đưa step/parse/same-tool budget vào graph state. Same-tool guard nay hoạt động trên production orchestrator và chặn trước lần thực thi dư.
+- Bổ sung graph transition metrics cho EventLogger, migration một lần từ JSON checkpoint cũ, và cấu hình setuptools package discovery để `pip install -e ".[dev]"` hoạt động.
+- Dependency: `langgraph>=1.2.6,<1.3`, `langgraph-checkpoint-sqlite>=3.1,<4`.
+
 ## Sprint 2 — Chokepoint discipline + resume: trace, LLM-as-capability, middleware, lifecycle, checkpoint · 2026-06-20
 Một nhánh thiết kế "kernel chokepoint": kéo LLM + condense/budget/policy về một cửa `execute_tool`, thêm vòng đời task và một loop mỏng ngoài kernel. **Tồn tại song song** với `graph/` (E05) và `safety/` (E06) của Sprint 1 — không thay thế (quyết định "giữ cả hai").
 

@@ -4,6 +4,8 @@ version = "0.0.1"
 description = "Clean rebuild of the agent system — Sprint 0 (kernel, discipline, llm adapter, observability)."
 requires-python = ">=3.11"
 dependencies = [
+    "langgraph>=1.2.6,<1.3",
+    "langgraph-checkpoint-sqlite>=3.1,<4",
     "openai>=1.0",
     "PyYAML>=6.0",
 ]
@@ -21,3 +23,18 @@ target-version = "py311"
 [tool.pytest.ini_options]
 addopts = "-q -p no:cacheprovider"
 testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = [
+    "core*",
+    "discipline*",
+    "features*",
+    "graph*",
+    "llm*",
+    "middleware*",
+    "observability*",
+    "orchestrator*",
+    "safety*",
+    "toolbox*",
+    "ui*",
+]

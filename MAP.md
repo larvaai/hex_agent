@@ -3,9 +3,9 @@
 > Thường TỰ SINH bằng `python tools/gen_map.py` (đọc docstring dòng đầu mỗi module).
 > Bản này điền chuẩn bằng file tool (sandbox đọc mount đang lỗi); trên máy bạn cứ chạy `python tools/gen_map.py` để tái tạo sạch.
 >
-> **Lưu ý kiến trúc (quyết định "giữ cả hai"):** tồn tại song song hai nhánh —
-> vòng lặp `graph/` (LLM gọi trực tiếp) ↔ `orchestrator/` (LLM-as-capability + middleware + lifecycle);
-> và safety `safety/SafeToolPort` (bọc per-tool) ↔ `middleware/PolicyGate` (chokepoint).
+> **Lưu ý kiến trúc:** chỉ còn một runtime agent: `orchestrator/` là public facade và
+> `graph/` là compiled LangGraph. LLM/tool đều đi qua `AgentKernel.execute_tool`;
+> SQLite là checkpoint thật, còn `checkpoint.json` chỉ là projection cho UI.
 
 ## core/
 
@@ -41,9 +41,9 @@
 
 | module | mục đích |
 |---|---|
-| `graph/nodes.py` | Graph nodes: agent (LLM → action) and tool (execute via kernel). Epic E05. |
-| `graph/runtime.py` | Single-agent graph runtime: agent↔tool loop with discipline, budget, finish-gate, events. Epic E05. |
-| `graph/state.py` | AgentState for the single-agent graph loop (reused by multi-agent later). Epic E05. |
+| `graph/nodes.py` | LangGraph nodes; every external action still crosses AgentKernel.execute_tool. |
+| `graph/runtime.py` | Compile the single-agent LangGraph; no handwritten agent loop lives here. |
+| `graph/state.py` | Serializable LangGraph state and the codec for the microkernel's in-memory state. |
 
 ## llm/
 
@@ -72,8 +72,8 @@
 
 | module | mục đích |
 |---|---|
-| `orchestrator/checkpoint.py` | Run checkpoints: persist loop state to var/agent_runs/<run_id>/checkpoint.json so a run can resume. Epic E07. |
-| `orchestrator/loop.py` | E05 — single-agent loop with checkpoint/resume. Drives the kernel; reuses discipline. Lives OUTSIDE the kernel. |
+| `orchestrator/checkpoint.py` | LangGraph SQLite persistence plus a JSON run-state projection for the local UI. |
+| `orchestrator/loop.py` | Public run/resume facade backed by the single compiled LangGraph. |
 
 ## safety/
 

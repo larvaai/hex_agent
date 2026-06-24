@@ -88,5 +88,11 @@ def attach_to_bus(logger: EventLogger, bus: EventBus) -> None:
             if is_llm:
                 logger.count("llm_calls")
                 logger.count("llm_failures")
+        elif topic == "graph.step":
+            logger.count("steps")
+        elif topic == "graph.parse_error":
+            logger.count("parse_errors")
+        elif topic == "graph.finish_blocked":
+            logger.count("finish_gate_blocks")
 
     bus.subscribe(sink)
