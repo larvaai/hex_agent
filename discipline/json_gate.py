@@ -61,8 +61,13 @@ def _load_object(text: str) -> dict[str, Any] | None:
     return None
 
 
-def parse_action(text: str) -> dict[str, Any]:
-    """Parse one JSON action object from model output, repairing common breakage."""
+def parse_json_object(text: str) -> dict[str, Any]:
+    """Parse one JSON object from model output, repairing common breakage.
+
+    Field-agnostic: callers that require a specific key (e.g. 'action' or
+    'decision') validate it themselves. Raises JsonGateError when no object can
+    be recovered.
+    """
     raw = _strip_fences(text or "")
     obj = _load_object(raw)
     if obj is None:
@@ -80,6 +85,12 @@ def parse_action(text: str) -> dict[str, Any]:
                 break
     if obj is None:
         raise JsonGateError("Could not parse a JSON object from model output.", candidate=raw[:200])
+    return obj
+
+
+def parse_action(text: str) -> dict[str, Any]:
+    """Parse one JSON action object from model output, repairing common breakage."""
+    obj = parse_json_object(text)
     if "action" not in obj:
         raise JsonGateError("Missing required 'action' field.", stage="schema", candidate=str(obj)[:200])
     return obj
