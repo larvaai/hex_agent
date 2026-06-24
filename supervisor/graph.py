@@ -42,6 +42,7 @@ class SupervisorContext:
     broker: BrokerPort
     agent_registry: Any | None = None  # E09 AgentRegistry (for the role catalog)
     store_slice_provider: StoreSliceProvider = default_store_slice
+    checkpoint: Callable[[TaskLoopState], None] | None = None  # SQLite save (S10.10)
 
     def role_catalog(self) -> tuple[dict[str, Any], ...]:
         if self.agent_registry is None:
@@ -52,6 +53,10 @@ class SupervisorContext:
         self.supervisor_session.kernel.events.publish(
             topic, {**self.supervisor_session.call_context().event_fields(), **payload}
         )
+
+    def save(self, state: TaskLoopState) -> None:
+        if self.checkpoint is not None:
+            self.checkpoint(state)
 
 
 def _next_id(prefix: str, state: TaskLoopState) -> str:
@@ -99,8 +104,14 @@ def _state_view(state: TaskLoopState) -> dict[str, Any]:
 
 # ── run_round (S10.2/S10.3/S10.5/S10.14) ─────────────────────────────────────
 def run_round(state: TaskLoopState, ctx: SupervisorContext, decision: OrchestratorDecision) -> None:
-    """Delegate to each assigned agent exactly once; merge results into the board."""
+    """Delegate to each assigned agent exactly once; merge results into the board.
+
+    On resume, an agent that already produced a turn this round is skipped — a
+    completed worker turn is never re-run (S10.10)."""
+    done_this_round = {t.agent_id for t in state.turns if t.round_no == state.round_no}
     for assignment in decision.next_agent_calls:
+        if assignment.agent_id in done_this_round:
+            continue
         store_slice = ctx.store_slice_provider(assignment, state)
         packet = ctx.broker.write_packet(assignment=assignment, store_slice=store_slice)
         packet_id = _next_id("context_packet", state)
@@ -150,6 +161,7 @@ def run_round(state: TaskLoopState, ctx: SupervisorContext, decision: Orchestrat
             )
         )
         ctx.emit("loop.turn", {"agent_id": assignment.agent_id, "outcome": result.outcome})
+        ctx.save(state)  # checkpoint after each completed turn (S10.10)
     state.status = TaskLoopStatus.IN_DISCUSSION.value
 
 

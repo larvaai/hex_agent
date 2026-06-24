@@ -44,6 +44,27 @@ def _decision_signature(decision: OrchestratorDecision) -> str:
     return f"{decision.decision}|{agents}|{tools}"
 
 
+def _make_ctx(
+    supervisor_session: KernelSession,
+    *,
+    delegation_service: Any,
+    orchestrator: Any,
+    broker: Any,
+    agent_registry: Any | None,
+    store_slice_provider: Any | None,
+    checkpoint_store: Any | None,
+) -> SupervisorContext:
+    return SupervisorContext(
+        supervisor_session=supervisor_session,
+        delegation_service=delegation_service,
+        orchestrator=orchestrator,
+        broker=broker,
+        agent_registry=agent_registry,
+        store_slice_provider=store_slice_provider or default_store_slice,
+        checkpoint=checkpoint_store.save if checkpoint_store is not None else None,
+    )
+
+
 def run_task_loop(
     supervisor_session: KernelSession,
     task: str,
@@ -57,14 +78,16 @@ def run_task_loop(
     max_decision_repeats: int = 3,
     store_slice_provider: Any | None = None,
     budget: Budget | None = None,
+    checkpoint_store: Any | None = None,
 ) -> dict[str, Any]:
-    ctx = SupervisorContext(
-        supervisor_session=supervisor_session,
+    ctx = _make_ctx(
+        supervisor_session,
         delegation_service=delegation_service,
         orchestrator=orchestrator,
         broker=broker,
         agent_registry=agent_registry,
-        store_slice_provider=store_slice_provider or default_store_slice,
+        store_slice_provider=store_slice_provider,
+        checkpoint_store=checkpoint_store,
     )
     state = TaskLoopState(
         session_id=supervisor_session.identity.session_id,
@@ -72,10 +95,44 @@ def run_task_loop(
         max_rounds=max_rounds,
     )
     state.acceptance_checks = _criteria(acceptance_criteria)
-    active_budget = budget or Budget()
-
     compose_team(state, ctx, task=task)
+    ctx.save(state)
+    return _drive(state, ctx, budget=budget or Budget(), max_decision_repeats=max_decision_repeats)
 
+
+def resume_task_loop(
+    supervisor_session: KernelSession,
+    *,
+    checkpoint_store: Any,
+    delegation_service: Any,
+    orchestrator: Any,
+    broker: Any,
+    agent_registry: Any | None = None,
+    max_decision_repeats: int = 3,
+    store_slice_provider: Any | None = None,
+    budget: Budget | None = None,
+) -> dict[str, Any]:
+    """Restore the Blackboard from SQLite and continue from the next pending round."""
+    state = checkpoint_store.load()
+    if state is None:
+        raise FileNotFoundError(f"No TaskLoop checkpoint for run_id={checkpoint_store.run_id!r}")
+    ctx = _make_ctx(
+        supervisor_session,
+        delegation_service=delegation_service,
+        orchestrator=orchestrator,
+        broker=broker,
+        agent_registry=agent_registry,
+        store_slice_provider=store_slice_provider,
+        checkpoint_store=checkpoint_store,
+    )
+    if state.is_terminal:
+        return _result(state)
+    return _drive(state, ctx, budget=budget or Budget(), max_decision_repeats=max_decision_repeats)
+
+
+def _drive(
+    state: TaskLoopState, ctx: SupervisorContext, *, budget: Budget, max_decision_repeats: int
+) -> dict[str, Any]:
     last_signature: str | None = None
     repeat_count = 0
 
@@ -87,7 +144,7 @@ def run_task_loop(
         before_artifacts = len(state.artifacts)
         before_acceptance = state.acceptance_snapshot()
 
-        decision = o_decide(state, ctx, budget=active_budget)
+        decision = o_decide(state, ctx, budget=budget)
         if decision is None:
             _terminate(state, ctx, TaskLoopStatus.FAILED, "parse-error budget exceeded")
             break
@@ -115,6 +172,7 @@ def run_task_loop(
             break
 
         state.round_no += 1
+        ctx.save(state)  # checkpoint at each round boundary (S10.10)
 
         progressed = len(state.artifacts) > before_artifacts or state.acceptance_snapshot() != before_acceptance
         if not progressed:
@@ -131,6 +189,7 @@ def _terminate(state: TaskLoopState, ctx: SupervisorContext, status: TaskLoopSta
     state.status = status.value
     state.reason = reason
     ctx.emit(f"loop.{status.value}", {"reason": reason, "rounds": state.round_no})
+    ctx.save(state)
 
 
 def _result(state: TaskLoopState) -> dict[str, Any]:

@@ -42,8 +42,19 @@ def classify_terminal(argv: Any) -> PolicyDecision:
     return PolicyDecision(True, risk="low")
 
 
+WHOLE_FILE_WRITES = {"fs_write", "fs.write", "file_write"}
+
+
 class ToolPolicy:
-    """The single cross-cutting safety gate. Extend here, not per-server."""
+    """The single cross-cutting safety gate. Extend here, not per-server.
+
+    In ``repair_mode`` (entered after a failed test/validation), a whole-file
+    rewrite is refused with ``policy_code=repair_requires_patch_tool`` so a repair
+    must be a scoped patch, not a clobbering overwrite (E10 S10.12).
+    """
+
+    def __init__(self, *, repair_mode: bool = False) -> None:
+        self.repair_mode = repair_mode
 
     def check(self, tool_name: str, args: dict[str, Any]) -> PolicyDecision:
         if tool_name in {"terminal_run", "terminal.run", "terminal"}:
@@ -52,6 +63,13 @@ class ToolPolicy:
             "AGENT_ALLOW_GIT_MUTATIONS"
         ):
             return PolicyDecision(False, f"git mutation tool '{tool_name}' blocked", "git_mutation", "blocked")
+        if self.repair_mode and tool_name in WHOLE_FILE_WRITES:
+            return PolicyDecision(
+                False,
+                "in repair mode a whole-file rewrite is blocked; use a patch tool",
+                "repair_requires_patch_tool",
+                "blocked",
+            )
         return PolicyDecision(True)
 
 

@@ -126,6 +126,9 @@ class AgentKernel:
                     **lineage,
                     "request_id": req.request_id,
                     "executor": getattr(resolution.executor, "name", resolution.executor.__class__.__name__),
+                    "kind": resolution.descriptor.kind,
+                    "idempotent": resolution.descriptor.idempotent,
+                    "risk": resolution.descriptor.risk,
                 },
             ).as_dict()
 

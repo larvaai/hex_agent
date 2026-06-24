@@ -8,6 +8,7 @@ minimal. See docs/rebuild_from_zero/E10_multi_agent_graph/.
 from __future__ import annotations
 
 from supervisor.broker import BrokerPort, DeterministicBroker
+from supervisor.checkpoint import SqliteTaskLoopStore, taskloop_db_path
 from supervisor.contracts import (
     AgentAssignment,
     AgentSelection,
@@ -18,7 +19,7 @@ from supervisor.contracts import (
     parse_session_plan,
 )
 from supervisor.llm import ChatLLM, KernelChatLLM, LLMBroker, LLMOrchestrator
-from supervisor.loop import run_task_loop
+from supervisor.loop import resume_task_loop, run_task_loop
 from supervisor.orchestrator import OrchestratorPort, ScriptedOrchestrator
 from supervisor.state import (
     AcceptanceCheck,
@@ -31,6 +32,9 @@ from supervisor.state import (
 
 __all__ = [
     "run_task_loop",
+    "resume_task_loop",
+    "SqliteTaskLoopStore",
+    "taskloop_db_path",
     "OrchestratorPort",
     "ScriptedOrchestrator",
     "BrokerPort",
