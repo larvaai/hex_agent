@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Core Agent Console</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <button class="icon-button mobile-only" id="explorer-toggle" type="button" title="Mở Explorer" aria-label="Mở Explorer">
+        <i data-lucide="panel-left"></i>
+      </button>
+      <div class="brand" aria-label="Core Agent Console">
+        <span class="brand-mark"><i data-lucide="activity"></i></span>
+        <span class="brand-name">Core Agent</span>
+        <span class="brand-edition">Console</span>
+      </div>
+      <div class="run-picker">
+        <label for="run-select">Run</label>
+        <select id="run-select" aria-label="Chọn run"></select>
+      </div>
+      <div class="topbar-spacer"></div>
+      <div class="connection" id="connection-status" data-state="connecting">
+        <span class="connection-dot"></span>
+        <span class="connection-label">Đang kết nối</span>
+      </div>
+      <button class="icon-button mobile-only" id="inspector-toggle" type="button" title="Mở Inspector" aria-label="Mở Inspector">
+        <i data-lucide="panel-right"></i>
+      </button>
+    </header>
+
+    <aside class="explorer" id="explorer-panel">
+      <div class="panel-header">
+        <div>
+          <span class="eyebrow">EXPLORER</span>
+          <strong id="explorer-title">Workspace</strong>
+        </div>
+        <button class="icon-button" id="tree-refresh" type="button" title="Làm mới cây thư mục" aria-label="Làm mới cây thư mục">
+          <i data-lucide="refresh-cw"></i>
+        </button>
+      </div>
+      <div class="segmented explorer-scope" role="tablist" aria-label="Phạm vi thư mục">
+        <button class="segment is-active" type="button" data-scope="workspace" role="tab" aria-selected="true">Workspace</button>
+        <button class="segment" type="button" data-scope="project" role="tab" aria-selected="false">Project</button>
+      </div>
+      <div class="tree-meta">
+        <span id="tree-root">var/workspace</span>
+        <span id="tree-count">0 mục</span>
+      </div>
+      <nav class="file-tree" id="file-tree" aria-label="Cây thư mục"></nav>
+    </aside>
+
+    <main class="workspace">
+      <section class="prompt-composer" aria-label="Gửi prompt">
+        <button class="prompt-avatar" id="system-prompt-button" type="button" title="Chỉnh system prompt" aria-label="Chỉnh system prompt">
+          <i data-lucide="sliders-horizontal"></i>
+        </button>
+        <textarea id="prompt-input" rows="2" placeholder="Nhập yêu cầu cho agent..." aria-label="Prompt cho agent"></textarea>
+        <button class="primary-button" id="run-button" type="button">
+          <i data-lucide="play"></i>
+          <span>Run</span>
+        </button>
+      </section>
+
+      <section class="stage-strip" aria-label="Tiến trình run">
+        <div class="stage-list" id="stage-list"></div>
+        <div class="run-status" id="run-status" data-status="idle">Idle</div>
+      </section>
+
+      <section class="activity-pane">
+        <div class="activity-toolbar">
+          <div class="segmented" role="tablist" aria-label="Dạng hiển thị hoạt động">
+            <button class="segment is-active" id="conversation-tab" type="button" data-view="conversation" role="tab" aria-selected="true">
+              Conversation
+            </button>
+            <button class="segment" id="timeline-tab" type="button" data-view="timeline" role="tab" aria-selected="false">
+              State timeline
+            </button>
+          </div>
+          <span class="activity-count" id="activity-count">0 messages</span>
+        </div>
+        <div class="activity-content" id="activity-content"></div>
+      </section>
+
+      <section class="log-dock" aria-label="Event logs">
+        <div class="log-toolbar">
+          <div class="log-title"><i data-lucide="square-terminal"></i><strong>Event log</strong></div>
+          <div class="segmented compact" role="tablist" aria-label="Lọc log">
+            <button class="segment is-active" type="button" data-log-filter="all">All</button>
+            <button class="segment" type="button" data-log-filter="kernel">Kernel</button>
+            <button class="segment" type="button" data-log-filter="llm">LLM</button>
+            <button class="segment" type="button" data-log-filter="state">State</button>
+          </div>
+          <label class="auto-scroll"><input id="auto-scroll" type="checkbox" checked> Auto-scroll</label>
+        </div>
+        <div class="log-output" id="log-output" role="log" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <aside class="inspector" id="inspector-panel">
+      <div class="inspector-tabs" role="tablist" aria-label="Inspector">
+        <button class="inspector-tab is-active" type="button" data-inspector="state" role="tab" aria-selected="true">State</button>
+        <button class="inspector-tab" type="button" data-inspector="file" role="tab" aria-selected="false">
+          File <span class="file-dirty-indicator" id="file-change-dot"></span>
+        </button>
+        <button class="inspector-tab" type="button" data-inspector="prompt" role="tab" aria-selected="false">Prompt</button>
+      </div>
+      <div class="inspector-view" id="state-view">
+        <div class="metric-grid" id="metric-grid"></div>
+        <div class="section-heading">
+          <span>Checkpoint state</span>
+          <button class="icon-button" id="copy-state" type="button" title="Sao chép state JSON" aria-label="Sao chép state JSON">
+            <i data-lucide="copy"></i>
+          </button>
+        </div>
+        <pre class="json-view" id="state-json">{}</pre>
+      </div>
+      <div class="inspector-view is-hidden" id="file-view">
+        <div class="file-header">
+          <div class="file-heading">
+            <i data-lucide="file-code-2"></i>
+            <div><strong id="file-name">No file selected</strong><span id="file-path"></span></div>
+          </div>
+          <span id="file-size"></span>
+        </div>
+        <pre class="file-preview"><code id="file-content">Chọn một file trong Explorer để xem nội dung.</code></pre>
+      </div>
+      <div class="inspector-view is-hidden" id="prompt-view">
+        <div class="prompt-editor-heading">
+          <div><span class="eyebrow">RUN CONFIG</span><strong>System prompt</strong></div>
+          <span id="system-prompt-count">0 ký tự</span>
+        </div>
+        <textarea id="system-prompt-input" class="system-prompt-input" spellcheck="false" aria-label="System prompt cho lần chạy kế tiếp"></textarea>
+        <div class="prompt-editor-actions">
+          <button class="secondary-button" id="load-run-system" type="button">
+            <i data-lucide="history"></i><span>Nạp từ run</span>
+          </button>
+          <button class="secondary-button" id="reset-system-prompt" type="button">
+            <i data-lucide="rotate-ccw"></i><span>Mặc định</span>
+          </button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="toast-region" id="toast-region" aria-live="polite"></div>
+  <div class="mobile-scrim" id="mobile-scrim"></div>
+
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script src="/app.js" defer></script>
+</body>
+</html>

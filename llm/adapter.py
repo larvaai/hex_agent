@@ -1,13 +1,13 @@
-"""OpenAI-compatible LLM adapter — JSON-mode, lazy client, injectable for tests. Epic E03."""
+"""OpenAI-compatible LLM adapter — JSON-mode, lazy client, retry/backoff on transient errors, injectable. Epic E03."""
 from __future__ import annotations
 
 import json
 import os
+import time
 from typing import Any
 
-# Lazy module-level client cache. Importing this module does NOT build a client
-# and does NOT import the openai package — that happens on first real call.
 _client: Any = None
+_sleep = time.sleep  # module-level so tests can monkeypatch it
 
 
 def _defaults() -> dict[str, Any]:
@@ -16,7 +16,9 @@ def _defaults() -> dict[str, Any]:
         "api_key": os.getenv("LLM_API_KEY", "lm-studio"),
         "model": os.getenv("LLM_MODEL", "local-model"),
         "max_tokens": int(os.getenv("LLM_MAX_TOKENS", "2048")),
-        "timeout": float(os.getenv("LLM_TIMEOUT", "600")),
+        "timeout": float(os.getenv("LLM_TIMEOUT", "120")),       # was 600 — a hung socket no longer blocks 10 min
+        "max_retries": int(os.getenv("LLM_MAX_RETRIES", "2")),
+        "retry_base": float(os.getenv("LLM_RETRY_BASE", "0.5")),
     }
 
 
@@ -35,37 +37,44 @@ def reset_client() -> None:
     _client = None
 
 
-def call_llm(
-    messages: list[dict[str, str]],
-    *,
-    model: str | None = None,
-    temperature: float = 0.2,
-    json_mode: bool = True,
-    client: Any = None,
-) -> str:
-    """
-    Call an OpenAI-compatible chat endpoint.
+def _is_transient(exc: Exception) -> bool:
+    """Worth retrying: timeouts, dropped connections, rate limit (429), server errors (5xx).
+    Permanent: client errors (4xx except 429) and anything we cannot classify. Duck-typed so we
+    do not need to import openai's exception classes (keeps the adapter lazy + injectable)."""
+    status = getattr(exc, "status_code", None)
+    if not isinstance(status, int):
+        status = getattr(exc, "status", None)
+    if isinstance(status, int):
+        return status == 429 or status >= 500
+    name = type(exc).__name__.lower()
+    return "timeout" in name or "connection" in name
 
-    - `json_mode=True` sets response_format=json_object so the model returns JSON.
-    - `client` can be injected (for tests); otherwise a lazy module client is used.
-    - On error, returns a structured `final` JSON string (never raises into the loop).
-    """
+
+def call_llm(messages, *, model=None, temperature=0.2, json_mode=True, client=None) -> str:
+    """Call an OpenAI-compatible chat endpoint. Retries transient failures with exponential backoff;
+    on permanent failure (or exhausted retries) returns a structured `final`/error JSON (never raises)."""
     cfg = _defaults()
     active = client if client is not None else _get_client()
-    kwargs: dict[str, Any] = {
-        "model": model or cfg["model"],
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": cfg["max_tokens"],
-    }
+    kwargs: dict[str, Any] = {"model": model or cfg["model"], "messages": messages,
+                              "temperature": temperature, "max_tokens": cfg["max_tokens"]}
     if json_mode:
         kwargs["response_format"] = {"type": "json_object"}
 
-    try:
-        response = active.chat.completions.create(**kwargs)
-        return response.choices[0].message.content or ""
-    except Exception as exc:
-        return json.dumps(
-            {"action": "final", "finish_reason": "error", "message": f"LLM request failed: {exc}"},
-            ensure_ascii=False,
-        )
+    attempts = max(1, cfg["max_retries"] + 1)
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            response = active.chat.completions.create(**kwargs)
+            return response.choices[0].message.content or ""
+        except Exception as exc:
+            last_exc = exc
+            if attempt + 1 < attempts and _is_transient(exc):
+                _sleep(cfg["retry_base"] * (2 ** attempt))  # exp backoff: 0.5, 1.0, 2.0, ...
+                continue
+            break
+
+    return json.dumps(
+        {"action": "final", "finish_reason": "error",
+         "message": f"LLM request failed after {attempt + 1} attempt(s): {last_exc}"},
+        ensure_ascii=False,
+    )

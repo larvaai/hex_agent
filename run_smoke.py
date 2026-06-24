@@ -27,6 +27,9 @@ def main() -> int:
     gate = check_finish({"code_changed": True, "validation_passed": False}, finish_reason="validated")
     assert gate["allowed"] is False, gate
 
+    done = kernel.complete_task("smoke complete")
+    assert done["status"] == "completed" and kernel.state.get("current_task") is None, done
+
     summary = logger.finish("completed")
     print("CORE_AGENT_SMOKE_OK run_id=" + summary["run_id"])
     return 0

@@ -27,6 +27,9 @@ python -m pytest
 # inspect a run's events:
 python -m observability.inspect list
 python -m observability.inspect summary latest
+
+# local real-time UI (then open http://127.0.0.1:8765):
+python -m ui.server
 ```
 
 ## Layout
@@ -35,6 +38,7 @@ core/          kernel, registry, schemas (envelope), events, state, bootstrap
 discipline/    json_gate, condense, finish_gate, budget   (shared)
 llm/           adapter (lazy, JSON-mode)
 observability/ event_log + inspect CLI
+ui/            Dracula console: runs, prompts, state, logs, file explorer
 features/      loader + example_echo (plugin pattern)
 config/        features.yaml
 tests/         offline tests for E01–E04
@@ -43,3 +47,7 @@ var/           (gitignored) agent_runs/<run_id>/{events.jsonl,summary.json}
 
 ## Principles (baked in)
 One graph substrate later (single = 1 node); discipline shared (no duplication); JSON-mode at the LLM layer; safety = one chokepoint; observability from commit 1; lazy LLM client; UTF-8 no BOM; `var/` gitignored.
+
+## Design docs
+
+- [MCP tool architecture, scaling and safety](docs/architecture/MCP_TOOLS.md)

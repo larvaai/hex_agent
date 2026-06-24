@@ -15,6 +15,15 @@ class TaskEnvelope:
     metadata: dict[str, Any] = field(default_factory=dict)
     task_id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
+    def as_dict(self) -> dict[str, Any]:
+        return {"task_id": self.task_id, "user_request": self.user_request,
+                "context": dict(self.context), "metadata": dict(self.metadata)}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "TaskEnvelope":
+        return cls(user_request=d.get("user_request", ""), context=dict(d.get("context") or {}),
+                   metadata=dict(d.get("metadata") or {}), task_id=d.get("task_id") or uuid.uuid4().hex)
+
 
 @dataclass(frozen=True)
 class ToolRequest:
