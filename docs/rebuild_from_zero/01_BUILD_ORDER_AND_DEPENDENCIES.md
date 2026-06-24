@@ -13,7 +13,7 @@
 | E04 Observability | P0 | E01 |
 | E06 MCP Tools & Safety | P2 | E01 |
 | E05 Single-agent Graph | P1 | E01, E02, E03, E04, E06 |
-| E07 Skills | P2 | E06, E09 |
+| E07 Skills | P2 | E06 |
 | E08 RAG | P2 | E06 |
 | E09 Roles & Lenses | P3 | E01, E06, E07 |
 | E10 Multi-agent Graph | P3 | E05, E09, E02, E06, E04 |
@@ -28,7 +28,7 @@
 | E19 Test Harness | cross | tất cả (kiểm chúng) |
 | E20 Labs | sau | tiện ích dùng chung |
 
-Lưu ý vòng phụ thuộc mềm: **E07↔E09** (skills khai báo tool ↔ role gắn skill) và cụm **E15/E16/E18** (self-eval ↔ review gate ↔ UI). Giải bằng cách xây *interface trước, nội dung sau*: định nghĩa hợp đồng (schema/seam) rồi mới hoàn thiện từng bên.
+Lưu ý vòng phụ thuộc mềm: **E07↔E09** — **đã gỡ**: skill là role-agnostic, role mới bind skill + suy allowlist → chiều thật là E07→E09 (xem `CYCLE_E07_E09_skill_role.md`). Còn cụm **E15/E16/E18** (self-eval ↔ review gate ↔ UI) giải bằng *interface trước, nội dung sau*: định nghĩa hợp đồng (schema/seam) rồi mới hoàn thiện từng bên.
 
 ## Thứ tự xây đề xuất (critical path)
 
