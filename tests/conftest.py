@@ -14,6 +14,8 @@ from core.ports import ProgressSink
 from core.schemas import ArtifactEnvelope, DelegationRequest, DelegationResult
 from core.session import KernelSession, SessionFactory
 from delegation import DelegationManager, DelegationRegistry, InMemoryDelegationStore
+from features.llm_chat import FEATURE as LLM_FEATURE
+from features.llm_chat import LLMChatTool
 from supervisor.broker import DeterministicBroker
 from supervisor.orchestrator import ScriptedOrchestrator
 
@@ -67,6 +69,24 @@ class LoopEnv:
     workers: dict[str, Any] = field(default_factory=dict)
 
 
+def scripted_client(script: list[str]):
+    """Fake OpenAI-compatible client: each create() call returns the next script item."""
+
+    class Client:
+        def __init__(self) -> None:
+            outer_script = list(script)
+
+            class Completions:
+                def create(self, **kwargs: Any):
+                    content = outer_script.pop(0)
+                    message = type("M", (), {"content": content})()
+                    return type("R", (), {"choices": [type("C", (), {"message": message})()]})()
+
+            self.chat = type("Chat", (), {"completions": Completions()})()
+
+    return Client()
+
+
 def compose_json(*selected: tuple[str, str]) -> str:
     return json.dumps({"selected_agents": [{"agent_id": a, "reason": r} for a, r in selected]})
 
@@ -86,8 +106,15 @@ def make_env():
         agent_ids: tuple[str, ...] = ("code",),
         workers: dict[str, Any] | None = None,
         root_scope: frozenset[str] | None = None,
+        llm_client: Any | None = None,
     ) -> LoopEnv:
         kernel = build_kernel(KERNEL_CONFIG)
+        if llm_client is not None:
+            # Register llm.chat with the scripted client BEFORE the session freezes the registry.
+            kernel.registry.register_feature(LLM_FEATURE)
+            kernel.registry.register_tools(
+                LLM_FEATURE.capabilities, LLMChatTool(client=llm_client), feature_name=LLM_FEATURE.name
+            )
         factory = SessionFactory(kernel=kernel)
         supervisor_session = factory.create_root("multi-agent task", allowed_capabilities=root_scope)
 

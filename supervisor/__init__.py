@@ -17,6 +17,7 @@ from supervisor.contracts import (
     parse_decision,
     parse_session_plan,
 )
+from supervisor.llm import ChatLLM, KernelChatLLM, LLMBroker, LLMOrchestrator
 from supervisor.loop import run_task_loop
 from supervisor.orchestrator import OrchestratorPort, ScriptedOrchestrator
 from supervisor.state import (
@@ -34,6 +35,10 @@ __all__ = [
     "ScriptedOrchestrator",
     "BrokerPort",
     "DeterministicBroker",
+    "ChatLLM",
+    "KernelChatLLM",
+    "LLMOrchestrator",
+    "LLMBroker",
     "SessionPlan",
     "AgentSelection",
     "AgentAssignment",
