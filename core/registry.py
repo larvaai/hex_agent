@@ -35,11 +35,21 @@ class CapabilityRegistry:
         self._fallback: Any = None
         self._fallback_feature: str | None = None
         self._null = null_tool or NullToolPort()
+        self._frozen = False
+
+    def _ensure_mutable(self) -> None:
+        if self._frozen:
+            raise RuntimeError("Capability registry is frozen for active sessions.")
+
+    def freeze(self) -> None:
+        self._frozen = True
 
     def register_feature(self, descriptor: FeatureDescriptor) -> None:
+        self._ensure_mutable()
         self._features[descriptor.name] = descriptor
 
     def register_tool(self, name: str, executor: Any, *, feature_name: str | None = None) -> None:
+        self._ensure_mutable()
         self._tools[name] = executor
         if feature_name:
             self._tool_features[name] = feature_name
@@ -49,6 +59,7 @@ class CapabilityRegistry:
             self.register_tool(name, executor, feature_name=feature_name)
 
     def set_fallback_tool_executor(self, executor: Any, *, feature_name: str | None = None) -> None:
+        self._ensure_mutable()
         self._fallback = executor
         self._fallback_feature = feature_name if executor is not None else None
 

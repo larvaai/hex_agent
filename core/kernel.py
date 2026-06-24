@@ -1,13 +1,24 @@
-"""AgentKernel — minimal core: state, events, capability chokepoint, task lifecycle. Epic E01/E05."""
+"""Shared, frozen capability runtime; per-run state and lifecycle live in KernelSession."""
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
-from typing import Any
+from types import MappingProxyType
+from typing import Any, Mapping
 
 from core.events import EventBus
 from core.registry import CapabilityRegistry
-from core.schemas import CapabilityResult, TaskEnvelope, ToolRequest
-from core.state import StateStore
+from core.schemas import CapabilityResult, ToolCallContext, ToolRequest
+
+
+def _deep_freeze(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _deep_freeze(item) for key, item in value.items()})
+    if isinstance(value, list | tuple):
+        return tuple(_deep_freeze(item) for item in value)
+    if isinstance(value, set | frozenset):
+        return frozenset(_deep_freeze(item) for item in value)
+    return value
 
 
 def _wrap(middleware, nxt):
@@ -22,54 +33,77 @@ def _wrap(middleware, nxt):
 @dataclass
 class AgentKernel:
     """
-    Minimal living core. Owns state, events, capability lookup, task lifecycle.
+    Minimal living core. Owns shared events, capability lookup, and execution.
+    Per-run state and task lifecycle belong to KernelSession.
     Concrete behavior lives behind ports/adapters in the registry; cross-cutting
     behavior lives in middleware around the single execute_tool chokepoint.
     """
 
     registry: CapabilityRegistry
     events: EventBus
-    state: StateStore
-    config: dict[str, Any] = field(default_factory=dict)
+    config: Mapping[str, Any] = field(default_factory=dict)
     _middlewares: list = field(default_factory=list)
+    _frozen: bool = False
 
-    # ----- task lifecycle -----
-    def accept_task(self, user_request: str, context: dict[str, Any] | None = None) -> TaskEnvelope:
-        task = TaskEnvelope(user_request=user_request, context=context or {})
-        self.state.set("current_task", task)
-        self.events.publish("task.accepted", {"task_id": task.task_id})
-        return task
-
-    def complete_task(self, result: Any = None, *, status: str = "completed") -> dict[str, Any]:
-        task_id = self._current_task_id()
-        outcome = {"task_id": task_id, "status": status, "result": result}
-        self.state.set("last_result", outcome)
-        self.state.set("current_task", None)
-        self.events.publish(
-            "task.completed" if status == "completed" else "task.failed",
-            {"task_id": task_id, "status": status},
-        )
-        return outcome
-
-    def fail_task(self, reason: str, **extra: Any) -> dict[str, Any]:
-        return self.complete_task({"reason": reason, **extra}, status="failed")
-
-    def _current_task_id(self) -> str | None:
-        task = self.state.get("current_task")
-        return getattr(task, "task_id", None)
+    def freeze(self) -> None:
+        """Freeze shared mutable configuration before the first session starts."""
+        if self._frozen:
+            return
+        self.registry.freeze()
+        self.config = _deep_freeze(copy.deepcopy(dict(self.config)))
+        self._frozen = True
 
     # ----- capability chokepoint -----
     def use(self, middleware) -> None:
         """Register a ToolMiddleware. Registration order = outer -> inner."""
+        if self._frozen:
+            raise RuntimeError("Middleware pipeline is frozen for active sessions.")
         self._middlewares.append(middleware)
 
-    def execute_tool(self, tool_name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
-        request = ToolRequest(name=tool_name, args=args or {})
-        task_id = self._current_task_id()
+    def execute_tool(
+        self,
+        tool_name: str,
+        args: dict[str, Any] | None = None,
+        *,
+        context: ToolCallContext | None = None,
+    ) -> dict[str, Any]:
+        request = ToolRequest(name=tool_name, args=args or {}, context=context)
+        lineage = context.event_fields() if context is not None else {
+            "run_id": None,
+            "task_id": None,
+            "session_id": None,
+            "parent_session_id": None,
+            "delegation_id": None,
+            "actor_id": None,
+        }
         self.events.publish(
             "tool.requested",
-            {"task_id": task_id, "tool": request.name, "request_id": request.request_id, "args": request.args},
+            {**lineage, "tool": request.name, "request_id": request.request_id, "args": request.args},
         )
+
+        if context is not None and context.allowed_capabilities is not None:
+            if request.name not in context.allowed_capabilities:
+                envelope = CapabilityResult(
+                    ok=False,
+                    capability=request.name,
+                    error=f"Capability outside session scope: {request.name}",
+                    metadata={
+                        **lineage,
+                        "request_id": request.request_id,
+                        "scope_block": True,
+                    },
+                ).as_dict()
+                self.events.publish(
+                    "tool.failed",
+                    {
+                        **lineage,
+                        "tool": request.name,
+                        "request_id": request.request_id,
+                        "ok": False,
+                        "error": envelope["error"],
+                    },
+                )
+                return envelope
 
         def core(req: ToolRequest) -> dict[str, Any]:
             resolution = self.registry.resolve_tool(req.name)
@@ -89,7 +123,7 @@ class AgentKernel:
                 feature=resolution.feature,
                 result=result,
                 metadata={
-                    "task_id": task_id,
+                    **lineage,
                     "request_id": req.request_id,
                     "executor": getattr(resolution.executor, "name", resolution.executor.__class__.__name__),
                 },
@@ -106,13 +140,14 @@ class AgentKernel:
                 "error": f"Middleware returned {type(envelope).__name__}, expected dict.", "metadata": {},
             }
         meta = envelope.setdefault("metadata", {})
-        meta.setdefault("task_id", task_id)
+        for key, value in lineage.items():
+            meta.setdefault(key, value)
         meta.setdefault("request_id", request.request_id)
 
         self.events.publish(
             "tool.completed" if envelope.get("ok") else "tool.failed",
             {
-                "task_id": task_id,
+                **lineage,
                 "tool": request.name,
                 "request_id": request.request_id,
                 "ok": bool(envelope.get("ok")),

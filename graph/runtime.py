@@ -1,4 +1,4 @@
-"""Compile the single-agent LangGraph; no handwritten agent loop lives here."""
+"""Compile the session-bound LangGraph; delegation remains an injected application port."""
 from __future__ import annotations
 
 from functools import partial
@@ -8,9 +8,11 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from core.kernel import AgentKernel
+from core.ports import DelegationServicePort
 from core.schemas import FeatureDescriptor, ToolRequest
+from core.session import KernelSession, SessionFactory
 from discipline import Budget
-from graph.nodes import agent_node, fail_node, finish_node, guard_node, tool_node
+from graph.nodes import agent_node, delegation_node, fail_node, finish_node, guard_node, tool_node
 from graph.state import AgentState, budget_from_state, new_agent_state
 from observability import EventLogger, attach_to_bus
 
@@ -26,23 +28,39 @@ def _route(state: AgentState) -> str:
     return str(state.get("route") or "fail")
 
 
-def build_agent_graph(*, kernel: AgentKernel, checkpointer=None):
-    """Build and compile the sole orchestration graph around a runtime kernel."""
+def build_agent_graph(
+    *,
+    session: KernelSession,
+    checkpointer=None,
+    delegation_service: DelegationServicePort | None = None,
+):
+    """Build the sole orchestration graph around an isolated runtime session."""
     builder = StateGraph(AgentState)
-    builder.add_node("guard", partial(guard_node, kernel=kernel))
-    builder.add_node("agent", partial(agent_node, kernel=kernel))
-    builder.add_node("tool", partial(tool_node, kernel=kernel))
-    builder.add_node("finish", partial(finish_node, kernel=kernel))
-    builder.add_node("fail", partial(fail_node, kernel=kernel))
+    builder.add_node("guard", partial(guard_node, session=session))
+    builder.add_node("agent", partial(agent_node, session=session))
+    builder.add_node("tool", partial(tool_node, session=session))
+    builder.add_node(
+        "delegate",
+        partial(delegation_node, session=session, delegation_service=delegation_service),
+    )
+    builder.add_node("finish", partial(finish_node, session=session))
+    builder.add_node("fail", partial(fail_node, session=session))
 
     builder.add_edge(START, "guard")
     builder.add_conditional_edges("guard", _route, {"agent": "agent", "fail": "fail"})
     builder.add_conditional_edges(
         "agent",
         _route,
-        {"tool": "tool", "finish": "finish", "guard": "guard", "fail": "fail"},
+        {
+            "tool": "tool",
+            "delegate": "delegate",
+            "finish": "finish",
+            "guard": "guard",
+            "fail": "fail",
+        },
     )
     builder.add_conditional_edges("tool", _route, {"guard": "guard", "fail": "fail"})
+    builder.add_conditional_edges("delegate", _route, {"guard": "guard", "fail": "fail"})
     builder.add_conditional_edges("finish", _route, {"guard": "guard", "end": END})
     builder.add_edge("fail", END)
     return builder.compile(checkpointer=checkpointer, name="core-agent")
@@ -81,19 +99,21 @@ def run_agent(
     if logger is None:
         logger = EventLogger()
         attach_to_bus(logger, kernel.events)
-    task_envelope = kernel.accept_task(task)
-    initial = new_agent_state(
+    session = SessionFactory(kernel=kernel).create_root(
+        task,
         run_id=logger.run_id,
-        task=task_envelope,
+        agent_id="agent:compat",
+    )
+    initial = new_agent_state(
+        session=session,
         messages=[
             {"role": "system", "content": COMPAT_SYSTEM_PROMPT},
             {"role": "user", "content": task},
         ],
         budget=Budget(max_steps=max_steps),
-        kernel_state=kernel.state.snapshot(),
         model=model,
     )
-    graph = build_agent_graph(kernel=kernel, checkpointer=InMemorySaver())
+    graph = build_agent_graph(session=session, checkpointer=InMemorySaver())
     config = {
         "configurable": {"thread_id": logger.run_id},
         "recursion_limit": max(100, max_steps * 4 + 20),
