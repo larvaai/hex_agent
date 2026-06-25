@@ -56,6 +56,22 @@ class AgentRegistry:
     def __contains__(self, name: object) -> bool:
         return name in self._roles
 
+    # ── department grouping (E21: department-targeted delegation) ─────────────
+    def members_of(self, department: str) -> tuple[str, ...]:
+        """Role names whose ``RoleSpec.department`` matches, sorted for determinism.
+
+        An unknown/empty department returns () — the caller treats that as a soft
+        rejection rather than an error (a department name might be a typo, or O
+        meant to target a single agent)."""
+        return tuple(sorted(n for n, spec in self._roles.items() if spec.department == department))
+
+    def departments(self) -> dict[str, tuple[str, ...]]:
+        """Every department mapped to its sorted member role names."""
+        groups: dict[str, list[str]] = {}
+        for name, spec in self._roles.items():
+            groups.setdefault(spec.department, []).append(name)
+        return {dept: tuple(sorted(members)) for dept, members in groups.items()}
+
     # ── build (shared by single & multi) ─────────────────────────────────────
     def build_agent(self, name: str) -> Agent:
         return Agent(
@@ -73,6 +89,7 @@ class AgentRegistry:
             role=spec.role,
             system_prompt=spec.system_prompt,
             default_scope=spec.allowed_tools(self._skills, self._core_tools),
+            department=spec.department,
         )
 
     def list_roles(self) -> tuple[RoleView, ...]:
