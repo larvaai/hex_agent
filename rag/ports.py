@@ -45,6 +45,10 @@ class RagConfig:
     score_threshold: float = 0.8
     top_k: int = 5
     qdrant_url: str = "http://127.0.0.1:6333"
+    # Client timeout (s). Generous by default: collection creation can take several
+    # seconds on slow/volume-backed disks (e.g. Docker Desktop on Windows), which
+    # would otherwise blow the qdrant-client default ~5s timeout.
+    qdrant_timeout: float = 30.0
 
     @classmethod
     def from_dict(cls, data: dict | None) -> "RagConfig":
