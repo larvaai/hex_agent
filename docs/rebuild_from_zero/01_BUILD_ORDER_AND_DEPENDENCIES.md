@@ -27,8 +27,9 @@
 | E15 Self-eval & Governance | P4 | E04, E10, E16 |
 | E19 Test Harness | cross | tất cả (kiểm chúng) |
 | E20 Labs | sau | tiện ích dùng chung |
+| **E21 Realtime Control Plane** | P4 (cross) | E10, E04, E06, E09 — **gộp E16+E17+E18** (xem `E21_realtime_control_plane/`) |
 
-Lưu ý vòng phụ thuộc mềm: **E07↔E09** — **đã gỡ**: skill là role-agnostic, role mới bind skill + suy allowlist → chiều thật là E07→E09 (xem `CYCLE_E07_E09_skill_role.md`). Còn cụm **E15/E16/E18** (self-eval ↔ review gate ↔ UI) giải bằng *interface trước, nội dung sau*: định nghĩa hợp đồng (schema/seam) rồi mới hoàn thiện từng bên.
+Lưu ý vòng phụ thuộc mềm: **E07↔E09** — **đã gỡ**: skill là role-agnostic, role mới bind skill + suy allowlist → chiều thật là E07→E09 (xem `CYCLE_E07_E09_skill_role.md`). Còn cụm **E15/E16/E18** (self-eval ↔ review gate ↔ UI) giải bằng *interface trước, nội dung sau*: định nghĩa hợp đồng (schema/seam) rồi mới hoàn thiện từng bên. **Cập nhật:** E16 (review gate) + E17 (live control) + E18 (UI) đã được **hợp nhất thành E21 — Realtime Control Plane**; ba số hiệu cũ giữ làm cross-reference cho từng slice (S-Gate/S-Control/S-UI). Thứ tự nội bộ E21: *contracts → backend chuẩn hoá (điều kiện-trước-UI) → transport → UI → reliability*.
 
 ## Thứ tự xây đề xuất (critical path)
 
