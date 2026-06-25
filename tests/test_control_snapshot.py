@@ -94,6 +94,19 @@ def test_build_snapshot_no_raw_secret():
     assert by["A"].context_packet.get("api_key") == "[REDACTED]"
 
 
+# ── F6 — permission.changed binds a permission onto the agent's Inspector view ─
+def test_build_snapshot_folds_permission_changed():
+    perm = {"allowed_tools": ["read_file", "search_code"], "can_write_artifacts": True}
+    events = [
+        _ev("loop.team_composed", {"selected": ["B"]}),
+        Redactor().apply(_ev("permission.changed", {"agent_id": "B", "permission": perm})),
+    ]
+    snap = build_snapshot(events, session_id="s1")
+    b = {a.agent_id: a for a in snap.agents}["B"]
+    assert b.permission == perm
+    assert b.allowed_tools == ("read_file", "search_code")
+
+
 # ── contract hygiene: snapshot round-trips losslessly + validates ─────────────
 def test_snapshot_roundtrip_and_agentview_validation():
     snap = build_snapshot(

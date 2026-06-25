@@ -270,6 +270,20 @@ def build_snapshot(
                     if redacted.get("role"):
                         meta[aid]["role"] = str(redacted["role"])
 
+        elif et == "permission.changed":
+            # F6: the only event that binds a permission to an agent today. Read from the
+            # redacted ui_payload only; light up AgentView.permission/allowed_tools.
+            aid = str(view.get("agent_id", ""))
+            see(aid)
+            if aid and isinstance(redacted, dict):
+                perm = redacted.get("permission")
+                if isinstance(perm, dict):
+                    meta[aid]["permission"] = dict(perm)
+                    if perm.get("allowed_tools"):
+                        meta[aid]["allowed_tools"] = tuple(str(t) for t in perm["allowed_tools"])
+                if redacted.get("allowed_tools"):
+                    meta[aid]["allowed_tools"] = tuple(str(t) for t in redacted["allowed_tools"])
+
         elif et == "loop.tool":
             tool_calls.append(
                 {
