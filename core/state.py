@@ -1,6 +1,7 @@
-"""StateStore — in-memory run state held by the kernel; snapshot/restore for persistence. Epic E01/E07."""
+"""Session-owned in-memory state with detached snapshot/restore for persistence."""
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 
@@ -15,12 +16,12 @@ class StateStore:
         self._data[key] = value
 
     def as_dict(self) -> dict[str, Any]:
-        return dict(self._data)
+        return copy.deepcopy(self._data)
 
     def snapshot(self) -> dict[str, Any]:
-        """Shallow copy of all state, for checkpointing."""
-        return dict(self._data)
+        """Detached copy of all state, safe to seed another session/checkpoint."""
+        return copy.deepcopy(self._data)
 
     def restore(self, data: dict[str, Any]) -> None:
         """Replace all state wholesale (used on resume)."""
-        self._data = dict(data)
+        self._data = copy.deepcopy(data)

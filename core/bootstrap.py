@@ -9,7 +9,6 @@ import yaml
 from core.events import EventBus
 from core.kernel import AgentKernel
 from core.registry import CapabilityRegistry
-from core.state import StateStore
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = PROJECT_DIR / "config" / "features.yaml"
@@ -58,7 +57,6 @@ def build_kernel(config: dict[str, Any]) -> AgentKernel:
     kernel = AgentKernel(
         registry=CapabilityRegistry(),
         events=EventBus(),
-        state=StateStore(),
         config=config,
     )
     from features.loader import install_configured_features

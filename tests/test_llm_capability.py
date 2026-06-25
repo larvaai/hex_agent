@@ -1,5 +1,6 @@
 """Part D — LLM is a capability: envelope + events + llm_calls metric + distinct LLMCallEvent. Epic E03/E04."""
 from core.bootstrap import build_kernel, create_kernel
+from core.session import SessionFactory
 from features.llm_chat import FEATURE, LLMChatTool
 
 
@@ -50,8 +51,9 @@ def test_llm_call_emits_tool_events_with_task_id():
     k = _kernel_with_fake_llm(fake)
     seen = []
     k.events.subscribe(lambda t, p: seen.append((t, p)))
-    task = k.accept_task("llm trace")
-    k.execute_tool("llm.chat", {"messages": []})
+    session = SessionFactory(kernel=k).create_root("llm trace")
+    task = session.state.get("current_task")
+    session.execute_tool("llm.chat", {"messages": []})
     topics = [t for t, _ in seen]
     assert "tool.requested" in topics and "tool.completed" in topics
     for t, p in seen:
@@ -68,8 +70,8 @@ def test_llm_calls_metric_and_distinct_kind(tmp_path, monkeypatch):
     k = _kernel_with_fake_llm(fake)
     logger = EventLogger(run_id="llmrun")
     attach_to_bus(logger, k.events)
-    k.accept_task("x")
-    k.execute_tool("llm.chat", {"messages": []})
+    session = SessionFactory(kernel=k).create_root("x")
+    session.execute_tool("llm.chat", {"messages": []})
     summary = logger.finish("completed")
     assert summary["metrics"]["llm_calls"] == 1
     assert summary["metrics"]["tool_calls"] == 1

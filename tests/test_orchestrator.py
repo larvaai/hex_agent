@@ -1,5 +1,6 @@
 """E05 — single-agent loop: tool->final, parse recovery, finish gate, step budget. Driven by a scripted LLM."""
 from core.bootstrap import build_kernel
+from core.session import SessionFactory
 from discipline import Budget
 from features.llm_chat import FEATURE, LLMChatTool
 from orchestrator import run
@@ -65,8 +66,9 @@ def test_loop_finish_gate_blocks_then_blocker():
         '{"action":"final","message":"x","finish_reason":"done"}',
         '{"action":"final","message":"x","finish_reason":"blocker"}',
     ]))
-    k.state.set("code_changed", True)
-    out = run(k, "x")
+    session = SessionFactory(kernel=k).create_root("x")
+    session.state.set("code_changed", True)
+    out = run(k, "x", session=session)
     assert out["status"] == "completed"
 
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from core.bootstrap import create_kernel
+from core.session import SessionFactory
 from discipline import check_finish, parse_action
 from observability import EventLogger, attach_to_bus
 
@@ -11,15 +12,15 @@ def main() -> int:
     logger = EventLogger()
     attach_to_bus(logger, kernel.events)
 
-    kernel.accept_task("smoke: echo + discipline")
+    session = SessionFactory(kernel=kernel).create_root("smoke: echo + discipline")
     logger.count("steps")
 
-    ok = kernel.execute_tool("echo", {"msg": "hi"})
+    ok = session.execute_tool("echo", {"msg": "hi"})
     assert ok["ok"] and ok["data"]["echo"] == {"msg": "hi"}, ok
     assert ok["metadata"]["task_id"], ok  # B: result is traceable back to the accepted task
 
-    missing = kernel.execute_tool("does_not_exist")
-    assert missing["ok"] is False and missing["data"].get("missing_capability") is True, missing
+    missing = session.execute_tool("does_not_exist")
+    assert missing["ok"] is False and missing["metadata"].get("scope_block") is True, missing
 
     action = parse_action('```json\n{"action": "final", "message": "done",}\n```')
     assert action["action"] == "final", action
@@ -27,8 +28,8 @@ def main() -> int:
     gate = check_finish({"code_changed": True, "validation_passed": False}, finish_reason="validated")
     assert gate["allowed"] is False, gate
 
-    done = kernel.complete_task("smoke complete")
-    assert done["status"] == "completed" and kernel.state.get("current_task") is None, done
+    done = session.complete_task("smoke complete")
+    assert done["status"] == "completed" and session.state.get("current_task") is None, done
 
     summary = logger.finish("completed")
     print("CORE_AGENT_SMOKE_OK run_id=" + summary["run_id"])

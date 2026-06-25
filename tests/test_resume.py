@@ -99,10 +99,10 @@ def test_resume_continues_from_langgraph_node_checkpoint(tmp_path, monkeypatch):
     first = _agent(_client([]))
     original_execute = first.execute_tool
 
-    def crash_once(tool_name, args=None):
+    def crash_once(tool_name, args=None, **kwargs):
         if tool_name == "llm.chat":
             raise RuntimeError("simulated process crash")
-        return original_execute(tool_name, args)
+        return original_execute(tool_name, args, **kwargs)
 
     first.execute_tool = crash_once
     try:
