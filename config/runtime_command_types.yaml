@@ -12,6 +12,9 @@ command_types:
   ResumeWorkflow:         { apply_at: next_checkpoint, requires_permission: null }
   StopAgentTurn:          { apply_at: immediate,       requires_permission: null }
 
+  # ── prompt injection (E21 control-plane UI Send — F5/D8) ───────────
+  SubmitPrompt:           { apply_at: next_checkpoint, requires_permission: null }
+
   # ── team / instruction injection ───────────────────────────────────
   AddAgentToLoop:         { apply_at: next_checkpoint, requires_permission: workflow.modify_agents }
   RemoveAgentFromLoop:    { apply_at: next_checkpoint, requires_permission: workflow.modify_agents }

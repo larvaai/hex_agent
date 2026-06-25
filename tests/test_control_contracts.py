@@ -152,6 +152,15 @@ def test_command_registry_apply_at_and_permission():
         reg.assert_known("FrobnicateEverything")
 
 
+def test_command_registry_has_submit_prompt():
+    # E21 control-plane UI "Send" maps to SubmitPrompt (F5/D8) — the fake gateway calls
+    # assert_known(), so an undeclared SubmitPrompt would 400 the Send path.
+    reg = load_command_registry()
+    reg.assert_known("SubmitPrompt")
+    assert reg.apply_at("SubmitPrompt") == "next_checkpoint"
+    assert reg.requires_permission("SubmitPrompt") is None
+
+
 # ── S21.5 RuntimeCheckpoint contract ─────────────────────────────────────────
 def test_checkpoint_starts_waiting_and_resolves_once():
     cp = RuntimeCheckpoint(
