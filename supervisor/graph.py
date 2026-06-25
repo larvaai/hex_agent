@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from control import Actor, EventEmitter, TraceContext
 from core.schemas import DelegationPolicy
 from core.session import KernelSession
 from discipline import Budget, JsonGateError
@@ -43,6 +44,8 @@ class SupervisorContext:
     agent_registry: Any | None = None  # E09 AgentRegistry (for the role catalog)
     store_slice_provider: StoreSliceProvider = default_store_slice
     checkpoint: Callable[[TaskLoopState], None] | None = None  # SQLite save (S10.10)
+    emitter: EventEmitter | None = None  # E21 B1: route events through the RuntimeEvent envelope
+    trace: TraceContext | None = None    # root trace for this session's events (lazily created)
 
     def role_catalog(self) -> tuple[dict[str, Any], ...]:
         if self.agent_registry is None:
@@ -50,6 +53,22 @@ class SupervisorContext:
         return tuple({"agent_id": v.agent_id, "role": v.role} for v in self.agent_registry.list_roles())
 
     def emit(self, topic: str, payload: dict[str, Any]) -> None:
+        # E21 B1: when an emitter is wired, every supervisor event flows through the
+        # canonical envelope (registry-validated, seq-stamped, redacted). Otherwise keep
+        # the legacy raw-dict publish so existing callers/tests are unaffected.
+        if self.emitter is not None:
+            if self.trace is None:
+                self.trace = TraceContext.new_root()
+            identity = self.supervisor_session.identity
+            self.emitter.emit(
+                topic,
+                session_id=identity.session_id,
+                actor=Actor(type="runtime", id="supervisor"),
+                trace=self.trace,
+                payload=dict(payload),
+                task_id=identity.task_id,
+            )
+            return
         self.supervisor_session.kernel.events.publish(
             topic, {**self.supervisor_session.call_context().event_fields(), **payload}
         )

@@ -1,0 +1,83 @@
+# Runtime event-type registry — E21 Realtime Control Plane (S21.2).
+# Every event_type an emitter publishes MUST be declared here, or it is rejected.
+#   visibility: public | ui_safe | internal | secret | restricted   (who may see it)
+#   durable: persist for replay (Phase A: JSONL/SQLite; T2: Kafka)
+#   redact_for_ui: payload must pass the Redactor before any UI delivery
+#   checkpoint_candidate: this point may open an approval-checkpoint (B4)
+#
+# Legacy kernel/supervisor topics (loop.* / delegation.* / tool.* / graph.*) are listed
+# so the registry is forward-usable when the EventBus is migrated to the envelope (B1).
+
+event_types:
+  # ── session lifecycle ──────────────────────────────────────────────
+  session.started:        { visibility: ui_safe, durable: true }
+  session.paused:         { visibility: ui_safe, durable: true }
+  session.resumed:        { visibility: ui_safe, durable: true }
+  session.finished:       { visibility: ui_safe, durable: true }
+  session.failed:         { visibility: ui_safe, durable: true }
+  state.updated:          { visibility: ui_safe, durable: true }
+
+  # ── agent lifecycle ────────────────────────────────────────────────
+  agent.selected:             { visibility: ui_safe, durable: true }
+  agent.before_run:           { visibility: ui_safe, durable: true }
+  agent.after_run:            { visibility: ui_safe, durable: true }
+  agent.failed:               { visibility: ui_safe, durable: true }
+  agent.aborted:              { visibility: ui_safe, durable: true }
+  agent.token:                { visibility: ui_safe, durable: false, redact_for_ui: true }
+  agent.output.raw:           { visibility: internal, durable: true, redact_for_ui: true }
+  agent.output.validated:     { visibility: ui_safe, durable: true }
+  agent.invocation.created:   { visibility: ui_safe, durable: true }
+  agent.invocation.completed: { visibility: ui_safe, durable: true }
+
+  # ── hook / skill / rule ────────────────────────────────────────────
+  hook.before_run:        { visibility: ui_safe, durable: true, redact_for_ui: true }
+  hook.after_run:         { visibility: ui_safe, durable: true, redact_for_ui: true }
+  hook.failed:            { visibility: ui_safe, durable: true }
+  skill.resolved:         { visibility: ui_safe, durable: true }
+  skill.loaded:           { visibility: ui_safe, durable: true }
+  skill.failed:           { visibility: ui_safe, durable: true }
+  rule.resolved:          { visibility: ui_safe, durable: true }
+  rule.applied:           { visibility: ui_safe, durable: true }
+  rule.rejected:          { visibility: ui_safe, durable: true }
+
+  # ── tool lifecycle ─────────────────────────────────────────────────
+  tool.call_requested:    { visibility: ui_safe, durable: true, checkpoint_candidate: true }
+  tool.before_call:       { visibility: ui_safe, durable: true, checkpoint_candidate: true }
+  tool.after_call:        { visibility: ui_safe, durable: true, redact_for_ui: true }
+  tool.failed:            { visibility: ui_safe, durable: true }
+  tool.result.received:   { visibility: internal, durable: true, redact_for_ui: true }
+  tool.call_rejected:     { visibility: ui_safe, durable: true }
+
+  # ── permission / checkpoint / approval ─────────────────────────────
+  permission.check_requested: { visibility: internal, durable: true }
+  permission.check_result:    { visibility: ui_safe, durable: true }
+  permission.changed:         { visibility: ui_safe, durable: true }
+  checkpoint.reached:         { visibility: ui_safe, durable: true }
+  approval.requested:         { visibility: ui_safe, durable: true }
+  approval.approved:          { visibility: ui_safe, durable: true }
+  approval.rejected:          { visibility: ui_safe, durable: true }
+
+  # ── command lifecycle ──────────────────────────────────────────────
+  command.received:       { visibility: ui_safe, durable: true }
+  command.accepted:       { visibility: ui_safe, durable: true }
+  command.rejected:       { visibility: ui_safe, durable: true }
+  command.applied:        { visibility: ui_safe, durable: true }
+
+  # ── artifact lifecycle ─────────────────────────────────────────────
+  artifact.before_write:       { visibility: ui_safe, durable: true, redact_for_ui: true, checkpoint_candidate: true }
+  artifact.after_write:        { visibility: ui_safe, durable: true }
+  artifact.write_rejected:     { visibility: ui_safe, durable: true }
+  artifact.overwrite_requested: { visibility: ui_safe, durable: true, checkpoint_candidate: true }
+
+  # ── legacy kernel/supervisor topics (migrated to envelope in B1) ───
+  loop.team_composed:     { visibility: ui_safe, durable: true }
+  loop.decision:          { visibility: ui_safe, durable: true }
+  loop.turn:              { visibility: ui_safe, durable: true }
+  loop.tool:              { visibility: ui_safe, durable: true }
+  loop.parse_error:       { visibility: ui_safe, durable: true }
+  loop.finished:          { visibility: ui_safe, durable: true }
+  loop.blocked:           { visibility: ui_safe, durable: true }
+  loop.failed:            { visibility: ui_safe, durable: true }
+  delegation.started:     { visibility: ui_safe, durable: true }
+  delegation.progress:    { visibility: ui_safe, durable: true }
+  delegation.finished:    { visibility: ui_safe, durable: true }

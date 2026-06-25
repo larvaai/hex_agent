@@ -42,7 +42,11 @@ class QdrantVectorStore:
         else:
             from qdrant_client import QdrantClient  # noqa: PLC0415 — optional dep
 
-            self._client = QdrantClient(url=config.qdrant_url)
+            # check_compatibility=False silences the server-version probe warning;
+            # the generous timeout absorbs slow collection creation on volume-backed disks.
+            self._client = QdrantClient(
+                url=config.qdrant_url, timeout=config.qdrant_timeout, check_compatibility=False
+            )
 
     # ── collection lifecycle ─────────────────────────────────────────────────
     def _ensure_collection(self, dim: int) -> None:

@@ -1,0 +1,33 @@
+# Runtime command-type registry — E21 Realtime Control Plane (S21.4).
+# Every command_type the gateway accepts MUST be declared here, or it is rejected.
+#   apply_at: next_checkpoint | immediate_if_waiting | immediate
+#     - next_checkpoint     : queued; applied at the next safe intervention point
+#     - immediate_if_waiting : valid only when a checkpoint is waiting (approve/reject)
+#     - immediate           : acted on at once (cancel) — only StopAgentTurn
+#   requires_permission: a permission name the issuer must hold, or null
+
+command_types:
+  # ── workflow control ───────────────────────────────────────────────
+  PauseWorkflow:          { apply_at: next_checkpoint, requires_permission: null }
+  ResumeWorkflow:         { apply_at: next_checkpoint, requires_permission: null }
+  StopAgentTurn:          { apply_at: immediate,       requires_permission: null }
+
+  # ── team / instruction injection ───────────────────────────────────
+  AddAgentToLoop:         { apply_at: next_checkpoint, requires_permission: workflow.modify_agents }
+  RemoveAgentFromLoop:    { apply_at: next_checkpoint, requires_permission: workflow.modify_agents }
+  EditAgentInstruction:   { apply_at: next_checkpoint, requires_permission: workflow.edit_instruction }
+  SetSystemPrompt:        { apply_at: next_checkpoint, requires_permission: workflow.edit_instruction }
+  InjectHook:             { apply_at: next_checkpoint, requires_permission: workflow.modify_hooks }
+  AddSkill:               { apply_at: next_checkpoint, requires_permission: workflow.modify_skills }
+
+  # ── permission editing ─────────────────────────────────────────────
+  UpdateAgentPermission:  { apply_at: next_checkpoint, requires_permission: workflow.modify_permissions }
+
+  # ── approvals (only when a checkpoint is waiting) ──────────────────
+  ApproveCheckpoint:      { apply_at: immediate_if_waiting, requires_permission: checkpoint.approve }
+  RejectCheckpoint:       { apply_at: immediate_if_waiting, requires_permission: checkpoint.reject }
+  ApproveToolCall:        { apply_at: immediate_if_waiting, requires_permission: tool.approve }
+  RejectToolCall:         { apply_at: immediate_if_waiting, requires_permission: tool.reject }
+
+  # ── artifact ───────────────────────────────────────────────────────
+  RollbackArtifact:       { apply_at: next_checkpoint, requires_permission: artifact.rollback }
