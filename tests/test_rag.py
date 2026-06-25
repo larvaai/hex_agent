@@ -148,3 +148,26 @@ def test_build_service_rejects_unknown_backend():
 
     with pytest.raises(ValueError, match="backend"):
         build_service({"backend": "weaviate"})
+
+
+# ── S3 observability: rag.* domain events on the bus ────────────────────────
+def test_rag_events_published(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_WORKSPACE_DIR", str(tmp_path))
+    write(tmp_path, "kb.md", "alpha alpha alpha")
+    kernel = build_kernel(RAG_CFG)
+    seen: list[tuple[str, dict]] = []
+    kernel.events.subscribe(lambda topic, payload: seen.append((topic, payload)))
+
+    kernel.execute_tool("rag_health")
+    kernel.execute_tool("rag_ingest", {"path": "."})
+    kernel.execute_tool("rag_search", {"query": "alpha alpha alpha"})
+
+    topics = [t for t, _ in seen]
+    assert {"rag.health", "rag.ingest", "rag.search"} <= set(topics)
+
+    ingest_evt = next(p for t, p in seen if t == "rag.ingest")
+    assert ingest_evt["ok"] is True and ingest_evt["files"] == 1
+
+    search_evt = next(p for t, p in seen if t == "rag.search")
+    assert search_evt["ok"] is True and search_evt["count"] == 1
+    assert search_evt["score_threshold"] == 0.8

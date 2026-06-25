@@ -1,0 +1,19 @@
+# Local Qdrant for RAG (E08). Only needed for the 'qdrant' backend and the
+# integration tests in tests/test_rag_qdrant.py (which skip when it is down).
+#
+#   docker compose -f docker-compose.rag.yml up -d     # start
+#   docker compose -f docker-compose.rag.yml down       # stop (keeps the volume)
+#
+# The default kernel uses the offline 'memory' backend and needs none of this.
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: agent-qdrant
+    ports:
+      - "6333:6333"   # REST / HTTP API
+      - "6334:6334"   # gRPC API
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+volumes:
+  qdrant_storage:

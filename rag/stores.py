@@ -2,8 +2,8 @@
 
 InMemoryVectorStore is the offline adapter used by the acceptance suite; it makes
 ``health()`` switchable so the dependency-failure path (S08.1) is testable.
-QdrantVectorStore (Slice S2) is the production adapter and is intentionally not
-implemented here yet.
+The optional production adapter lives in ``rag.stores_qdrant`` so importing this
+module never requires qdrant-client.
 """
 from __future__ import annotations
 

@@ -61,6 +61,12 @@ class RagService:
             if not texts:
                 continue
             vectors = self._embedder.embed(texts)
+            if len(vectors) != len(texts):
+                # Refuse a cardinality mismatch before any upsert so we never write a
+                # partial/misaligned set of chunks for the source.
+                raise ValueError(
+                    f"embedder returned {len(vectors)} embeddings for {len(texts)} chunks (count mismatch)."
+                )
             chunks = [Chunk(source, i, t, v) for i, (t, v) in enumerate(zip(texts, vectors))]
             self._store.delete_by_source(source)  # re-ingest replaces previous chunks
             self._store.upsert(chunks)
@@ -79,13 +85,22 @@ class RagService:
         gate = self._require_healthy()
         if gate is not None:
             return gate
+        # Validate caller inputs before doing any embedding work.
+        if not query or not str(query).strip():
+            raise ValueError("search query must not be empty.")
         k = int(top_k) if top_k is not None else self._cfg.top_k
+        if k < 1:
+            raise ValueError("top_k must be a positive integer (>= 1).")
         threshold = float(score_threshold) if score_threshold is not None else self._cfg.score_threshold
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError("score_threshold must be between 0.0 and 1.0.")
         vector = self._embedder.embed([query])[0]
         hits = self._store.search(vector, k, threshold)
         return {
             "ok": True,
             "count": len(hits),
+            "top_k": k,
+            "score_threshold": threshold,
             "hits": [
                 {
                     "source": h.source,

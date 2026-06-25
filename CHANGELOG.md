@@ -2,6 +2,24 @@
 
 Mỗi mục = một đợt thêm/sửa, gắn với **Sprint + Epic**, để theo dõi "thêm gì, vì sao". Mục mới nhất ở trên.
 
+## E08 — RAG (Qdrant + fastembed), slices S2/S3 · 2026-06-25
+
+- **S2 prod adapter** — `rag/stores_qdrant.py::QdrantVectorStore` hiện thực `VectorStorePort` thật trên qdrant-client: collection tạo lười theo dim của vector ở lần `upsert` đầu, point id = `uuid5(source::chunk_index)` (re-upsert ghi đè đúng chỗ), `delete_by_source` lọc theo payload `source` (đã đánh index keyword), search qua `query_points` với `score_threshold` server-side. `health()` không ném: server không reachable → `{"ok": False}` để giữ cổng dependency-failure (S08.1) là control-flow thường.
+- Dep RAG vào **optional group `rag`** (`qdrant-client`, `fastembed`) — không nhồi base install; `pip install -e ".[rag]"` khi cần.
+- `docker-compose.rag.yml` cho Qdrant local; `tests/test_rag_qdrant.py` chạy adapter thật nhưng **skip nếu Qdrant không reachable** (suite mặc định vẫn offline, không docker). Test dùng `FakeEmbedder` để soát logic store, không tải model.
+- **S3 wire + obs** — bật feature `rag` (backend `memory`, offline) trong `config/features.yaml`; mỗi tool phát thêm event ngữ nghĩa `rag.health/rag.ingest/rag.search` (kèm lineage session) song song `tool.*` của chokepoint; envelope `rag_search` thêm `top_k`/`score_threshold` để quan sát.
+- Bất biến giữ nguyên: tool qua `execute_tool`; path qua sandbox jail; health-gate trước ingest/search; logic chỉ chạm Qdrant qua `VectorStorePort`; pytest không cần docker.
+
+## Sprint 4 — KernelSession + sequential delegation · 2026-06-24
+
+- Tách toàn bộ per-run state/lifecycle khỏi `AgentKernel` sang `KernelSession`; `SessionFactory` là constructor duy nhất cho root/child session và enforce capability scope thu hẹp.
+- Freeze registry, middleware và config trước session đầu tiên; `StateStore` snapshot/restore deep-copy để không alias mutable state giữa các session.
+- Harden `EventBus` và `EventLogger` cho concurrent publish, detached payload, monotonic sequence và serialized file writes.
+- Thêm contract thuần `DelegationSpec/Policy/Request/Progress/Result`, `DelegationPort`, `DelegationStorePort`, `DelegationServicePort`—không phụ thuộc LangGraph.
+- Thêm top-level `delegation/` manager/registry/policy/in-memory store, scripted adapter và local `LangGraphDelegationAgent`; progress được persist trước khi publish.
+- LangGraph chạy theo `session=`, checkpoint `session_state` schema v2, migrate key `kernel_state` cũ, và hỗ trợ action `delegate` qua service injection.
+- Parallel department, durable delegation resume và transactional outbox vẫn bị khóa bởi readiness gates trong tài liệu kiến trúc.
+
 ## Sprint 3 — LangGraph runtime consolidation · 2026-06-24
 
 - Thay hai handwritten agent loop bằng một compiled `StateGraph`; `orchestrator.run/resume` giữ nguyên public API.
