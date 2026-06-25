@@ -10,6 +10,7 @@ import pytest
 
 from control import (
     Actor,
+    CommandAck,
     ControlContractError,
     IssuedBy,
     Permission,
@@ -120,6 +121,24 @@ def test_command_missing_idempotency_or_issuer_rejected():
 def test_issued_by_human_requires_user_id():
     with pytest.raises(ControlContractError):
         IssuedBy(type="human")
+
+
+# ── S21.15 CommandAck — the synchronous receipt for POST /api/commands ────────
+def test_command_ack_roundtrip():
+    ack = CommandAck(command_id="c1", status="received", seq=5)
+    assert CommandAck.from_dict(ack.as_dict()).as_dict() == ack.as_dict()
+    rej = CommandAck(command_id="c2", status="rejected", rejection_reason="unknown command_type")
+    assert CommandAck.from_dict(rej.as_dict()).as_dict() == rej.as_dict()
+    assert rej.seq is None  # ACK is a receipt; the applied/accepted seq arrives later via SSE
+
+
+def test_command_ack_rejected_requires_reason_and_valid_status():
+    with pytest.raises(ControlContractError):
+        CommandAck(command_id="c3", status="rejected")  # rejected must carry a reason
+    with pytest.raises(ControlContractError):
+        CommandAck(command_id="", status="received")  # command_id required
+    with pytest.raises(ControlContractError):
+        CommandAck(command_id="c4", status="queued")  # not received|rejected
 
 
 # ── S21.4 command-type registry ──────────────────────────────────────────────
