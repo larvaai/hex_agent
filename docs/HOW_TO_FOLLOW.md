@@ -31,7 +31,10 @@ Mỗi epic = một (cụm) commit với cú pháp `feat(Exx): ...`. `git log --o
 6. Module mới thuộc package mới → `MAP.md` tự phát hiện package (không cần khai báo).
 
 ## Thứ tự đọc đề xuất (cho người mới mở repo)
-`README.md` → `MAP.md` → `RUNTIME_FLOW.md` (cách một task chạy) → `CHANGELOG.md` (mới nhất) → mở 1 epic ở `rebuild_from_zero/` đang quan tâm → đọc `acceptance.md` rồi `tests/` rồi module tương ứng.
+`README.md` → `ONBOARDING_AND_CONTRIBUTING.md` (người mới/đóng góp) →
+`RUN_AND_CONFIGURE.md` (cách chạy/cấu hình) → `MAP.md` → `RUNTIME_FLOW.md`
+(cách một task chạy) → `CHANGELOG.md` (mới nhất) → mở 1 epic ở `rebuild_from_zero/` đang
+quan tâm → đọc `acceptance.md` rồi `tests/` rồi module tương ứng.
 
 > Trước khi **sửa** (không phải đọc) một module lõi: mở `KNOWN_RISKS.md` để biết file đó có giữ invariant gì và sửa sai thì vỡ gì.
 

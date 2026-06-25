@@ -1,348 +1,288 @@
-# Bách khoa class — core_agent (Sprint 0 + 1)
+# CLASS ENCYCLOPEDIA — toàn bộ class production của `core_agent`
 
-> Historical snapshot: this encyclopedia predates `KernelSession`, LangGraph schema v2, and delegation. For the current runtime flow (kernel session + delegation) use `docs/RUNTIME_FLOW.md` and `docs/class_dependency.mermaid`.
+> Snapshot source: **2026-06-25**. Coverage: **99 khai báo class top-level** trong 85 file Python
+> ngoài `tests/` và `var/`. Các class giả lập nằm cục bộ trong test không được tính vì không phải
+> API/runtime production.
+>
+> Ký hiệu trạng thái: **D** = đường chạy mặc định; **O** = optional feature/runtime; **L** = library
+> đã test nhưng chưa compose vào UI; **C** = compatibility/internal.
 
-> Mọi class trong repo: **ý nghĩa**, API chính, **phụ thuộc vào** (→) và **được dùng bởi** (←), kèm epic.
-> Quy ước phụ thuộc: A → B nghĩa là "A cần/biết B". Toàn bộ tạo thành một DAG sạch (không vòng) — xem mục cuối + sơ đồ.
+## 1. Mô hình sở hữu
 
-## Đọc nhanh theo tầng phụ thuộc
+```text
+AgentKernel (shared, frozen)
+  ├─ CapabilityRegistry
+  ├─ EventBus
+  ├─ immutable config
+  └─ middleware pipeline
 
+KernelSession (per task/run)
+  ├─ SessionIdentity
+  ├─ StateStore
+  ├─ allowed_capabilities
+  └─ lifecycle active -> completed|failed
+
+Compiled graph (per active/restored session)
+  └─ AgentState (serializable checkpoint state)
 ```
-Tầng 0 (không phụ thuộc nội bộ): schemas, events, state, sandbox, Budget, PolicyDecision, AgentState, *Error
-Tầng 1: ports → schemas · registry → schemas · ToolPolicy → schemas · EchoTool/Fs*/Terminal → schemas,sandbox
-Tầng 2: AgentKernel → registry,events,state,schemas · SafeToolPort → ToolPolicy · EventLogger → events
-Tầng 3: bootstrap/loader → kernel · toolbox.feature → kernel,tools,safety · graph.nodes → kernel,discipline
-Tầng 4: graph.runtime → kernel,discipline,observability,nodes
-```
-`discipline/*` và `llm/*` đứng độc lập (chỉ phụ thuộc stdlib) → tái dùng ở mọi tầng.
 
----
+Kernel không sở hữu mutable run state. `SessionFactory` là nơi duy nhất tạo/restore root và child
+session. Node graph giữ session bằng closure; checkpoint chỉ giữ primitives.
 
-## core/ — lõi (Epic E01)
+## 2. `core.schemas` — data contracts
 
-| Class | Ý nghĩa | API chính | Phụ thuộc → | Được dùng bởi ← |
+| Class | Kind | Vai trò và API chính | Tạo bởi / dùng bởi | Trạng thái và invariant |
 |---|---|---|---|---|
-| `TaskEnvelope` | Gói một task của user | fields: `user_request, context, task_id` | — | `AgentKernel.accept_task` |
-| `ToolRequest` | Một lời gọi tool | fields: `name, args, request_id` | — | `ToolPort.execute`, kernel, mọi tool, `SafeToolPort` |
-| `CapabilityResult` | **Envelope chuẩn** mọi tool trả về | `from_raw(...)`, `as_dict()`; fields `ok,capability,feature,data,error,metadata` | — | `AgentKernel.execute_tool` |
-| `FeatureDescriptor` | Mô tả 1 feature (tên, capabilities) | `as_dict()` | — | `CapabilityRegistry.register_feature`; `example_echo.FEATURE`; `toolbox.FEATURE` |
-| `ToolPort` (Protocol) | "Khuôn" mọi tool: `.name` + `.execute(req)->dict` | — | `ToolRequest` | **triển khai bởi**: `NullToolPort`, `EchoTool`, `Fs*`, `Terminal`, `SafeToolPort` |
-| `ToolResolution` (NamedTuple) | Cặp `(executor, feature)` từ resolve | — | — | `CapabilityRegistry.resolve_tool`, `AgentKernel` |
-| `NullToolPort` | Tool rỗng → `missing_capability` (degrade an toàn) | `execute()` | `ToolRequest` | `CapabilityRegistry` (fallback) |
-| `CapabilityRegistry` | Sổ đăng ký tool/feature; resolve + fallback + null | `register_tool/_tools/_feature`, `resolve_tool`, `set_fallback_tool_executor`, `list_*` | `NullToolPort`, `FeatureDescriptor` | `AgentKernel`; nạp bởi `features.loader`/feature install |
-| `EventBus` | pub/sub tối giản | `subscribe(fn)`, `publish(topic,payload)` | — | `AgentKernel`; subscribe bởi `EventLogger` |
-| `StateStore` | Kho state in-memory của run | `get/set/as_dict` | — | `AgentKernel` |
-| `AgentKernel` | **Lõi sống**: nhận task, thực thi tool (resolve→execute→envelope→events) | `accept_task`, `execute_tool`, `describe_capabilities` | `CapabilityRegistry`, `EventBus`, `StateStore`, `schemas` | `bootstrap` tạo; `graph.*`, `toolbox.feature`, tests dùng |
+| `TaskEnvelope` | frozen dataclass | User request + `context`, `metadata`, `task_id`; `as_dict/from_dict` | `SessionFactory.create_root/create_child`, legacy resume; nằm trong `StateStore` | D · được codec graph đặc cách khi checkpoint |
+| `ToolRequest` | frozen dataclass | `name`, `args`, optional `ToolCallContext`, `request_id` | `AgentKernel.execute_tool`; mọi `ToolPort.execute` nhận | D · context không được trộn vào args |
+| `ToolCallContext` | frozen dataclass | Lineage + scope; `event_fields()` | `KernelSession.call_context`; kernel đọc | D · `allowed_capabilities=None` nghĩa là không áp session scope |
+| `CapabilityResult` | frozen dataclass | Envelope chuẩn; `from_raw`, `as_dict` | Kernel chuẩn hóa mọi executor/middleware result | D · sáu key chuẩn: ok/capability/feature/data/error/metadata |
+| `FeatureDescriptor` | frozen dataclass | Metadata feature + capability names; `as_dict` | Hằng `FEATURE` của feature modules; `CapabilityRegistry` lưu | D/O · mô tả feature, không enforce policy |
+| `DelegationSpec` | frozen dataclass | Objective, input context, output schema, constraints; `from_dict/as_dict` | Graph delegate node, ContextPacket, caller delegation | D/L · payload công việc, không mang quyền |
+| `DelegationPolicy` | frozen dataclass | `max_steps`, `max_depth`, capability scope; `from_dict/as_dict` | Delegate node, Supervisor, PolicyEngine | D/L · scope cuối phải là subset của parent |
+| `DelegationRequest` | frozen dataclass | Request đã gán ID, parent IDs, target, spec, policy; `as_dict` | `DelegationManager` | D · store/adapter nhận cùng object |
+| `ArtifactEnvelope` | frozen dataclass | Artifact ID/kind/schema/payload; `as_dict` | Delegation adapters | D/L · frozen wrapper nhưng `payload` vẫn là dict mutable |
+| `DelegationProgress` | frozen dataclass | Ordered progress event + artifact; `as_dict` | Adapter → progress sink/store/event bus | D/L · sequence liên tiếp, event_id idempotent |
+| `DelegationResult` | frozen dataclass | Outcome, merged artifacts, summary/error; `as_dict` | Adapter/manager → graph/Supervisor | D/L · IDs phải khớp request và parent |
 
-## discipline/ — kỷ luật output (Epic E02)
+## 3. `core.ports` và `core.middleware` — structural contracts
 
-| Class | Ý nghĩa | API chính | Phụ thuộc → | Được dùng bởi ← |
-|---|---|---|---|---|
-| `JsonGateError` | Lỗi khi parse action JSON | `.stage`, `.candidate` | stdlib | raise bởi `parse_action`; catch bởi `graph.agent_node`; `build_retry_message` |
-| `Budget` | Ngân sách loop (steps / parse-errors / same-tool); **parse error KHÔNG tốn step** | `record_step/parse_error/tool_call`, `*_exceeded`, `tool_key()` | stdlib | `graph.runtime.run_agent` |
+| Class | Contract | Implementations/consumers | Trạng thái |
+|---|---|---|---|
+| `ToolPort` | `.name`; `execute(ToolRequest) -> dict` | Null, Echo, LLM, RAG, Fs*, Terminal, SafeToolPort, callable adapter | D |
+| `DelegationPort` | `can_handle(target)`; `run(request, child_session, progress_sink)` | `LangGraphDelegationAgent`, `ScriptedDelegationAgent` | D |
+| `DelegationStorePort` | `start`, `append_progress`, `finish`, `progress`, `result` | `InMemoryDelegationStore` | D |
+| `DelegationServicePort` | `available_targets`, `delegate` | `DelegationManager`; graph/orchestrator nhận qua injection | D |
+| `ToolMiddleware` | `__call__(request, next_handler) -> envelope` | BudgetGuard, CondenseResult, PolicyGate, Retry, TimingLog | O |
 
-> Hàm kèm (glue, không phải class): `parse_action`, `build_retry_message`, `condense`, `check_finish`, `requires_validation`, `has_passing_validation`.
+Các Protocol dùng structural typing; implementation không cần kế thừa. `runtime_checkable` chỉ có ở
+Tool/Delegation ports phù hợp với các test `isinstance`.
 
-## llm/ — adapter (Epic E03)
+## 4. `core.registry` — capability catalog
 
-Không có class. Hàm chính: `call_llm(messages, *, model, json_mode, client)` — OpenAI-compatible, **lazy client**, injectable; lỗi → trả final JSON. (`reset_client()` cho test.) Được dùng bởi `graph.runtime` (truyền vào `run_agent`).
+| Class | Vai trò và API | Tạo bởi / dùng bởi | Trạng thái và lưu ý |
+|---|---|---|---|
+| `ToolDescriptor` | Metadata frozen: `kind`, `idempotent`, `risk` | `register_tool(s)` tạo; nằm trong `ToolResolution`; kernel stamp vào envelope | D mới · Retry dùng để tránh lặp non-idempotent effect |
+| `ToolResolution` | NamedTuple `(executor, feature, descriptor)` | `CapabilityRegistry.resolve_tool` → kernel | D |
+| `NullToolPort` | Missing-tool executor trả structured failure | Registry giữ một instance và resolve khi miss | D · chỉ tới được khi call không bị session scope chặn trước |
+| `CapabilityRegistry` | Register/freeze/resolve/list feature và tool | `build_kernel` tạo; feature installers ghi; kernel đọc | D · exact > fallback > null; freeze khi root session đầu tiên tạo |
 
-## observability/ — quan sát (Epic E04)
+`CapabilityRegistry` giữ executor, feature mapping và descriptor mapping riêng. `list_tools()` hiện
+chỉ project `name/feature`, chưa trả descriptor.
 
-| Class | Ý nghĩa | API chính | Phụ thuộc → | Được dùng bởi ← |
-|---|---|---|---|---|
-| `EventLogger` | Ghi `events.jsonl` + `summary.json` + đếm metrics | `emit(kind,**f)`, `count(metric)`, `finish(status)` | stdlib (+`core.events` qua `attach_to_bus`) | `graph.runtime`, `run_smoke` |
+## 5. `core.events`, `core.kernel`, `core.session`, `core.state`
 
-> Glue: `attach_to_bus(logger, bus)` (subscribe EventBus → logger); `inspect.py` (`list_runs/read_summary/read_events`, CLI).
+| Class | Vai trò và API chính | Phụ thuộc / call-site | Trạng thái và invariant |
+|---|---|---|---|
+| `EventBus` | Thread-safe `subscribe/publish`; deep-copy payload cho từng subscriber | Kernel/Supervisor phát; EventLogger nghe | D · observer exception bị cô lập; chưa có unsubscribe |
+| `AgentKernel` | Shared capability runtime; `freeze`, `use`, `execute_tool`, `describe_capabilities` | Bootstrap tạo; mọi session tham chiếu | D · không sở hữu run state; executor exception thành `kernel_error` |
+| `SessionIdentity` | Frozen lineage: session/run/task/agent/parent/delegation/depth; `as_dict/from_dict` | SessionFactory tạo; graph checkpoint/restore | D |
+| `KernelSession` | Per-task state, scope và lifecycle; `call_context`, `execute_tool`, `complete_task`, `fail_task` | Graph, delegation, Supervisor/KernelChatLLM | D · lifecycle chỉ đóng một lần; closed session không gọi tool |
+| `SessionFactory` | `create_root`, `create_child`, `restore` | Orchestrator, DelegationManager, resume | D · freeze kernel; root scope ⊆ registry, child scope ⊆ parent |
+| `StateStore` | Mutable key/value state per session; deep-copy `as_dict/snapshot/restore` | SessionFactory tạo; graph sync với `AgentState` | D · restore thay wholesale; serialization do graph codec chịu trách nhiệm |
 
-## features/ — plugin (Epic E01)
+## 6. `discipline` — loop/output controls
 
-| Class | Ý nghĩa | API chính | Phụ thuộc → | Được dùng bởi ← |
-|---|---|---|---|---|
-| `EchoTool` | Tool mẫu (echo args) + minh hoạ plugin | `execute()` | `ToolRequest` | đăng ký bởi `example_echo.install` |
+| Class | Vai trò và API | Dùng bởi | Trạng thái |
+|---|---|---|---|
+| `Budget` | Step, parse-error, same-tool counters; `record_*`, `*_exceeded`, `tool_key` | Single graph, child graph, Supervisor parse retry, BudgetGuard | D/L · parse error không tiêu step |
+| `JsonGateError` | Parse/schema error có `stage` và `candidate` | JSON gate raise; agent/Supervisor catch | D/L |
 
-> Glue: `loader.install_configured_features(kernel, config)` đọc config → import module feature → gọi `install(kernel)`.
+Glue functions cùng tầng: `parse_json_object`, `parse_action`, `build_retry_message`, `condense`,
+`check_finish`.
 
-## safety/ — chokepoint an toàn (Epic E06)
+## 7. `features` — registered executors
 
-| Class | Ý nghĩa | API chính | Phụ thuộc → | Được dùng bởi ← |
-|---|---|---|---|---|
-| `SandboxError` | Lỗi path vượt workspace | — | stdlib | raise bởi `resolve_in_workspace`; catch bởi `Fs*` tools |
-| `PolicyDecision` | Kết quả gate (`allowed, reason, code, risk`) | dataclass | — | trả bởi `ToolPolicy`/`classify_terminal`; đọc bởi `SafeToolPort` |
-| `ToolPolicy` | **Gate an toàn cross-cutting**: chặn terminal nguy hiểm + git mutation | `check(tool_name, args)->PolicyDecision` | `ToolRequest` | `SafeToolPort`; tạo trong `toolbox.feature` |
-| `SafeToolPort` | **Chokepoint**: bọc 1 tool, chạy policy trước khi delegate | `execute(req)` (triển khai `ToolPort`) | `ToolPolicy` | bọc `Fs*`/`Terminal`; đăng ký vào kernel bởi `toolbox.feature` |
+| Class | Tool/capability | Tạo bởi / dùng bởi | Trạng thái |
+|---|---|---|---|
+| `EchoTool` | `echo`; trả lại args | `features.example_echo.install` | D · smoke/example |
+| `LLMChatTool` | `llm.chat`; gọi OpenAI-compatible adapter | `features.llm_chat.install`; graph và Supervisor gọi qua session | D · injected client hỗ trợ test; transport error hiện được adapter mã hóa thành JSON text |
 
-> Glue: `resolve_in_workspace(path)`, `workspace_dir()` (path-jail), `classify_terminal(argv)`.
+`features.loader` không có class: nó import module được bật rồi gọi `install(kernel)` trước khi
+kernel freeze.
 
-## toolbox/ — tool thật, in-process (Epic E06)
+## 8. `middleware` — wrappers quanh kernel core handler
 
-| Class | Ý nghĩa | API chính | Phụ thuộc → | Được dùng bởi ← |
-|---|---|---|---|---|
-| `FsRead` | Đọc file trong workspace | `execute()` (triển khai `ToolPort`) | `safety.sandbox`, `ToolRequest` | bọc bởi `SafeToolPort` → kernel |
-| `FsWrite` | Ghi file trong workspace (mkdir parents) | `execute()` | `safety.sandbox`, `ToolRequest` | nt |
-| `FsList` | Liệt kê thư mục trong workspace | `execute()` | `safety.sandbox`, `ToolRequest` | nt |
-| `Terminal` | Chạy `argv` (no shell) trong workspace + timeout | `execute()` | `safety.sandbox.workspace_dir` | bọc bởi `SafeToolPort` → kernel; policy chặn argv nguy hiểm |
-
-> Glue: `feature.install(kernel)` đăng ký 4 tool trên qua `SafeToolPort(... , ToolPolicy())`.
-
-## graph/ — vòng lặp single-agent (Epic E05)
-
-| Class | Ý nghĩa | API chính | Phụ thuộc → | Được dùng bởi ← |
-|---|---|---|---|---|
-| `AgentState` | State một lần chạy agent | fields: `task, messages, step, final, code_changed, validation_passed` | — | `graph.nodes.agent_node`, `graph.runtime.run_agent` |
-
-> Glue: `agent_node(state, llm_call)` (LLM→action qua `parse_action`), `tool_node(action, kernel)` (gọi tool + `condense`), `run_agent(task, kernel, llm_call)` (loop agent↔tool + `Budget` + `check_finish` + `EventLogger`). **Single = 1 agent node + 1 tool node; multi-agent (E10) tái dùng nguyên loop.**
-
----
-
-## Các "glue function" then chốt (không phải class nhưng là chất kết dính)
-
-| Hàm | Vai trò | Nối |
+| Class | Hành vi | Trạng thái và invariant |
 |---|---|---|
-| `core.bootstrap.build_kernel(config)` | **Composition root**: dựng kernel + cài feature từ config | tạo `AgentKernel`, gọi `loader` |
-| `features.loader.install_configured_features` | Cài feature enabled trong config | `config` → `feature.install(kernel)` |
-| `graph.runtime.run_agent` | Vòng lặp single-agent | nối kernel + discipline + observability + tools |
-| `llm.adapter.call_llm` | Gọi LLM (JSON-mode, lazy) | bơm vào `run_agent` |
-| `observability.attach_to_bus` | Đổ event kernel vào log | `EventBus` → `EventLogger` |
+| `BudgetGuard` | Đếm repeated `(tool,args)`, short-circuit bằng `budget_block` | O · phải tạo per-run, không wire thành shared middleware mặc định |
+| `CondenseResult` | Condense `env.data`; bỏ qua `llm.*` | O · mutate envelope sau inner call |
+| `PolicyGate` | Deny exact tool names trước executor | O · `policy_block` không được Retry lặp lại |
+| `Retry` | Gọi lại inner handler khi `ok=false` nếu `_retryable`; bỏ policy block và non-idempotent effect | O · phụ thuộc metadata kernel stamp từ `ToolDescriptor` |
+| `TimingLog` | Đo wall time và gửi record tới optional sink | O · đăng ký outermost để đo cả chain |
 
-## Bản đồ gọi (call-site) — class được dùng ở đâu khi chạy & logic
+Bootstrap order khi bật đầy đủ: `TimingLog -> PolicyGate -> Retry -> CondenseResult -> core`.
 
-> "Khi làm việc" = đường runtime (bỏ qua tests). Phân biệt **TẠO** (khởi tạo/`new`) vs **GỌI/NHẬN** (dùng instance). Đã đối chiếu bằng grep mã thật.
+## 9. `safety` và `toolbox`
 
-### Chuỗi gọi runtime của MỘT bước agent (để thấy ai gọi ai)
+| Class | Vai trò/API | Tạo bởi / dùng bởi | Trạng thái và invariant |
+|---|---|---|---|
+| `SandboxError` | Path vượt workspace | `resolve_in_workspace` raise; Fs*/RAG catch | D/O |
+| `PolicyDecision` | Frozen gate result: allowed/reason/code/risk | `classify_terminal`, `ToolPolicy` → SafeToolPort | D |
+| `ToolPolicy` | Phân loại terminal/git mutation; optional `repair_mode` chặn whole-file write | Một instance dùng chung trong toolbox installer | D · policy argv, không phải OS sandbox; repair mode chưa được runtime tự chuyển |
+| `SafeToolPort` | Policy wrapper trước concrete executor | Toolbox bọc Fs*/Terminal rồi register | D |
+| `FsRead` | `fs_read`: UTF-8 file trong workspace jail | SafeToolPort → kernel | D |
+| `FsWrite` | `fs_write`: mkdir parent + UTF-8 write | SafeToolPort → kernel | D · field `bytes` hiện là character count |
+| `FsList` | `fs_list`: directory/file listing | SafeToolPort → kernel | D |
+| `Terminal` | `terminal_run`: subprocess argv, no shell, timeout 1..30s, cwd workspace | SafeToolPort → kernel | D · cwd không chặn process truy cập ngoài workspace |
+
+## 10. `delegation` và `adapters.agents`
+
+| Class | Vai trò/API | Tạo bởi / dùng bởi | Trạng thái và invariant |
+|---|---|---|---|
+| `DelegationPolicyEngine` | Validate step/depth/scope; trả active policy | DelegationManager | D |
+| `DelegationRegistry` | Thread-safe register/freeze/resolve target; reject duplicate/ambiguous | Delegation bootstrap/manager | D |
+| `InMemoryDelegationStore` | Ordered, idempotent progress + final result | Default delegation service | D · process-local, không resume được |
+| `DelegationManager` | Application chokepoint: validate → start → child → adapter → progress → result | Graph delegate node, Supervisor | D · store progress trước emit; parent giữ active |
+| `LangGraphDelegationAgent` | Concrete child agent chạy cùng single-agent graph với InMemorySaver | Default target `agent:general` | D · sequential, non-durable, recursive delegation tắt |
+| `ScriptedDelegationAgent` | Deterministic artifact producer | Tests/local architecture usage | C |
+
+## 11. `graph`, `orchestrator`, `observability`
+
+| Class | Vai trò/API | Tạo bởi / dùng bởi | Trạng thái và invariant |
+|---|---|---|---|
+| `AgentState` | `TypedDict` schema v2 cho LangGraph | `new_agent_state`; mọi graph node/checkpoint | D · chỉ primitives/encoded session state |
+| `_CallableLLMTool` | Adapter từ callback `llm_call` cũ sang `llm.chat` ToolPort | `graph.runtime.run_agent` | C |
+| `Checkpoint` | Stable JSON read-model/legacy schema; `to_json/from_json/from_graph_state` | Projection UI, migration legacy | D/C · không phải state truth của modern resume |
+| `EventLogger` | Thread-safe JSONL events, summary và metrics; `emit/count/finish` | UI, compat graph, smoke; `attach_to_bus` | D · lock trong process; raw event payload được ghi nguyên dạng |
+
+Các graph nodes là functions, không phải class: `guard_node`, `agent_node`, `tool_node`,
+`delegation_node`, `finish_node`, `fail_node`. `build_agent_graph()` bind session/service vào node
+bằng `partial`.
+
+## 12. `rag` — optional retrieval subsystem
+
+| Class | Kind/vai trò | Tạo bởi / dùng bởi | Trạng thái và invariant |
+|---|---|---|---|
+| `Chunk` | Frozen vector-store input: source/index/text/vector | RagService → VectorStorePort | D/O |
+| `Hit` | Frozen search output: source/index/text/score | VectorStorePort → RagService | D/O |
+| `EmbedderPort` | `dim`, `embed(texts)` protocol | Fake/FastEmbed implement; RagService nhận | D/O |
+| `VectorStorePort` | health/delete/upsert/search protocol | Memory/Qdrant implement; RagService nhận | D/O |
+| `RagConfig` | Frozen collection/model/chunk/search/Qdrant config; `from_dict` | `build_service` | D/O |
+| `FakeEmbedder` | Deterministic hashed bag-of-words | Default memory backend/tests | D |
+| `FastEmbedEmbedder` | Lazy `fastembed.TextEmbedding` adapter | Qdrant branch | O · dependency optional không nằm base install |
+| `InMemoryVectorStore` | Health-switchable cosine store | Default memory backend/tests | D · process-local, không thread-safe |
+| `QdrantVectorStore` | Production Qdrant adapter; lazy collection, deterministic IDs, health-safe failure | Qdrant backend + optional integration tests | O · lazy `qdrant-client`, cần local/remote Qdrant |
+| `RagService` | Health-gated ingest/search; workspace jail; port-only logic | RAG tools | D/O |
+| `_RagTool` | Base giữ `name`, service và semantic event emitter | Ba RAG tool subclasses | D/internal |
+| `RagHealthTool` | `rag_health` → service + `rag.health` event | RAG feature installer | D |
+| `RagIngestTool` | `rag_ingest(path)` + `rag.ingest` event | RAG feature installer | D |
+| `RagSearchTool` | `rag_search(query, top_k, threshold)` + `rag.search` event | RAG feature installer | D |
+
+Memory backend là default self-contained. `backend=qdrant` dùng production adapter + fastembed qua
+optional extras `[rag]`; integration tests skip khi Qdrant không reachable.
+
+## 13. `skills`
+
+| Class | Vai trò/API | Tạo bởi / dùng bởi | Trạng thái |
+|---|---|---|---|
+| `SkillSpec` | Frozen role-agnostic contract: triggers, allowed/forbidden tools, Steps/Report | `parse_skill`, SkillRegistry, RoleSpec | L |
+| `SkillRegistry` | Load/register/get/render/lint/union tools | Role registry/Agent prompt, tests | L · `contract` ẩn Steps/Report; `full` hiện đầy đủ |
+
+Skill parser đọc YAML frontmatter và markdown headings. Skill không biết role; role là nơi hợp nhất
+tool declarations và áp forbidden-wins.
+
+## 14. `roles`
+
+| Class | Vai trò/API | Tạo bởi / dùng bởi | Trạng thái và invariant |
+|---|---|---|---|
+| `TestOwnership` | Frozen separation-of-duties marker | Nằm trong RoleSpec; Agent.guard_finish | L |
+| `RoleView` | Frozen projection cho Supervisor: agent_id/role/prompt/default_scope | AgentRegistry.role_view/list_roles | L |
+| `RoleSpec` | Canonical role config; `allowed_tools(skills, core_tools)` | YAML loader, AgentRegistry | L · skill forbidden wins trên explicit/core/skill union |
+| `Agent` | Role đã bind skill/lens; tool/finish guards + scoped prompt | AgentRegistry.build_agent | L · guard chưa được graph/Supervisor gọi tự động |
+| `LensSpec` | Frozen review viewpoint + tool hints + output schema; `render` | LensRegistry, Agent prompt | L |
+| `LensRegistry` | Register/load/get/render lens YAML | AgentRegistry composition | L |
+| `AgentRegistry` | Canonical role store; build Agent; project RoleView | Có thể inject vào SupervisorContext | L |
+
+Lưu ý: `LensSpec.allowed_tools/forbidden_tools` hiện chỉ được render vào prompt, không tham gia
+`RoleSpec.allowed_tools()` hay `Agent.guard_tool_call()`.
+
+## 15. `supervisor.contracts`
+
+| Class | Vai trò/API | Luồng sử dụng | Trạng thái |
+|---|---|---|---|
+| `AgentSelection` | Agent ID + lý do chọn | `SessionPlan` | L |
+| `SessionPlan` | Team đã chọn; `agent_ids/as_dict` | Agent O compose → Blackboard | L |
+| `AgentAssignment` | Agent objective/scope-of-work/capability list | Agent O decision → Broker/worker | L |
+| `OrchestratorDecision` | Decision verb + worker/tool/acceptance/final payload | `parse_decision` → TaskLoop driver | L |
+| `ContextPacket` | Briefing + provenance + expected schema; `to_spec` | Broker → DelegationManager | L · cố ý không có capability scope |
+
+## 16. `supervisor.state`
+
+| Class | Vai trò/API | Luồng sử dụng | Trạng thái |
+|---|---|---|---|
+| `TaskLoopStatus` | Enum created/team/discussion/wait/review/terminal | TaskLoop state/driver | L |
+| `AcceptanceCheck` | Criterion + status/evidence; `is_satisfied`, codec | Acceptance judge | L · passed cần evidence_ids không rỗng và có thật |
+| `AgentTurn` | Round/agent/packet/summary/artifact IDs; codec | `run_round` append | L |
+| `TaskLoopState` | Mutable Blackboard; artifacts, turns, AC, tool results; helpers | Toàn Supervisor loop; codec functions | L · serializable nhưng chưa checkpoint tự động |
+
+## 17. `supervisor.broker`, `supervisor.llm`, `supervisor.orchestrator`, `supervisor.graph`
+
+| Class | Vai trò/API | Tạo bởi / dùng bởi | Trạng thái và invariant |
+|---|---|---|---|
+| `BrokerPort` | `write_packet(assignment, store_slice)` protocol | DeterministicBroker/LLMBroker; SupervisorContext | L |
+| `DeterministicBroker` | Briefing offline có char cap + source IDs | Tests/local TaskLoop | L |
+| `ChatLLM` | `complete(messages) -> str` protocol | KernelChatLLM/Fake tests; LLM agents nhận | L |
+| `KernelChatLLM` | Chat adapter qua `KernelSession.execute_tool("llm.chat")` | LLMOrchestrator/LLMBroker | L · giữ chokepoint và lineage |
+| `LLMOrchestrator` | Agent O compose team/decide bằng model | TaskLoop | L |
+| `LLMBroker` | Context packet bằng model; lọc source IDs, cap briefing | TaskLoop | L · code không thể chứng minh nội dung briefing thực sự grounded |
+| `OrchestratorPort` | `compose_team`, `decide` protocol | LLM/Scripted implementations | L |
+| `ScriptedOrchestrator` | Queue JSON deterministic; tự block khi hết script | Acceptance tests | C/L |
+| `SupervisorContext` | Runtime dependency bundle + role catalog + event/checkpoint helpers | Mọi supervisor node function | L |
+| `SqliteTaskLoopStore` | SQLite latest-state store; `save/load` encoded Blackboard | Optional `run_task_loop/resume_task_loop` checkpoint store | L · save sau completed turn/round/terminal; không lưu current decision/Budget/repeat history |
+
+Supervisor nodes và driver là functions. `run_task_loop()` hiện không gọi
+`supervisor_session.complete_task/fail_task`; optional `SqliteTaskLoopStore` có resume nhưng driver
+không phải LangGraph và UI chưa khởi tạo nó.
+
+## 18. `ui.server`
+
+| Class | Vai trò/API | Tạo bởi / dùng bởi | Trạng thái và invariant |
+|---|---|---|---|
+| `RunJob` | Dataclass job memory: prompt/system/status/timestamps/error | RunController | D · mất khi process restart; artifacts vẫn trên disk |
+| `RunController` | Queue/run tối đa N workers; `start/get/close` | AgentUIServer/handler | D · mỗi job tạo kernel/logger/delegation service riêng |
+| `AgentUIHandler` | HTTP API + static + SSE | ThreadingHTTPServer tạo mỗi request | D · local console, không có auth |
+| `AgentUIServer` | `ThreadingHTTPServer` giữ shared RunController | `ui.server.main` | D · daemon request threads, default bind 127.0.0.1 |
+
+Frontend `app.js` không khai báo JavaScript class; nó dùng một state object và các render/event
+functions. Vì vậy bách khoa này không bỏ sót frontend class nào.
+
+## 19. Ai tạo ai ở runtime mặc định
+
+```text
+RunController
+  ├─ EventLogger
+  ├─ create_kernel
+  │    ├─ CapabilityRegistry
+  │    │    ├─ ToolDescriptor per registered capability
+  │    │    ├─ EchoTool
+  │    │    ├─ LLMChatTool
+  │    │    └─ SafeToolPort -> FsRead/FsWrite/FsList/Terminal
+  │    ├─ EventBus
+  │    └─ AgentKernel
+  ├─ create_delegation_service
+  │    ├─ DelegationRegistry -> LangGraphDelegationAgent
+  │    ├─ InMemoryDelegationStore
+  │    ├─ DelegationPolicyEngine
+  │    └─ DelegationManager
+  └─ orchestrator.run
+       ├─ SessionFactory -> SessionIdentity + StateStore + KernelSession
+       ├─ AgentState + Budget
+       ├─ Checkpoint/SqliteSaver
+       └─ graph nodes
+            ├─ ToolRequest -> ToolResolution -> CapabilityResult
+            └─ optional delegation -> child KernelSession -> child AgentState
 ```
-run_agent (graph.runtime)
-  → AgentState(task)                         # tạo state
-  → EventLogger() + attach_to_bus(.., kernel.events)   # EventBus.subscribe(sink)
-  → kernel.accept_task(task)                 # tạo TaskEnvelope → StateStore.set → EventBus.publish("task.accepted")
-  → vòng lặp:
-     agent_node(state, llm_call)             # gọi llm_call → parse_action() → (JsonGateError? → retry)
-     ├─ action=tool → tool_node(action, kernel)
-     │     → kernel.execute_tool(name, args)
-     │         → ToolRequest(...)            # tạo
-     │         → registry.resolve_tool() → ToolResolution(executor, feature)
-     │         → executor.execute(request)   # executor = SafeToolPort → ToolPolicy.check()(PolicyDecision) → tool gốc (FsRead/Terminal/EchoTool…)
-     │         → CapabilityResult.from_raw(...).as_dict()   # envelope
-     │         → EventBus.publish("tool.completed|failed") → EventLogger.emit/count
-     │     → condense(result)                # discipline
-     ├─ action=final → check_finish(state)   # finish-gate
-     └─ Budget.* (đếm step/parse/same-tool)
-  → EventLogger.finish()                     # summary.json
-```
 
-### Call-site theo từng class (core/)
-- **AgentKernel** — TẠO ở `bootstrap.build_kernel`. NHẬN (param `install(kernel)`) ở `features.loader`, `features.example_echo.install`, `toolbox.feature.install` (để feature đăng ký vào `kernel.registry`). GỌI ở `graph.runtime.run_agent` (`accept_task`, `events`) và `graph.nodes.tool_node` (`execute_tool`). → graph là nơi *vận hành* kernel.
-- **CapabilityRegistry** — TẠO ở `build_kernel`; field `AgentKernel.registry`. GỌI: `execute_tool→resolve_tool`, `describe_capabilities→list_*`, feature install→`register_feature/register_tool(s)`.
-- **NullToolPort** — TẠO+giữ trong `CapabilityRegistry.__init__`; trả ở `resolve_tool` khi không khớp → kernel gọi `.execute` ra envelope `missing_capability`.
-- **ToolResolution** — TẠO ở `CapabilityRegistry.resolve_tool` (3 nhánh exact/fallback/null); ĐỌC ở `AgentKernel.execute_tool` (`.executor`, `.feature`).
-- **EventBus** — TẠO ở `build_kernel`; field `AgentKernel.events`. `accept_task`/`execute_tool` GỌI `publish(...)`; `observability.attach_to_bus` GỌI `subscribe(sink)` (graph truyền `kernel.events`). → kernel phát, observability nghe.
-- **StateStore** — TẠO ở `build_kernel`; `accept_task` GỌI `state.set("current_task", task)`.
-- **TaskEnvelope** — TẠO *duy nhất* ở `AgentKernel.accept_task` (gói request user, lưu state, phát event).
-- **ToolRequest** — TẠO *duy nhất* ở `AgentKernel.execute_tool`; NHẬN (đọc `.name/.args`) ở mọi `execute(request)`: `NullToolPort`, `EchoTool`, `FsRead/Write/List`, `Terminal`, `SafeToolPort`. → vật mang lời gọi xuyên tầng tool.
-- **CapabilityResult** — dùng *duy nhất* ở `AgentKernel.execute_tool` (`from_raw().as_dict()` chuẩn hóa raw → envelope + metadata).
-- **FeatureDescriptor** — TẠO làm hằng `FEATURE` ở `example_echo` & `toolbox.feature`; dùng ở `CapabilityRegistry.register_feature`/`list_features`.
-- **ToolPort (Protocol)** — *không bị import lúc chạy*; chỉ là **hợp đồng cấu trúc** (kernel duck-type: `executor.execute(...)`, `getattr(executor,"name")`). Mọi tool theo khuôn nhưng KHÔNG kế thừa → điểm "khuôn ngầm" cần biết.
+## 20. Invariant theo class boundary
 
-### discipline/
-- **JsonGateError** — RAISE ở `json_gate.parse_action`; CATCH ở `graph.nodes.agent_node` (đổi thành action `retry`); param ở `build_retry_message`.
-- **Budget** — TẠO & dùng *chỉ* ở `graph.runtime.run_agent`: `record_step/step_exceeded`, `record_parse_error/parse_exceeded`, `record_tool_call/same_tool_exceeded`, `Budget.tool_key`.
-
-### observability/
-- **EventLogger** — TẠO ở `run_agent` (nếu chưa truyền) & `run_smoke`; param ở `attach_to_bus`; `run_agent` GỌI `emit/count/finish` xuyên loop.
-
-### features/
-- **EchoTool** — TẠO+đăng ký ở `example_echo.install`; `.execute` được `AgentKernel` gọi khi tool `echo` được yêu cầu.
-
-### safety/
-- **SandboxError** — RAISE ở `sandbox.resolve_in_workspace`; CATCH ở `FsRead/FsWrite/FsList.execute` (trả envelope lỗi, không ném lên kernel).
-- **PolicyDecision** — TẠO ở `classify_terminal` (nhiều nhánh) & `ToolPolicy.check`; ĐỌC ở `SafeToolPort.execute` (`.allowed/.code/.reason/.risk`).
-- **ToolPolicy** — TẠO ở `toolbox.feature.install` (1 instance dùng chung) + default trong `SafeToolPort.__init__`; `SafeToolPort.execute` GỌI `check(name,args)`; `check` gọi hàm `classify_terminal` cho tool terminal.
-- **SafeToolPort** — TẠO ở `toolbox.feature.install` (bọc từng `Fs*`/`Terminal`) rồi `register_tool` vào kernel. Lúc chạy: `AgentKernel.execute_tool` resolve ra SafeToolPort → gọi `.execute` → policy → delegate tool gốc. → **chokepoint** nằm trên đường kernel→tool.
-
-### toolbox/
-- **FsRead/FsWrite/FsList/Terminal** — TẠO ở `toolbox.feature.install` (bọc SafeToolPort); GỌI `sandbox.resolve_in_workspace`/`workspace_dir`; `.execute` chạy *gián tiếp qua SafeToolPort* khi kernel thực thi `fs_*`/`terminal_run`.
-
-### graph/
-- **AgentState** — TẠO ở `run_agent` (`AgentState(task=task)`), bị *biến đổi* trong loop (`messages/step/final`); ĐỌC ở `agent_node` (`state.task`, `state.messages`).
-
-> Ghi chú: tests (`tests/test_*.py`) cũng tạo kernel qua `build_kernel(dict)` và gọi `execute_tool`/`run_agent` — đã loại khỏi bản đồ "khi làm việc" ở trên.
-
-## Bất biến quan trọng (để hiểu "vì sao")
-- **Mọi tool đều là `ToolPort`** (cùng khuôn `.execute(ToolRequest)->dict`) → kernel xử lý đồng nhất, an toàn được áp bằng cách *bọc* (`SafeToolPort`) chứ không sửa kernel.
-- **Mọi kết quả tool đều thành `CapabilityResult`** (envelope) → tầng trên không phải đoán shape.
-- **Lõi (`core/`) không phụ thuộc lên trên**: không biết tới safety/toolbox/graph. Phụ thuộc luôn chỉ xuống. Đó là lý do DAG sạch, dễ thêm tính năng mà không đụng lõi.
-
-
-
-
-
-
-
-
----------------------------------------------------------------------------------------------------------
-
-# Call-sites từng class — core_agent
-
-> Với MỖI class: (1) **được khởi tạo bởi** ai, (2) **xuất hiện ở** class/hàm nào, (3) **biến/method của nó được dùng** ở class/hàm nào.
-> "Khi làm việc" = đường runtime; phần trong `tests/` ghi chú riêng. Đối chiếu bằng grep mã thật (Sprint 0+1). Nên đặt tại `core_agent/docs/CLASS_CALLSITES.md`.
-
----
-
-## observability/
-
-### class EventLogger
-- **Khởi tạo bởi:** `graph.runtime.run_agent` (khi `logger=None`) · `run_smoke.main` · (tests: `test_observability`).
-- **Xuất hiện ở:** `observability/event_log.py` (def; hàm `attach_to_bus(logger: EventLogger, bus)`) · `observability/__init__.py` (export) · `graph/runtime.py` (import; param `logger: EventLogger | None`; biến `logger`) · `run_smoke.py` (import; biến `logger`).
-- **Biến/method được dùng ở:**
-  - `graph.runtime.run_agent`: `logger.count("steps"|"llm_calls"|"parse_errors"|"finish_gate_blocks"|"condensed")`, `logger.emit("MessageEvent"|"ActionEvent"|"StateEvent", …)`, `logger.finish(...)` → đọc `summary["run_id"]`.
-  - `observability.attach_to_bus`: `logger.emit("KernelEvent", topic=…, **payload)`, `logger.count("tool_calls"|"tool_failures")`.
-  - `run_smoke.main`: `logger.count("steps")`, `logger.finish("completed")`.
-  - Nội bộ (method của chính nó): `self.seq, self.metrics, self.run_dir, self.events_path, self.enabled, self.run_id`.
-
----
-
-## core/
-
-### class AgentKernel
-- **Khởi tạo bởi:** `core.bootstrap.build_kernel` (`AgentKernel(registry=, events=, state=, config=)`).
-- **Xuất hiện ở:** `core/kernel.py` (def) · `core/bootstrap.py` (import, tạo, return type) · `features/loader.py` (`install_configured_features(kernel: AgentKernel, …)`) · `features/example_echo.py` & `toolbox/feature.py` (`install(kernel: AgentKernel)`) · `graph/nodes.py` (`tool_node(action, *, kernel: AgentKernel)`) · `graph/runtime.py` (param `kernel: AgentKernel`).
-- **Biến/method được dùng ở:**
-  - `graph.runtime.run_agent`: `kernel.accept_task(task)`, `kernel.events` (truyền cho `attach_to_bus`).
-  - `graph.nodes.tool_node`: `kernel.execute_tool(name, args)`.
-  - `features.example_echo.install` / `toolbox.feature.install`: `kernel.registry.register_feature/register_tool(s)`.
-  - Nội bộ: `self.registry.resolve_tool`, `self.events.publish`, `self.state.set`, `self.registry.list_features/list_tools`.
-
-### class CapabilityRegistry
-- **Khởi tạo bởi:** `core.bootstrap.build_kernel` (`CapabilityRegistry()`).
-- **Xuất hiện ở:** `core/registry.py` (def) · `core/kernel.py` (import; field `registry: CapabilityRegistry`) · `core/bootstrap.py` (import, tạo).
-- **Biến/method được dùng ở:** `AgentKernel.execute_tool` (`registry.resolve_tool`) · `AgentKernel.describe_capabilities` (`list_features/list_tools`) · `example_echo.install` & `toolbox.feature.install` (`register_feature`, `register_tool(s)`). Nội bộ: `_tools, _features, _tool_features, _fallback, _fallback_feature, _null`.
-
-### class NullToolPort
-- **Khởi tạo bởi:** `CapabilityRegistry.__init__` (`self._null = null_tool or NullToolPort()`).
-- **Xuất hiện ở:** `core/registry.py` (def; dùng trong `__init__`, `resolve_tool`).
-- **Biến/method được dùng ở:** `CapabilityRegistry.resolve_tool` trả `self._null`; `AgentKernel.execute_tool` gọi `resolution.executor.execute(request)` (executor = NullToolPort khi miss); `.name` đọc qua `getattr(executor, "name", …)`.
-
-### class ToolResolution (NamedTuple)
-- **Khởi tạo bởi:** `CapabilityRegistry.resolve_tool` (3 nhánh: exact / fallback / null).
-- **Xuất hiện ở:** `core/registry.py` (def; return type của `resolve_tool`) · `core/kernel.py` (gián tiếp qua `resolve_tool`).
-- **Biến/method được dùng ở:** `AgentKernel.execute_tool`: `resolution.executor` (gọi `.execute`), `resolution.feature` (truyền vào `CapabilityResult.from_raw`).
-
-### class EventBus
-- **Khởi tạo bởi:** `core.bootstrap.build_kernel` (`EventBus()`).
-- **Xuất hiện ở:** `core/events.py` (def) · `core/kernel.py` (import; field `events: EventBus`) · `observability/event_log.py` (import; `attach_to_bus(logger, bus: EventBus)`).
-- **Biến/method được dùng ở:** `AgentKernel.accept_task`/`execute_tool`: `self.events.publish(topic, payload)` · `observability.attach_to_bus`: `bus.subscribe(sink)` · `graph.runtime.run_agent`: truyền `kernel.events`. Nội bộ: `self._subscribers`.
-
-### class StateStore
-- **Khởi tạo bởi:** `core.bootstrap.build_kernel` (`StateStore()`).
-- **Xuất hiện ở:** `core/state.py` (def) · `core/kernel.py` (import; field `state: StateStore`).
-- **Biến/method được dùng ở:** `AgentKernel.accept_task`: `self.state.set("current_task", task)`. (`get`/`as_dict` là API, chưa gọi ở runtime hiện tại.)
-
-### class TaskEnvelope
-- **Khởi tạo bởi:** `AgentKernel.accept_task` (`TaskEnvelope(user_request=, context=)`) — *nơi tạo duy nhất*.
-- **Xuất hiện ở:** `core/schemas.py` (def) · `core/kernel.py` (import; return type của `accept_task`).
-- **Biến/method được dùng ở:** `AgentKernel.accept_task`: đọc `task.task_id` (publish `task.accepted`), lưu `task` vào StateStore.
-
-### class ToolRequest
-- **Khởi tạo bởi:** `AgentKernel.execute_tool` (`ToolRequest(name=, args=)`) — *nơi tạo duy nhất*.
-- **Xuất hiện ở:** `core/schemas.py` (def) · `core/kernel.py` (tạo) · param `execute(request: ToolRequest)` ở: `core/ports.py` (ToolPort), `core/registry.py` (NullToolPort), `features/example_echo.py` (EchoTool), `safety/policy.py` (SafeToolPort), `toolbox/filesystem.py` (FsRead/Write/List), `toolbox/terminal.py` (Terminal).
-- **Biến/method được dùng ở:**
-  - `AgentKernel.execute_tool`: `request.name`, `request.args`, `request.request_id`.
-  - `EchoTool.execute`: `request.args`.
-  - `FsRead/FsWrite/FsList.execute`: `request.args.get("path"|"content")`.
-  - `Terminal.execute`: `request.args.get("argv"|"timeout")`.
-  - `SafeToolPort.execute`: `request.name`, `request.args` (truyền cho `policy.check`).
-
-### class CapabilityResult
-- **Khởi tạo bởi:** `AgentKernel.execute_tool` (`CapabilityResult.from_raw(...)`) — *nơi dùng duy nhất*.
-- **Xuất hiện ở:** `core/schemas.py` (def; + hàm `is_capability_result`) · `core/kernel.py` (import; `from_raw().as_dict()`).
-- **Biến/method được dùng ở:** `AgentKernel.execute_tool`: `CapabilityResult.from_raw(capability=, feature=, result=, metadata=).as_dict()` → envelope dict. Nội bộ `from_raw` dùng `is_capability_result`, đọc key của `result`.
-
-### class FeatureDescriptor
-- **Khởi tạo bởi:** `features.example_echo` (`FEATURE = FeatureDescriptor(...)`) · `toolbox.feature` (`FEATURE = FeatureDescriptor(...)`).
-- **Xuất hiện ở:** `core/schemas.py` (def) · `core/registry.py` (import; `register_feature(descriptor: FeatureDescriptor)`, `_features: dict[str, FeatureDescriptor]`) · `features/example_echo.py`, `toolbox/feature.py`.
-- **Biến/method được dùng ở:** `example_echo.install`/`toolbox.feature.install`: `FEATURE.capabilities`, `FEATURE.name` · `CapabilityRegistry.register_feature` (lưu), `list_features` (`descriptor.as_dict()`).
-
-### class ToolPort (Protocol)
-- **Khởi tạo bởi:** *không* (Protocol — không instantiate).
-- **Xuất hiện ở:** `core/ports.py` (def). **Không bị import lúc chạy** ở nơi khác.
-- **Biến/method được dùng ở:** *không trực tiếp* — chỉ là **hợp đồng cấu trúc**. Kernel duck-type (`executor.execute(...)`, `getattr(executor,"name")`); tool tuân khuôn nhưng không kế thừa/không import.
-
----
-
-## discipline/
-
-### class JsonGateError (ValueError)
-- **Khởi tạo bởi (raise):** `discipline.json_gate.parse_action` (2 nhánh: parse fail, thiếu `action`).
-- **Xuất hiện ở:** `discipline/json_gate.py` (def; raise; `build_retry_message(error: JsonGateError)`) · `discipline/__init__.py` (export) · `graph/nodes.py` (import; `except JsonGateError as exc`).
-- **Biến/method được dùng ở:** `graph.nodes.agent_node` (catch; `str(exc)`, truyền `exc` vào `build_retry_message`) · `build_retry_message`: `error.stage`.
-
-### class Budget
-- **Khởi tạo bởi:** `graph.runtime.run_agent` (`Budget(max_steps=max_steps)`).
-- **Xuất hiện ở:** `discipline/budget.py` (def) · `discipline/__init__.py` (export) · `graph/runtime.py` (import, tạo, dùng).
-- **Biến/method được dùng ở:** `graph.runtime.run_agent`: `budget.step_exceeded()`, `record_step()`, `record_parse_error()`, `parse_exceeded()`, `record_tool_call(key)`, `same_tool_exceeded(key)`, `Budget.tool_key(tool, args)` (staticmethod). Nội bộ: `steps, parse_errors, _tool_calls, max_steps, max_parse_errors, max_same_tool_calls`.
-
----
-
-## features/
-
-### class EchoTool
-- **Khởi tạo bởi:** `features.example_echo.install` (`EchoTool()` trong `register_tools`).
-- **Xuất hiện ở:** `features/example_echo.py` (def + install).
-- **Biến/method được dùng ở:** `.execute(request)` được `AgentKernel.execute_tool` gọi (sau resolve) khi tool `echo` được yêu cầu; đọc `request.args`. (`.name = "echo_tool"` không dùng — đăng ký theo capability `"echo"`.)
-
----
-
-## safety/
-
-### class SandboxError (ValueError)
-- **Khởi tạo bởi (raise):** `safety.sandbox.resolve_in_workspace`.
-- **Xuất hiện ở:** `safety/sandbox.py` (def + raise) · `safety/__init__.py` (export) · `toolbox/filesystem.py` (import; `except SandboxError` trong FsRead/FsWrite/FsList).
-- **Biến/method được dùng ở:** `FsRead/FsWrite/FsList.execute` (catch; `str(exc)` → envelope lỗi).
-
-### class PolicyDecision
-- **Khởi tạo bởi:** `safety.policy.classify_terminal` (nhiều nhánh) · `ToolPolicy.check` (nhiều nhánh).
-- **Xuất hiện ở:** `safety/policy.py` (def; return type của `classify_terminal`/`ToolPolicy.check`) · `safety/__init__.py` (export).
-- **Biến/method được dùng ở:** `SafeToolPort.execute`: `decision.allowed`, `decision.code`, `decision.reason`, `decision.risk`.
-
-### class ToolPolicy
-- **Khởi tạo bởi:** `toolbox.feature.install` (`policy = ToolPolicy()`) · `SafeToolPort.__init__` default (`policy or ToolPolicy()`).
-- **Xuất hiện ở:** `safety/policy.py` (def; `SafeToolPort.__init__(..., policy: ToolPolicy | None)`) · `safety/__init__.py` (export) · `toolbox/feature.py` (import, tạo).
-- **Biến/method được dùng ở:** `SafeToolPort.execute`: `self._policy.check(request.name, request.args)`. Nội bộ `check` gọi hàm `classify_terminal`.
-
-### class SafeToolPort
-- **Khởi tạo bởi:** `toolbox.feature.install` (`SafeToolPort(tool.name, tool, policy)` trong vòng lặp).
-- **Xuất hiện ở:** `safety/policy.py` (def) · `safety/__init__.py` (export) · `toolbox/feature.py` (import, tạo, `register_tool`).
-- **Biến/method được dùng ở:** `AgentKernel.execute_tool` gọi `.execute` (executor resolve ra = SafeToolPort cho `fs_*`/`terminal_run`). Nội bộ `execute`: `self._policy.check`, `self._inner.execute(request)`, `self.name`.
-
----
-
-## toolbox/
-
-### class FsRead / FsWrite / FsList
-- **Khởi tạo bởi:** `toolbox.feature.install` (`FsRead(), FsWrite(), FsList()` — bọc trong `SafeToolPort`).
-- **Xuất hiện ở:** `toolbox/filesystem.py` (def) · `toolbox/feature.py` (import, tạo).
-- **Biến/method được dùng ở:** `.execute` chạy *gián tiếp qua SafeToolPort* khi kernel thực thi `fs_read|fs_write|fs_list`. Dùng `safety.sandbox.resolve_in_workspace`, `request.args`; `FsWrite`: `path.parent.mkdir`, `path.write_text`; `FsRead`: `path.read_text`; `FsList`: `path.iterdir`.
-
-### class Terminal
-- **Khởi tạo bởi:** `toolbox.feature.install` (`Terminal()`).
-- **Xuất hiện ở:** `toolbox/terminal.py` (def) · `toolbox/feature.py` (import, tạo).
-- **Biến/method được dùng ở:** `.execute` qua SafeToolPort (policy `classify_terminal` gác argv trước). Dùng `safety.sandbox.workspace_dir`, `subprocess.run`, `request.args.get("argv"|"timeout")`.
-
----
-
-## graph/
-
-### class AgentState
-- **Khởi tạo bởi:** `graph.runtime.run_agent` (`AgentState(task=task)`).
-- **Xuất hiện ở:** `graph/state.py` (def) · `graph/__init__.py` (export) · `graph/nodes.py` (import; `agent_node(state: AgentState, …)`) · `graph/runtime.py` (import, tạo).
-- **Biến/method được dùng ở:**
-  - `graph.nodes.agent_node`: đọc `state.task`, `state.messages`.
-  - `graph.runtime.run_agent`: `state.step` (++), `state.final` (set), `state.messages.append(...)`, `state.code_changed`/`state.validation_passed` (truyền vào `check_finish`). (`state.last_action` khai báo, chưa dùng runtime.)
-
----
-
-## Ghi chú
-- **`build_kernel` là nơi sinh** 4 thành phần lõi (`AgentKernel`, `CapabilityRegistry`, `EventBus`, `StateStore`) — mọi thứ khác nhận chúng qua kernel.
-- **Tests** cũng khởi tạo qua `build_kernel(dict)` / `EventLogger(run_id=...)` và gọi `execute_tool`/`run_agent`/`check`… — đã loại khỏi cột "khi làm việc".
-- 3 dataclass schema (`TaskEnvelope`, `ToolRequest`, `CapabilityResult`) mỗi cái **chỉ sinh ở đúng 1 nơi trong `AgentKernel`** → dễ truy vết.
-- `ToolPort` là class duy nhất **không xuất hiện lúc chạy** (chỉ là Protocol hợp đồng).
+1. `AgentKernel` shared và frozen; `KernelSession` mutable và per-task.
+2. `ToolCallContext` mang quyền/lineage; tool args chỉ mang business input.
+3. `CapabilityRegistry` là nơi duy nhất map capability name → executor/feature/descriptor.
+4. `CapabilityResult` là shape duy nhất đi lên graph/Supervisor.
+5. `AgentState` không giữ runtime object; `StateStore` snapshot phải encode được.
+6. `DelegationManager` là chokepoint duy nhất cho parent→child application call.
+7. `ContextPacket` không được mang scope; scope do policy/assignment quyết định.
+8. `Checkpoint` JSON là read model; LangGraph SQLite mới là parent resume truth.
+9. `Agent`, roles, lenses và skills hiện là library policy layer; đừng giả định chúng đã bảo vệ
+   default UI runtime cho tới khi composition/enforcement được wire.

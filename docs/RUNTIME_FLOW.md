@@ -1,52 +1,105 @@
-# RUNTIME_FLOW — một task chạy từ input → output như thế nào
+# RUNTIME FLOW — code đang chạy từ input đến output
 
-> Trạng thái: **mô tả hiện thực đang chạy** (không phải spec). Khớp với code tại thời điểm
-> viết — đã verify trực tiếp trên `orchestrator/loop.py`, `graph/runtime.py`, `graph/nodes.py`,
-> `core/kernel.py`. Nếu sửa các file đó, cập nhật lại tài liệu này.
+> Snapshot được đối chiếu trực tiếp với source ngày **2026-06-25**. Đây là mô tả
+> implementation hiện tại, không phải PRD tương lai. Full suite tại snapshot này:
+> Full suite xanh (optional Qdrant integration được skip khi service không chạy); Ruff sạch;
+> `run_smoke.py` thành công.
 >
-> Đây là tầng "RUNTIME_FLOW" trong `docs/HOW_TO_FOLLOW.md`. Muốn biết *file nào là gì* xem
-> `MAP.md`; muốn biết *tại sao* xem `rebuild_from_zero/Exx_*/`.
+> Xem thêm: `RUN_AND_CONFIGURE.md` (cách chạy/cấu hình), `CLASS_ENCYCLOPEDIA.md` (toàn bộ
+> class), `CODE_REVIEW.md` (finding và rủi ro), `class_dependency.mermaid` (phụ thuộc package).
 
-## 1. Ranh giới (boundary)
+## 1. Có hai runtime, nhưng chỉ một runtime được UI gọi mặc định
 
-Chỉ có **một** runtime agent. LangGraph chỉ lo điều phối (orchestration); `core/` không import
-LangGraph và vẫn là microkernel framework-agnostic.
+| Runtime | Entrypoint | Trạng thái |
+|---|---|---|
+| Single-agent LangGraph | `orchestrator.run()` / `resume()` | **Đường chạy mặc định** của UI; có SQLite checkpoint/resume |
+| Supervisor TaskLoop | `supervisor.run_task_loop()` / `resume_task_loop()` | Thư viện E10 có optional SQLite Blackboard checkpoint/resume, nhưng **chưa được UI/bootstrap gọi** |
 
-Hai chokepoint, tách biệt có chủ đích:
+`skills/`, `roles/` và `rag/` là subsystem dùng được độc lập. Trong `config/features.yaml`
+mặc định chỉ bật `example_echo`, `llm_chat`, `toolbox`; RAG chưa bật, role/skill registry chưa
+được composition root dựng, Supervisor chưa được nối vào UI.
 
-1. **`AgentKernel.execute_tool`** (`core/kernel.py`) — *mọi* hành động LLM **và** tool đều đi qua đây.
-   LLM cũng là một capability (`llm.chat`), không có đường tắt.
-2. **`DelegationServicePort.delegate`** (inject vào graph, hiện thực ở `delegation/manager.py`) —
-   delegation đi đường riêng, **không** phải method của kernel. Đây là lý do có node `delegate`
-   riêng trong graph.
+## 2. Đường chạy mặc định từ UI
 
 ```mermaid
-flowchart LR
-    caller["UI / caller / run_smoke"] --> facade["orchestrator.run / resume"]
-    facade --> graph["compiled StateGraph (1 substrate)"]
-    graph --> agent["agent node"]
-    graph --> tool["tool node"]
-    graph --> delegate["delegate node"]
-    graph --> finish["finish / fail nodes"]
-    agent --> kernel["AgentKernel.execute_tool (llm.chat + tools)"]
-    tool --> kernel
-    delegate --> delport["DelegationServicePort.delegate (chokepoint riêng)"]
-    finish --> lifecycle["session.complete_task / fail_task"]
-    graph --> sqlite[("var/agent_runs/&lt;run_id&gt;/langgraph.sqlite")]
+sequenceDiagram
+    actor User
+    participant UI as Browser UI
+    participant HTTP as AgentUIHandler
+    participant RC as RunController
+    participant Boot as create_kernel
+    participant Orch as orchestrator.run
+    participant Graph as compiled StateGraph
+    participant Session as KernelSession
+    participant Kernel as AgentKernel
+    participant Store as SQLite + projection + event log
+
+    User->>UI: nhập prompt, Run
+    UI->>HTTP: POST /api/runs
+    HTTP->>RC: start(prompt, system_prompt)
+    RC-->>HTTP: 202 + run_id
+    RC->>Boot: create_kernel()
+    RC->>Orch: run(kernel, prompt, run_id, delegation_service)
+    Orch->>Session: SessionFactory.create_root()
+    Session->>Kernel: freeze registry/config/middleware
+    Orch->>Graph: build + stream AgentState schema v2
+    loop guard → agent → tool/delegate/finish
+        Graph->>Session: execute_tool / complete_task / fail_task
+        Session->>Kernel: execute_tool(..., ToolCallContext)
+        Graph->>Store: LangGraph SQLite checkpoint
+        Orch->>Store: checkpoint.json projection
+        Kernel->>Store: events.jsonl qua EventBus/EventLogger
+    end
+    RC->>Store: summary.json
+    UI->>HTTP: GET /api/stream (SSE)
+    HTTP-->>UI: snapshot run + log + file tree
 ```
 
-## 2. Entrypoints
+Chi tiết:
 
-| Đường vào | File | Ghi chú |
-|---|---|---|
-| `run()` / `resume()` | `orchestrator/loop.py` | Facade công khai, ổn định. Dùng cái này. |
-| `run_agent(...)` | `graph/runtime.py` | Facade tương thích ngược cho test cũ (`llm_call=`). Cùng một graph. |
-| Local UI | `ui/server.py` | Gọi facade, hiển thị run/state/log realtime. |
-| Smoke (no LLM/network) | `run_smoke.py` | In `CORE_AGENT_SMOKE_OK`. |
+1. `AgentUIHandler.do_POST()` kiểm tra kích thước JSON, prompt và system prompt.
+2. `RunController.start()` sinh `run_id`, lưu `RunJob`, rồi chạy `_execute()` trong
+   `ThreadPoolExecutor` (mặc định tối đa hai run song song).
+3. `_execute()` tạo `EventLogger`, `AgentKernel`, gắn logger vào `EventBus`, và tạo
+   `DelegationManager` nếu `config.delegation.enabled=true`.
+4. `orchestrator.run()` tạo root `KernelSession`. Lần tạo session đầu tiên gọi
+   `kernel.freeze()`: registry, middleware pipeline và config dùng chung không còn được sửa.
+5. `new_agent_state()` tạo state schema v2 chỉ gồm dữ liệu checkpoint được; service/runtime
+   object được capture trong closure khi compile graph.
+6. `_stream()` chạy graph, ghi projection JSON sau mỗi state transition và trả outcome cuối.
+7. `RunController` ghi `summary.json`; browser theo dõi bằng SSE.
 
-`run_id` ↔ LangGraph `thread_id`; `task_id` là correlation ID cho lifecycle + tool event.
+## 3. Composition root và capability mặc định
 
-## 3. Topology graph (sự thật, từ `graph/runtime.py::build_agent_graph`)
+```text
+create_kernel
+  -> load_config(config/features.yaml)
+  -> build_kernel
+       -> CapabilityRegistry
+       -> EventBus
+       -> AgentKernel
+       -> features.loader.install_configured_features
+            -> example_echo: echo
+            -> llm_chat:    llm.chat
+            -> toolbox:     fs_read, fs_write, fs_list, terminal_run
+            -> rag:         rag_health, rag_ingest, rag_search (memory mặc định)
+       -> _install_middleware(config)    # config mặc định hiện không khai báo middleware
+```
+
+Delegation không phải capability trong registry. `create_delegation_service()` dựng riêng:
+
+```text
+DelegationManager
+  ├─ DelegationRegistry
+  │    └─ LangGraphDelegationAgent("agent:general")
+  ├─ SessionFactory(shared kernel)
+  ├─ InMemoryDelegationStore
+  └─ DelegationPolicyEngine
+```
+
+## 4. Topology single-agent LangGraph
+
+Nguồn sự thật: `graph.runtime.build_agent_graph()`.
 
 ```text
 START -> guard
@@ -54,79 +107,235 @@ guard    -> agent | fail
 agent    -> tool | delegate | finish | guard | fail
 tool     -> guard | fail
 delegate -> guard | fail
-finish   -> guard (bị chặn) | END
+finish   -> guard | END
 fail     -> END
 ```
 
-> Lưu ý: node `delegate` và cạnh `finish -> guard` là thật trong code. Sơ đồ cũ trong
-> `architecture/LANGGRAPH.md` (đã xóa) thiếu cả hai — đừng dùng lại nó.
+### `guard`
 
-## 4. Vòng đời một step (từng node, `graph/nodes.py`)
+- Restore `session.state` từ snapshot trong `AgentState`.
+- Nếu `budget.steps >= max_steps`: emit `graph.budget_blocked`, route `fail`.
+- Nếu còn budget: route `agent`.
 
-1. **`guard`** — chặn trước mỗi lần gọi LLM nếu `budget.steps >= max_steps` → `fail`
-   (emit `graph.budget_blocked`). Ngược lại → `agent`.
-2. **`agent`** — gọi `session.execute_tool("llm.chat", {messages, model, json_mode})`, rồi
-   `parse_action` (JSON gate của `discipline/`) lấy **đúng một** action:
-   - parse lỗi → `record_parse_error`; quá ngưỡng → `fail`, chưa quá → quay `guard` kèm
-     retry message.
-   - hợp lệ → `record_step`, route theo verb: `tool` → tool, `delegate` → delegate,
-     `final` → finish, verb lạ → quay `guard`.
-3. **`tool`** — chặn same-tool budget (`same_tool_exceeded` → `fail`), rồi
-   `session.execute_tool(name, args)`, nối envelope JSON vào messages → `guard`.
-4. **`delegate`** — gọi `delegation_service.delegate(session, target, spec, policy)` (chokepoint
-   riêng). Không cấu hình delegation hoặc spec sai → `fail`. Thành công → nối `DELEGATION_RESULT`
-   vào messages → `guard`.
-5. **`finish`** — áp **finish gate** dùng chung (`check_finish`): nếu chưa đạt (vd: đã đổi code mà
-   chưa validate) → quay `guard` kèm lý do (emit `graph.finish_blocked`); nếu đạt →
-   `session.complete_task(final)`, status `completed`, → END.
-6. **`fail`** — `session.fail_task(reason, steps, parse_errors)`, status `failed`, → END.
-   Cùng một lifecycle với run thành công.
+### `agent`
 
-## 5. Bên trong chokepoint kernel (`core/kernel.py::execute_tool`)
+- Gọi `session.execute_tool("llm.chat", ...)`; LLM vì vậy đi qua cùng tool chokepoint.
+- Nối raw assistant content vào `messages`.
+- `parse_action()` sửa một số JSON hỏng nhẹ rồi yêu cầu field `action`.
+- Parse lỗi tăng `parse_errors` nhưng không tăng `steps`; chưa quá ngưỡng thì thêm retry
+  message và quay `guard`.
+- Action hợp lệ tăng `steps` rồi route:
+  - `tool` → `tool`;
+  - `delegate` → `delegate`;
+  - `final` → `finish`;
+  - verb lạ → thêm hướng dẫn rồi quay `guard`.
 
-Thứ tự cho **mỗi** call (cả `llm.chat` lẫn tool thường):
+### `tool`
 
-```text
-publish tool.requested  (lineage: run_id/task_id/session_id/parent_session_id/delegation_id/actor_id + args)
-  -> scope check: name ∉ context.allowed_capabilities  => block "outside session scope" + tool.failed
-  -> middleware chain (đăng ký order = ngoài -> trong; bọc reversed quanh core)
-       core: registry.resolve_tool -> executor.execute -> chuẩn hóa thành CapabilityResult envelope
-             (exception của tool KHÔNG bao giờ làm sập kernel -> kernel_error)
-  -> publish tool.completed | tool.failed
-```
+- Tạo key ổn định từ `(tool_name, args)` và tăng bộ đếm same-tool.
+- Quá `max_same_tool_calls` thì fail **trước** lần thực thi thừa.
+- Gọi `session.execute_tool(name, args)` và nối toàn bộ `CapabilityResult` envelope vào
+  transcript dưới role `user`, sau đó quay `guard`.
 
-Middleware cross-cutting (`middleware/`): timing → policy (deny-list) → budget → retry → condense,
-v.v. Safety của toolbox còn một lớp `SafeToolPort` + workspace jail (`safety/`).
+### `delegate`
 
-> ⚠️ Rủi ro đã biết: `tool.requested` hiện ghi **raw args** vào `events.jsonl` — secret/PII trong
-> args có thể bị log. Mục §12 (redaction) trong `MCP_TOOLS.md` nêu cách xử lý trước khi bật write tool.
+- Validate shape `target/spec/policy` ở node.
+- Gọi `DelegationServicePort.delegate()`; đây là chokepoint riêng, không phải kernel tool.
+- Kết quả structured được nối vào transcript với prefix `DELEGATION_RESULT`, rồi parent quay
+  lại `guard` dù child success/failed/rejected. Chỉ exception ở application boundary làm node fail.
 
-## 6. State & persistence
+### `finish` và `fail`
 
-- **`AgentState`** (`graph/state.py`) là state điều phối, **chỉ chứa giá trị serializable**:
-  task/run identity, messages, bộ đếm discipline, last action, outcome, và một snapshot **đã encode**
-  của `session.state`. Service runtime được bắt lúc compile node, **không bao giờ** vào checkpoint.
-- **Checkpoint thật = SQLite**: `var/agent_runs/<run_id>/langgraph.sqlite` (mở qua
-  `orchestrator/checkpoint.py::open_checkpointer`). `resume()` đọc từ đây.
-- **`checkpoint.json` chỉ là projection cho UI**, ghi sau mỗi transition (`save_graph_projection`).
-  Resume **không** đọc nó — trừ một lần migrate run cũ tạo trước thời LangGraph (`_legacy_state`).
-- Tạo tác mỗi run dưới `var/agent_runs/<run_id>/`: `events.jsonl`, `summary.json`,
-  `langgraph.sqlite`, `checkpoint.json`. `var/` được `.gitignore`.
+- `finish` gọi `check_finish(session.state, finish_reason)`. Nếu code đã đổi nhưng chưa có
+  validation và không khai báo blocker, graph thêm lý do rồi quay `guard`.
+- Khi gate cho phép, `session.complete_task()` đóng lifecycle đúng một lần.
+- `fail` gọi `session.fail_task()` với reason và counters rồi đi thẳng `END`.
 
-## 7. Resume (`orchestrator/loop.py::resume`)
+## 5. Tool chokepoint
+
+Mọi call từ runtime chuẩn đi theo:
 
 ```text
-có langgraph.sqlite?
-  không -> thử migrate legacy JSON checkpoint (_legacy_state) -> nếu là run cũ, chạy tiếp trên graph mới
-  có    -> đọc SQLite (truth) -> restore KernelSession -> nếu status=running & còn node kế -> stream tiếp
-                                                       -> ngược lại trả outcome đã có
+KernelSession.execute_tool
+  -> tạo ToolCallContext(identity + allowed_capabilities)
+  -> AgentKernel.execute_tool
+       1. ToolRequest(name, args, context, request_id)
+       2. publish tool.requested (kèm raw args)
+       3. scope check
+       4. middleware ngoài -> trong
+       5. CapabilityRegistry.resolve_tool
+       6. executor.execute(request)
+       7. CapabilityResult.from_raw(...).as_dict()
+       8. publish tool.completed | tool.failed
 ```
 
-## 8. Cách tự kiểm chứng nhanh
+Envelope cuối luôn có:
+
+```json
+{
+  "ok": true,
+  "capability": "echo",
+  "feature": "example_echo",
+  "data": {},
+  "error": null,
+  "metadata": {
+    "run_id": "...",
+    "task_id": "...",
+    "session_id": "...",
+    "parent_session_id": null,
+    "delegation_id": null,
+    "actor_id": "agent:root",
+    "request_id": "..."
+  }
+}
+```
+
+`AgentKernel.execute_tool()` vẫn cho phép `context=None` vì compatibility tests và code cũ;
+khi đó lineage là `None` và session scope không được áp. Runtime mới phải gọi qua `KernelSession`.
+
+Middleware được đăng ký theo thứ tự outer → inner. Bootstrap hỗ trợ `timing`, `policy`, `retry`,
+`condense`; `BudgetGuard` cố ý không được giữ trên shared kernel vì counter của nó phải per-run.
+Toolbox còn có lớp `SafeToolPort -> ToolPolicy -> tool gốc`.
+
+## 6. Delegation child flow
+
+```mermaid
+sequenceDiagram
+    participant Node as delegation_node
+    participant DM as DelegationManager
+    participant Policy as DelegationPolicyEngine
+    participant SF as SessionFactory
+    participant Adapter as DelegationPort
+    participant Child as child KernelSession/Graph
+    participant Store as InMemoryDelegationStore
+
+    Node->>DM: delegate(parent, target, spec, policy)
+    DM->>Policy: validate depth, steps, scope subset
+    DM->>Store: start(request)
+    DM->>SF: create_child(...)
+    SF-->>DM: isolated state + same frozen kernel
+    DM->>Adapter: run(request, child, progress_sink)
+    Adapter->>Child: LangGraph child hoặc scripted adapter
+    loop mỗi progress artifact
+        Adapter->>Store: append_progress first
+        Adapter-->>DM: delegation.progress event
+    end
+    Adapter-->>DM: DelegationResult
+    DM->>Store: finish(result)
+    DM-->>Node: merged result
+```
+
+Child dùng cùng `AgentKernel` đã freeze nhưng có `SessionIdentity`, `StateStore` và capability scope
+riêng. `LangGraphDelegationAgent` dùng `InMemorySaver`, chạy tuần tự và tắt recursive delegation.
+Parent graph mới là state durable; delegation store và child checkpointer hiện chưa durable.
+
+## 7. State và persistence
+
+`AgentState` schema v2 chứa:
+
+- identity: `run_id`, `task_id`, `session_identity`, `allowed_capabilities`;
+- input/transcript: `task`, `context`, `messages`, `model`;
+- discipline: serialized `Budget`;
+- control: `last_action`, `route`, `status`, `error`, `final`, `outcome`;
+- delegation projection: `active_delegation_id`, `last_delegation_result`;
+- `session_state`: snapshot của `StateStore`, encode riêng `TaskEnvelope`.
+
+Không được đặt client, connection, lock, kernel hoặc arbitrary dataclass vào graph state. Codec hiện
+chỉ đặc cách `TaskEnvelope`; thêm kiểu mới vào `session.state` phải mở rộng codec và test resume.
+
+| Artifact | Vai trò |
+|---|---|
+| `langgraph.sqlite` | Nguồn sự thật để resume parent graph |
+| `taskloop.sqlite` | Nguồn sự thật optional của Supervisor Blackboard |
+| `checkpoint.json` | Projection cho UI; không phải nguồn resume, trừ migrate legacy |
+| `events.jsonl` | Event append-only của run |
+| `summary.json` | Status, metrics và outcome cuối |
+| `index.jsonl` | Index tối giản các run đã finish |
+
+## 8. Resume
+
+```text
+resume(kernel, run_id)
+  ├─ chưa có langgraph.sqlite
+  │    └─ load legacy checkpoint.json
+  │         ├─ terminal -> trả last_result
+  │         └─ running  -> migrate thành AgentState v2 -> stream trên graph mới
+  └─ đã có langgraph.sqlite
+       -> đọc raw channel_values
+       -> restore SessionIdentity + session_state + allowed_capabilities
+       -> compile graph với session mới
+       -> terminal hoặc không còn next node: trả outcome
+       -> running và còn next node: graph.stream(None, same thread_id)
+```
+
+Invariant: `run_id == LangGraph thread_id`. `checkpoint.json` không được sửa để điều khiển resume.
+
+## 9. Observability và UI read model
+
+- `EventBus` copy sâu payload cho từng subscriber; observer lỗi không làm sập runtime.
+- `EventLogger` khóa sequence/write trong process, phân loại LLM event riêng và đếm metrics.
+- `RunController` giữ state job chỉ trong memory; run artifact nằm trên disk.
+- `AgentUIHandler` phục vụ bootstrap/snapshot/tree/file/run/SSE endpoints.
+- SSE hiện dựng lại toàn bộ run snapshot và project/workspace tree khi có client; đây là local
+  console, không phải telemetry backend cho tải lớn.
+
+## 10. Supervisor TaskLoop (đường chạy thay thế)
+
+`supervisor.run_task_loop()` là plain-Python round loop:
+
+```text
+compose_team
+  -> while chưa terminal:
+       o_decide (JSON gate + parse-error budget)
+       ├─ continue  -> Broker ContextPacket -> DelegationManager -> worker turns
+       ├─ need_tool -> supervisor_session.execute_tool
+       ├─ finished  -> acceptance evidence gate
+       ├─ blocked   -> terminal blocked
+       └─ failed    -> terminal failed
+       -> guard max_rounds / no-progress / repeated-decision
+```
+
+Blackboard là `TaskLoopState`, encode được thành primitives. Khi caller truyền
+`SqliteTaskLoopStore`, loop save sau compose, từng completed worker turn, round boundary và terminal.
+`resume_task_loop()` restore Blackboard rồi hỏi Agent O một decision mới; nếu decision mới giao lại
+agent đã có turn trong cùng `round_no`, `run_round()` bỏ qua agent đó. Current decision/pending list,
+Budget và repeated-decision history chưa nằm trong checkpoint. Agent O và LLMBroker có thể dùng
+`KernelChatLLM`, nên model calls vẫn qua `llm.chat`. Worker turns đi qua `DelegationManager`.
+
+Giới hạn hiện tại: TaskLoop vẫn là plain-Python driver (không phải compiled LangGraph), SQLite là
+opt-in và chưa được UI gọi; in-flight child delegation vẫn chưa có durable idempotency ledger;
+role allowlist/route permission chưa được nối thành enforcement. Xem `CODE_REVIEW.md`.
+
+## 11. Feature activation matrix
+
+| Subsystem | Có implementation | Bật mặc định | Đi vào UI runtime |
+|---|---:|---:|---:|
+| Kernel/session/toolbox/LLM | Có | Có | Có |
+| Parent LangGraph checkpoint/resume | Có | Có | Có |
+| Delegation `agent:general` | Có | Có | Có |
+| RAG memory backend | Có | Có | Có |
+| RAG Qdrant backend | Có; optional extras + local service | Không | Khi đổi `rag.backend=qdrant` |
+| Skills parser/registry | Có | Không cần feature config | Chưa compose |
+| Roles/lenses/AgentRegistry | Có | Không cần feature config | Chưa compose/enforce |
+| Supervisor TaskLoop | Có; optional SQLite Blackboard resume | Không | Không |
+
+## 12. Invariant khi sửa runtime
+
+1. Runtime mới gọi tool qua `KernelSession.execute_tool`, không gọi thẳng executor.
+2. Delegation đi qua `DelegationServicePort`, không thêm method delegation vào kernel.
+3. Kernel/config/registry dùng chung phải freeze trước khi chạy session song song.
+4. Child scope phải là tập con của parent scope.
+5. Graph state và session snapshot phải checkpoint được.
+6. Mọi nhánh terminal single-agent phải đóng lifecycle đúng một lần.
+7. SQLite là nguồn resume; JSON chỉ là read model.
+8. Đổi topology/state schema phải cập nhật tài liệu này và test resume.
+
+## 13. Kiểm chứng
 
 ```bash
-python run_smoke.py                              # CORE_AGENT_SMOKE_OK
-python -m pytest -q                              # phải xanh hết
-python -m observability.inspect summary latest   # xem run gần nhất
-python -m observability.inspect events latest    # xem chuỗi event qua chokepoint
+python run_smoke.py
+python -m pytest
+python -m ruff check .
+python -m observability.inspect summary latest
+python -m observability.inspect events latest
 ```

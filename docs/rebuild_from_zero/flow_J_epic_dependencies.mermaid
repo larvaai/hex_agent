@@ -1,0 +1,58 @@
+flowchart TD
+    %% P0 foundation
+    E01["E01 Kernel"] --> E04["E04 Observability"]
+    E03["E03 LLM Adapter"] --> E02["E02 Output Discipline"]
+
+    %% P1 / P2
+    E01 --> E06["E06 MCP + Safety"]
+    E01 --> E05["E05 Single-agent Graph"]
+    E02 --> E05
+    E03 --> E05
+    E04 --> E05
+    E06 --> E05
+    E06 --> E08["E08 RAG"]
+    E06 --> E07["E07 Skills"]
+    E01 --> E09["E09 Roles + Lenses"]
+    E06 --> E09
+    E07 <-.->|contract| E09
+
+    %% P3
+    E05 --> E10["E10 Multi-agent Graph"]
+    E09 --> E10
+    E02 --> E10
+    E06 --> E10
+    E09 --> E11["E11 Departments"]
+    E08 --> E11
+
+    %% P4
+    E10 --> E13["E13 Software Factory"]
+    E09 --> E13
+    E10 --> E12["E12 Router + Supervisor"]
+    E11 --> E12
+    E13 --> E12
+    E06 --> E14["E14 Ledger"]
+    E08 --> E14
+    E04 --> E18["E18 UI / Dashboard"]
+    E04 --> E15["E15 Self-eval + Governance"]
+    E10 --> E15
+    E04 --> E17["E17 User Live Control"]
+    E05 --> E17
+    E17 --> E16["E16 Human Review Gate"]
+    E15 <-.->|P4 cluster| E16
+    E16 <-.->|P4 cluster| E18
+
+    %% cross-cutting
+    E19["E19 Test Harness - phụ thuộc TẤT CẢ epic"]
+    E20["E20 Labs - sau cùng"]
+
+    classDef p0 fill:#F1EFE8,stroke:#5F5E5A,color:#2C2C2A;
+    classDef rt fill:#E1F5EE,stroke:#0F6E56,color:#04342C;
+    classDef ma fill:#EEEDFE,stroke:#534AB7,color:#26215C;
+    classDef cog fill:#FAECE7,stroke:#993C1D,color:#4A1B0C;
+    classDef x fill:#FAEEDA,stroke:#854F0B,color:#412402;
+
+    class E01,E02,E03,E04 p0;
+    class E05,E06,E07,E08 rt;
+    class E09,E10,E11 ma;
+    class E12,E13,E14,E15,E16,E18 cog;
+    class E17,E19,E20 x;

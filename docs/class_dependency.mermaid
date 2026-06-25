@@ -1,27 +1,75 @@
 flowchart TD
-    ui["ui<br/>RunController"]
-    orchestrator["orchestrator<br/>run · resume · SQLite checkpointer"]
-    graph_["graph<br/>StateGraph · AgentState · nodes"]
-    core["core<br/>AgentKernel · registry · events · state"]
-    discipline["discipline<br/>Budget · JSON gate · finish gate"]
-    observability["observability<br/>EventLogger"]
-    features["features<br/>LLM and tool capabilities"]
-    toolbox["toolbox + safety<br/>filesystem · terminal · policy"]
-    sqlite[("langgraph.sqlite")]
+    ui["ui.server<br/>RunJob · RunController · AgentUIHandler · AgentUIServer"]
+
+    orchestrator["orchestrator<br/>Checkpoint · run · resume"]
+    graph_["graph<br/>AgentState · compiled StateGraph · nodes"]
+    session["core.session/state<br/>SessionIdentity · KernelSession · SessionFactory · StateStore"]
+    kernel["core.kernel/registry/events<br/>AgentKernel · CapabilityRegistry · ToolDescriptor · EventBus"]
+    contracts["core.schemas/ports<br/>task · tool · delegation contracts/protocols"]
+
+    delegation["delegation<br/>DelegationManager · PolicyEngine · Registry · Store"]
+    adapters["adapters.agents<br/>LangGraphDelegationAgent · ScriptedDelegationAgent"]
+
+    features["features + llm<br/>EchoTool · LLMChatTool · call_llm"]
+    toolbox["toolbox + safety<br/>SafeToolPort · Fs* · Terminal · ToolPolicy"]
+    middleware["middleware<br/>BudgetGuard · PolicyGate · Retry · Condense · Timing"]
+    discipline["discipline<br/>Budget · JsonGateError · finish/JSON gates"]
+    observability["observability<br/>EventLogger · inspect"]
+    sqlite[("parent langgraph.sqlite")]
+    taskloop_sqlite[("optional taskloop.sqlite")]
+
+    rag["rag<br/>RagService · memory/Qdrant stores · embedders · tools"]
+    skills["skills (library)<br/>SkillSpec · SkillRegistry"]
+    roles["roles (library)<br/>RoleSpec/View · Agent · Lens* · AgentRegistry"]
+    supervisor["supervisor (library runtime)<br/>TaskLoopState · Agent O · Broker · SqliteTaskLoopStore"]
 
     ui --> orchestrator
+    ui --> kernel
+    ui --> delegation
+    ui --> observability
+    ui --> toolbox
+
     orchestrator --> graph_
+    orchestrator --> session
     orchestrator --> sqlite
-    graph_ --> core
+    graph_ --> session
     graph_ --> discipline
-    core --> features
-    features --> toolbox
-    core --> observability
+    graph_ -. injected .-> delegation
 
-    classDef kernel fill:#F1EFE8,stroke:#5F5E5A,color:#2C2C2A;
+    session --> kernel
+    session --> contracts
+    kernel --> contracts
+    kernel --> features
+    kernel --> toolbox
+    kernel --> middleware
+    kernel --> observability
+
+    delegation --> session
+    delegation --> contracts
+    delegation --> adapters
+    adapters --> graph_
+
+    rag -. optional feature .-> kernel
+    rag --> contracts
+    rag --> toolbox
+
+    roles --> skills
+    roles --> contracts
+    supervisor --> roles
+    supervisor --> discipline
+    supervisor --> session
+    supervisor --> delegation
+    supervisor --> contracts
+    supervisor --> taskloop_sqlite
+
+    classDef boundary fill:#282A36,stroke:#8BE9FD,color:#F8F8F2;
     classDef runtime fill:#EEEDFE,stroke:#534AB7,color:#26215C;
+    classDef core fill:#F1EFE8,stroke:#5F5E5A,color:#2C2C2A;
     classDef support fill:#E1F5EE,stroke:#0F6E56,color:#04342C;
+    classDef library fill:#FFF4E6,stroke:#B86B00,color:#5C3500,stroke-dasharray: 5 4;
 
-    class core kernel;
-    class graph_,orchestrator runtime;
-    class discipline,observability,sqlite support;
+    class ui boundary;
+    class orchestrator,graph_,delegation,adapters runtime;
+    class session,kernel,contracts core;
+    class features,toolbox,middleware,discipline,observability,sqlite,taskloop_sqlite,rag support;
+    class skills,roles,supervisor library;

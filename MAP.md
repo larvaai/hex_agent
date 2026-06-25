@@ -4,21 +4,40 @@
 > Bản này điền chuẩn bằng file tool (sandbox đọc mount đang lỗi); trên máy bạn cứ chạy `python tools/gen_map.py` để tái tạo sạch.
 >
 > **Lưu ý kiến trúc:** chỉ còn một runtime agent: `orchestrator/` là public facade và
-> `graph/` là compiled LangGraph. LLM/tool đều đi qua `AgentKernel.execute_tool`;
+> `graph/` là compiled LangGraph theo `KernelSession`. LLM/tool đi qua `AgentKernel.execute_tool`;
+> delegation đi qua `DelegationManager` được inject, không phải kernel method;
 > SQLite là checkpoint thật, còn `checkpoint.json` chỉ là projection cho UI.
+
+## adapters/
+
+| module | mục đích |
+|---|---|
+| `adapters/agents/langgraph_agent.py` | Concrete DelegationPort implemented by the existing session-bound LangGraph. |
+| `adapters/agents/scripted.py` | Deterministic delegation adapter for tests and local architecture smoke runs. |
 
 ## core/
 
 | module | mục đích |
 |---|---|
 | `core/bootstrap.py` | Build a kernel and install features + middleware from config. Epic E01/E06. |
-| `core/events.py` | EventBus — minimal pub/sub that the observability layer subscribes to. Epic E01/E04. |
-| `core/kernel.py` | AgentKernel — minimal core: state, events, capability chokepoint, task lifecycle. Epic E01/E05. |
+| `core/events.py` | Thread-safe subscriber registry with detached event delivery. |
+| `core/kernel.py` | Shared, frozen capability runtime; per-run state and lifecycle live in KernelSession. |
 | `core/middleware.py` | ToolMiddleware protocol — pre/post hook around execute_tool. Epic E01/E06. |
-| `core/ports.py` | ToolPort protocol — the seam every concrete tool implements. Epic E01. |
+| `core/ports.py` | Framework-neutral tool, delegation, store, and service protocols. |
 | `core/registry.py` | CapabilityRegistry + NullToolPort — resolve a tool name to an executor, with graceful fallback. Epic E01. |
-| `core/schemas.py` | Core data contracts: TaskEnvelope, ToolRequest, CapabilityResult envelope, FeatureDescriptor. Epic E01. |
-| `core/state.py` | StateStore — in-memory run state held by the kernel; snapshot/restore for persistence. Epic E01/E07. |
+| `core/schemas.py` | Task/tool/session-context and structured delegation data contracts. |
+| `core/session.py` | Per-run state/lifecycle isolation over a shared, frozen AgentKernel. |
+| `core/state.py` | Session-owned in-memory state with detached snapshot/restore for persistence. |
+
+## delegation/
+
+| module | mục đích |
+|---|---|
+| `delegation/bootstrap.py` | Composition helper for the default local delegation target. |
+| `delegation/manager.py` | Sequential delegation chokepoint: policy, child session, progress, events, result. |
+| `delegation/policy.py` | Delegation depth, budget, and capability-scope enforcement. |
+| `delegation/registry.py` | Target-to-port resolution with explicit ambiguity failure. |
+| `delegation/store.py` | Thread-safe delegation store with ordered, idempotent progress writes. |
 
 ## discipline/
 
@@ -41,9 +60,9 @@
 
 | module | mục đích |
 |---|---|
-| `graph/nodes.py` | LangGraph nodes; every external action still crosses AgentKernel.execute_tool. |
-| `graph/runtime.py` | Compile the single-agent LangGraph; no handwritten agent loop lives here. |
-| `graph/state.py` | Serializable LangGraph state and the codec for the microkernel's in-memory state. |
+| `graph/nodes.py` | Session-bound LangGraph nodes; tool and delegation use separate chokepoints. |
+| `graph/runtime.py` | Compile the session-bound LangGraph; delegation remains an injected application port. |
+| `graph/state.py` | Serializable LangGraph state and codec for isolated KernelSession state. |
 
 ## llm/
 
@@ -65,7 +84,7 @@
 
 | module | mục đích |
 |---|---|
-| `observability/event_log.py` | EventLogger — JSONL event log + summary.json + metrics; subscribes to the EventBus. Epic E04. |
+| `observability/event_log.py` | Thread-safe JSONL event log, summaries, and tool/graph/delegation metrics. |
 | `observability/inspect.py` | CLI to inspect runs — list / summary / events from the event log. Epic E04. |
 
 ## orchestrator/

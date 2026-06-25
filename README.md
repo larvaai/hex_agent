@@ -14,6 +14,9 @@ Python 3.11+.
 
 ```bash
 python -m pip install -e ".[dev]"   # or: pip install openai PyYAML pytest
+
+# optional production RAG/Qdrant backend + integration tests:
+python -m pip install -e ".[dev,rag]"
 ```
 
 ## Run
@@ -28,8 +31,10 @@ python -m pytest
 python -m observability.inspect list
 python -m observability.inspect summary latest
 
-# local real-time UI (then open http://127.0.0.1:8765):
-python -m ui.server
+# local real-time UI (equivalent entrypoints; open http://127.0.0.1:8765):
+python -m ui
+# python -m ui.server
+# core-agent-ui              # after editable install
 ```
 
 ## Layout
@@ -52,8 +57,13 @@ var/           (gitignored) agent_runs/<run_id>/{events.jsonl,summary.json,langg
 ## Principles (baked in)
 One compiled LangGraph substrate; `AgentKernel` is shared/frozen while `KernelSession` owns run state; every LLM/tool call crosses `execute_tool`; delegation uses a separate framework-neutral chokepoint; discipline shared (no duplication); SQLite is parent-graph checkpoint truth; JSON-mode at the LLM layer; thread-safe observability; lazy LLM client; UTF-8 no BOM; `var/` gitignored.
 
-## Design docs
+## Documentation
 
+- [Contributing — quick contributor checklist](CONTRIBUTING.md)
+- [Onboarding & contributing — newcomer path, architecture and change playbooks](docs/ONBOARDING_AND_CONTRIBUTING.md)
+- [Run & configure — CLI, UI, API, system prompts, skills, roles and features](docs/RUN_AND_CONFIGURE.md)
 - [Runtime flow — how a task runs input → output (current reality)](docs/RUNTIME_FLOW.md)
+- [Class encyclopedia — all production classes and ownership](docs/CLASS_ENCYCLOPEDIA.md)
+- [Code review — verified findings and test gaps](docs/CODE_REVIEW.md)
 - [Known risks — dangerous files & behavioral footguns (read before editing)](docs/KNOWN_RISKS.md)
 - [MCP tool architecture, scaling and safety](docs/MCP_TOOLS.md) — *proposal, not yet implemented*
