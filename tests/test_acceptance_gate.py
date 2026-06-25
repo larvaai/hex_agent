@@ -118,3 +118,39 @@ def test_finish_allows_mixed_when_one_valid(make_env):
     result = run(env)
     assert result["status"] == "finished"
     assert result["acceptance"][0]["status"] == "passed"
+
+
+def _ac_reports(result):
+    return [a for a in result["state"]["artifacts"].values() if a.get("kind") == "ac_report"]
+
+
+def test_finished_emits_ac_report(make_env):
+    # AC3: a FINISHED run leaves exactly one ac_report artifact snapshotting AC state.
+    env = make_env(
+        compose=compose_json(("code", "r")),
+        decisions=[
+            decision_json("need_tool", tool_requests=[{"tool": "echo", "args": {"k": 1}}]),
+            decision_json(
+                "finished",
+                acceptance_status=[{"id": "ac1", "status": "passed", "evidence_ids": ["tool_result-0001"]}],
+                final_output={"answer": 42},
+            ),
+        ],
+    )
+    result = run(env)
+    assert result["status"] == "finished"
+    reports = _ac_reports(result)
+    assert len(reports) == 1
+    assert reports[0]["checks"][0]["status"] == "passed"
+    assert reports[0]["checks"][0]["evidence_types"] == ["tool_result"]
+
+
+def test_finish_denied_no_ac_report(make_env):
+    # AC4: a denied finish (no real evidence) must NOT mint an ac_report.
+    env = make_env(
+        compose=compose_json(("code", "r")),
+        decisions=[decision_json("finished", final_output={"answer": 1})],
+    )
+    result = run(env)
+    assert result["status"] != "finished"
+    assert _ac_reports(result) == []

@@ -7,7 +7,10 @@ the single place that decides, from an artifact's `kind`, whether it counts.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from supervisor.state import TaskLoopState
 
 # The S21.33 evidence vocabulary — an artifact whose kind is one of these IS evidence.
 EVIDENCE_TYPES = frozenset({"artifact", "tool_result", "reviewer_report", "diff", "test_result"})
@@ -31,3 +34,33 @@ def evidence_type_of(artifact: dict[str, Any]) -> str | None:
         return kind
     # delegation_result + any unrecognised worker kind → generic product evidence.
     return "artifact"
+
+
+def record_ac_report(state: "TaskLoopState") -> str:
+    """Snapshot every AC's status + evidence onto the Blackboard as one ac_report.
+
+    Called once the loop reaches FINISHED, before terminate persists state. The id is
+    keyed on session_id so a resume that re-calls this overwrites in place rather than
+    minting a duplicate (AC6), and a worker can't accidentally squat the bare key. The
+    report is itself in NON_EVIDENCE_KINDS, so it can never be cited as evidence (AC5).
+    """
+    report_id = f"ac_report-{state.session_id}"
+    payload = {
+        "kind": "ac_report",
+        "session_id": state.session_id,
+        "task_id": state.task_id,
+        "checks": [
+            {
+                "id": c.id,
+                "text": c.text,
+                "status": c.status,
+                "evidence_ids": list(c.evidence_ids),
+                "evidence_types": [
+                    evidence_type_of(state.artifacts[e]) for e in c.evidence_ids if e in state.artifacts
+                ],
+            }
+            for c in state.acceptance_checks
+        ],
+    }
+    state.add_artifact(report_id, payload)
+    return report_id
