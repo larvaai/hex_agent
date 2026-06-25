@@ -1,0 +1,77 @@
+:root {
+  --bg: #0b1620;
+  --panel: #11212e;
+  --ink: #c9d6df;
+  --muted: #6b8294;
+  --line: #1e3343;
+  --accent: #2aa198;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.cp-app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.cp-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cp-header h1 {
+  font-size: 16px;
+  margin: 0;
+  margin-right: auto;
+}
+
+.cp-badge {
+  font-size: 12px;
+  color: #001;
+  padding: 2px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cp-session {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.cp-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  grid-template-rows: 1.6fr 1fr;
+  gap: 10px;
+  padding: 10px;
+  min-height: 0;
+}
+
+.cp-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  overflow: auto;
+  min-height: 0;
+}
+
+.cp-graph {
+  grid-row: span 2;
+}
+
+.redacted {
+  color: var(--muted);
+  font-style: italic;
+}
