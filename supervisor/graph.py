@@ -117,7 +117,19 @@ def o_decide(state: TaskLoopState, ctx: SupervisorContext, *, budget: Budget) ->
             if budget.parse_exceeded():
                 return None
             continue
-        ctx.emit("loop.decision", {"round": state.round_no, "decision": decision.decision})
+        # Carry the assignments + reason so the B2 snapshot projection can derive
+        # orchestrator.last_decision / pending_agent_calls from the event alone.
+        ctx.emit(
+            "loop.decision",
+            {
+                "round": state.round_no,
+                "decision": decision.decision,
+                "reason": decision.reason,
+                "next_agent_calls": [
+                    {"agent_id": a.agent_id, "objective": a.objective} for a in decision.next_agent_calls
+                ],
+            },
+        )
         return decision
 
 

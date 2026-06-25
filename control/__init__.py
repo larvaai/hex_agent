@@ -43,6 +43,7 @@ from control.events import (
 from control.permission import EFFECTIVE_FROM, Permission
 from control.ports import EventSinkPort
 from control.redaction import REDACTED, SECRET_KEYS, Redactor
+from control.snapshot import AGENT_STATUSES, AgentNode, TaskLoopSnapshot, build_snapshot
 
 __all__ = [
     # errors
@@ -89,4 +90,9 @@ __all__ = [
     "BusEventSink",
     "bus_emitter",
     "EventSinkPort",
+    # snapshot projection (B2)
+    "TaskLoopSnapshot",
+    "AgentNode",
+    "AGENT_STATUSES",
+    "build_snapshot",
 ]
