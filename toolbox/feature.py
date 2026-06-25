@@ -14,6 +14,16 @@ FEATURE = FeatureDescriptor(
 )
 
 
+# Retry/risk semantics per tool: reads are idempotent + low risk; effects must not be
+# retried (non-idempotent) and carry the blast-radius risk the policy/retry layers key on.
+_DESCRIPTORS = {
+    "fs_read": {"kind": "read", "idempotent": True, "risk": "low"},
+    "fs_list": {"kind": "read", "idempotent": True, "risk": "low"},
+    "fs_write": {"kind": "effect", "idempotent": False, "risk": "medium"},
+    "terminal_run": {"kind": "effect", "idempotent": False, "risk": "high"},
+}
+
+
 def install(kernel: AgentKernel) -> None:
     kernel.registry.register_feature(FEATURE)
     policy = ToolPolicy()
@@ -22,4 +32,5 @@ def install(kernel: AgentKernel) -> None:
             tool.name,
             SafeToolPort(tool.name, tool, policy),
             feature_name=FEATURE.name,
+            **_DESCRIPTORS[tool.name],
         )

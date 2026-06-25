@@ -157,7 +157,9 @@ class SessionFactory:
     ) -> KernelSession:
         if not parent.is_active:
             raise RuntimeError("Cannot create a child from an inactive parent session.")
-        scope = parent.allowed_capabilities if not requested_scope else requested_scope
+        # None means "inherit the parent scope"; an explicit empty set means "deny all".
+        # (Treating empty as falsy would silently widen a locked-down child to the parent scope.)
+        scope = parent.allowed_capabilities if requested_scope is None else requested_scope
         if not scope <= parent.allowed_capabilities:
             raise PermissionError("Child capability scope must be a subset of the parent scope.")
         task = TaskEnvelope(

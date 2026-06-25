@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,8 +13,13 @@ from typing import Any, Iterator
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from core.schemas import TaskEnvelope
-from graph.state import AgentState, decode_kernel_state
+from graph.state import AgentState, decode_session_state
 from observability.event_log import runs_dir
+
+
+# Serializes the rename step: on Windows, concurrent os.replace() calls targeting the
+# same destination race and raise PermissionError ("Access is denied").
+_REPLACE_LOCK = threading.Lock()
 
 
 def checkpoint_path(run_id: str) -> Path:
@@ -78,8 +85,11 @@ class Checkpoint:
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> "Checkpoint":
+        run_id = data.get("run_id")
+        if not isinstance(run_id, str) or not run_id:
+            raise ValueError("Checkpoint JSON requires a non-empty string 'run_id'.")
         return cls(
-            run_id=data["run_id"],
+            run_id=run_id,
             task=data.get("task", ""),
             messages=data.get("messages", []),
             budget=data.get("budget", {}),
@@ -98,7 +108,9 @@ class Checkpoint:
             task=str(state.get("task", "")),
             messages=list(state.get("messages") or []),
             budget=budget,
-            state=decode_kernel_state(state.get("kernel_state") or {}),
+            state=decode_session_state(
+                state.get("session_state") or state.get("kernel_state") or {}
+            ),
             step=int(budget.get("steps", 0)),
             status=str(state.get("status") or "running"),
             backend="langgraph",
@@ -111,9 +123,12 @@ def save_checkpoint(checkpoint: Checkpoint, *, enabled: bool = True) -> None:
         return
     path = checkpoint_path(checkpoint.run_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
+    # Unique temp name per write: concurrent writers to the same run must not share a
+    # temp file (a shared name races os.replace and raises a sharing violation on Windows).
+    tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     tmp.write_text(json.dumps(checkpoint.to_json(), ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    with _REPLACE_LOCK:
+        os.replace(tmp, path)
 
 
 def save_graph_projection(state: AgentState, *, enabled: bool = True) -> None:

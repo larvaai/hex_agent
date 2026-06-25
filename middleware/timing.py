@@ -15,6 +15,10 @@ class TimingLog:
         t0 = time.perf_counter()
         env = nxt(request)
         if self.sink:
-            self.sink({"tool": request.name, "ok": (env or {}).get("ok"),
-                       "ms": round((time.perf_counter() - t0) * 1000, 2)})
+            try:
+                self.sink({"tool": request.name, "ok": (env or {}).get("ok"),
+                           "ms": round((time.perf_counter() - t0) * 1000, 2)})
+            except Exception:
+                # A metrics sink must never turn a successful tool call into a failure.
+                pass
         return env

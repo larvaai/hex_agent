@@ -26,6 +26,12 @@ class Agent:
         lenses: "LensRegistry",
         core_tools: frozenset[str] = frozenset(),
     ) -> None:
+        # Separation of duties: a role that does not own validation must name a concrete
+        # handoff target, otherwise its work could never be validated by anyone (S09.4).
+        if not spec.test_ownership.owns_validation and not spec.test_ownership.must_handoff_to:
+            raise ValueError(
+                f"Role '{spec.name}' does not own validation but declares no 'must_handoff_to' target."
+            )
         self.spec = spec
         self._skills = skills
         self._lenses = lenses

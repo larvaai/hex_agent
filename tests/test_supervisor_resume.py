@@ -78,7 +78,10 @@ def test_resume_terminal_checkpoint_returns_result(make_env, tmp_path):
     store = SqliteTaskLoopStore("run-terminal", path=tmp_path / "terminal.sqlite")
     store.save(
         TaskLoopState(
-            session_id="s", task_id="t", status=TaskLoopStatus.FINISHED.value, final_output={"x": 1}
+            session_id=env.supervisor_session.identity.session_id,
+            task_id=env.supervisor_session.identity.task_id,
+            status=TaskLoopStatus.FINISHED.value,
+            final_output={"x": 1},
         )
     )
     result = resume_task_loop(

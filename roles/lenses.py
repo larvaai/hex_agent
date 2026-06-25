@@ -49,12 +49,15 @@ def parse_lens(data: dict, *, source: str = "<lens>") -> LensSpec:
         raise ValueError(f"Lens '{source}' is missing required field 'name'.")
     if not purpose:
         raise ValueError(f"Lens '{name}' is missing required field 'purpose'.")
+    output_schema = data.get("output_schema") or {}
+    if not isinstance(output_schema, dict):
+        raise ValueError(f"Lens '{name}' field 'output_schema' must be a mapping.")
     return LensSpec(
         name=name,
         purpose=purpose,
         allowed_tools=_as_tuple(data.get("allowed_tools")),
         forbidden_tools=_as_tuple(data.get("forbidden_tools")),
-        output_schema=dict(data.get("output_schema") or {}),
+        output_schema=dict(output_schema),
     )
 
 
@@ -63,6 +66,8 @@ class LensRegistry:
         self._lenses: dict[str, LensSpec] = {}
 
     def register(self, spec: LensSpec) -> LensSpec:
+        if spec.name in self._lenses:
+            raise ValueError(f"Lens '{spec.name}' is already registered; names must be unique.")
         self._lenses[spec.name] = spec
         return spec
 

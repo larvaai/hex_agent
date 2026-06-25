@@ -67,7 +67,8 @@ class AgentKernel:
         *,
         context: ToolCallContext | None = None,
     ) -> dict[str, Any]:
-        request = ToolRequest(name=tool_name, args=args or {}, context=context)
+        # Deep-copy args so a tool can never mutate the caller's object through request.args.
+        request = ToolRequest(name=tool_name, args=copy.deepcopy(args) if args else {}, context=context)
         lineage = context.event_fields() if context is not None else {
             "run_id": None,
             "task_id": None,
@@ -135,7 +136,15 @@ class AgentKernel:
         handler = core
         for mw in reversed(self._middlewares):
             handler = _wrap(mw, handler)
-        envelope = handler(request)
+        try:
+            envelope = handler(request)
+        except Exception as exc:  # a middleware must never crash the kernel boundary
+            envelope = CapabilityResult(
+                ok=False,
+                capability=request.name,
+                error=str(exc),
+                metadata={**lineage, "request_id": request.request_id, "kernel_error": True},
+            ).as_dict()
 
         if not isinstance(envelope, dict):  # a misbehaving middleware must not crash the kernel
             envelope = {

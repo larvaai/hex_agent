@@ -71,6 +71,22 @@ def _as_tuple(value) -> tuple[str, ...]:
     return tuple(str(v).strip() for v in value if str(v).strip())
 
 
+def _sequence_tuple(value, field: str, source: str) -> tuple[str, ...]:
+    """Like ``_as_tuple`` but rejects non-sequence containers (dict/int/…) with a
+    source-labelled ValueError instead of silently iterating keys or raising TypeError."""
+    if value is not None and not isinstance(value, (str, list, tuple)):
+        raise ValueError(f"Role '{source}' field '{field}' must be a list of strings.")
+    return _as_tuple(value)
+
+
+def _mapping(value, field: str, source: str) -> dict:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"Role '{source}' field '{field}' must be a mapping.")
+    return value
+
+
 def parse_role(data: dict, *, source: str = "<role>") -> RoleSpec:
     """Parse role config into a RoleSpec. Raises ValueError naming file + field."""
     if not isinstance(data, dict):
@@ -80,21 +96,21 @@ def parse_role(data: dict, *, source: str = "<role>") -> RoleSpec:
         if value is None or (isinstance(value, str) and not value.strip()):
             raise ValueError(f"Role '{source}' is missing required field '{fieldname}'.")
 
-    route = data.get("route_permissions") or {}
-    owns = data.get("test_ownership") or {}
+    route = _mapping(data.get("route_permissions"), "route_permissions", source)
+    owns = _mapping(data.get("test_ownership"), "test_ownership", source)
     return RoleSpec(
         name=str(data["name"]).strip(),
         role=str(data["role"]).strip(),
         department=str(data["department"]).strip(),
         system_prompt=str(data["system_prompt"]).strip(),
-        explicit_tools=_as_tuple(data.get("allowed_tools")),
-        allowed_skills=_as_tuple(data.get("allowed_skills")),
-        may_route_to=_as_tuple(route.get("may_route_to")),
+        explicit_tools=_sequence_tuple(data.get("allowed_tools"), "allowed_tools", source),
+        allowed_skills=_sequence_tuple(data.get("allowed_skills"), "allowed_skills", source),
+        may_route_to=_sequence_tuple(route.get("may_route_to"), "route_permissions.may_route_to", source),
         test_ownership=TestOwnership(
             owns_validation=bool(owns.get("owns_validation", True)),
             must_handoff_to=(str(owns["must_handoff_to"]).strip() if owns.get("must_handoff_to") else None),
         ),
-        lenses=_as_tuple(data.get("lenses")),
+        lenses=_sequence_tuple(data.get("lenses"), "lenses", source),
     )
 
 

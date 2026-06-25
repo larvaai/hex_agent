@@ -20,7 +20,9 @@ class CondenseResult:
         if request.name.startswith("llm."):
             return env
         if isinstance(env, dict) and isinstance(env.get("data"), (dict, list, str)):
-            env["data"] = condense(env["data"], max_chars=self.max_chars, max_list=self.max_list)
-            if self.on_condense:
+            condensed = condense(env["data"], max_chars=self.max_chars, max_list=self.max_list)
+            changed = condensed != env["data"]
+            env["data"] = condensed
+            if changed and self.on_condense:  # notify only when condensing actually shrank the value
                 self.on_condense(request)
         return env

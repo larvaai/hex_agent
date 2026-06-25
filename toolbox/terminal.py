@@ -5,6 +5,7 @@ import subprocess
 from typing import Any
 
 from core.schemas import ToolRequest
+from safety.policy import classify_terminal
 from safety.sandbox import workspace_dir
 
 
@@ -15,6 +16,16 @@ class Terminal:
         argv = request.args.get("argv")
         if not isinstance(argv, list) or not argv:
             return {"ok": False, "error": "argv must be a non-empty list"}
+        # Enforce the safety policy in the tool itself, not only in the SafeToolPort wrapper,
+        # so a direct invocation cannot bypass the chokepoint (defense in depth).
+        decision = classify_terminal(argv)
+        if not decision.allowed:
+            return {
+                "ok": False,
+                "error": decision.reason,
+                "policy_blocked": True,
+                "policy_code": decision.code,
+            }
         timeout = min(max(int(request.args.get("timeout", 10)), 1), 30)
         cwd = workspace_dir()
         cwd.mkdir(parents=True, exist_ok=True)

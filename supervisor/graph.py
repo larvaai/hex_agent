@@ -66,7 +66,17 @@ def _next_id(prefix: str, state: TaskLoopState) -> str:
 # ── compose_team (S10.1) ─────────────────────────────────────────────────────
 def compose_team(state: TaskLoopState, ctx: SupervisorContext, *, task: str) -> SessionPlan:
     plan = parse_session_plan(ctx.orchestrator.compose_team(task=task, available_roles=ctx.role_catalog()))
-    state.selected_agents = list(plan.agent_ids())
+    ids = plan.agent_ids()
+    # Validate against the role catalog before mutating the Blackboard.
+    duplicates = sorted({a for a in ids if ids.count(a) > 1})
+    if duplicates:
+        raise ValueError(f"Team composition selected duplicate agents: {duplicates}")
+    catalog = {row["agent_id"] for row in ctx.role_catalog()}
+    if catalog:
+        unknown = sorted(a for a in ids if a not in catalog)
+        if unknown:
+            raise ValueError(f"Team composition selected unknown agents: {unknown}")
+    state.selected_agents = list(ids)
     art_id = _next_id("session_plan", state)
     state.add_artifact(art_id, {"kind": "session_plan", **plan.as_dict()})
     state.status = TaskLoopStatus.TEAM_SELECTED.value
@@ -108,12 +118,27 @@ def run_round(state: TaskLoopState, ctx: SupervisorContext, decision: Orchestrat
 
     On resume, an agent that already produced a turn this round is skipped — a
     completed worker turn is never re-run (S10.10)."""
+    # Authority check first: every assignment must target an agent the composition
+    # selected. Validate the whole batch before any packet/delegation side effect.
+    selected = set(state.selected_agents)
+    for assignment in decision.next_agent_calls:
+        if assignment.agent_id not in selected:
+            raise PermissionError(
+                f"Assignment targets agent '{assignment.agent_id}' that was not selected by composition."
+            )
+
     done_this_round = {t.agent_id for t in state.turns if t.round_no == state.round_no}
     for assignment in decision.next_agent_calls:
         if assignment.agent_id in done_this_round:
             continue
         store_slice = ctx.store_slice_provider(assignment, state)
         packet = ctx.broker.write_packet(assignment=assignment, store_slice=store_slice)
+        # The Broker shapes context only; it can never redirect a turn to another agent.
+        if packet.target_agent_id != assignment.agent_id:
+            raise PermissionError(
+                f"Broker packet target '{packet.target_agent_id}' does not match "
+                f"assigned agent '{assignment.agent_id}'."
+            )
         packet_id = _next_id("context_packet", state)
         state.add_artifact(
             packet_id,

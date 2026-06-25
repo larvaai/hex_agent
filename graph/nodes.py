@@ -203,6 +203,20 @@ def finish_node(state: AgentState, *, session: KernelSession) -> dict[str, Any]:
     """Apply the shared finish gate, then close the kernel lifecycle exactly once."""
     _restore_session(state, session)
     action = dict(state.get("last_action") or {})
+    # An "error" finish (e.g. the LLM adapter exhausted retries) is a terminal failure,
+    # not a completion — surface it through the fail path so the root cause is preserved
+    # and the outcome status matches the UI's projection of an error final.
+    if str(action.get("finish_reason")) == "error":
+        reason = str(action.get("message", "")) or "agent finished with an error"
+        outcome = session.fail_task(reason)
+        _emit(session, "graph.completed", state, status="failed", reason=reason)
+        return {
+            "final": reason,
+            "outcome": outcome,
+            "status": "failed",
+            "route": "end",
+            "session_state": _session_snapshot(session),
+        }
     gate = check_finish(session.state.as_dict(), action.get("finish_reason"))
     if not gate["allowed"]:
         messages = list(state.get("messages") or [])

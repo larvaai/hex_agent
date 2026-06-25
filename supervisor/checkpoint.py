@@ -7,6 +7,7 @@ can resume from the persisted Blackboard without re-running a completed turn.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -20,6 +21,9 @@ def taskloop_db_path(run_id: str) -> Path:
 
 class SqliteTaskLoopStore:
     def __init__(self, run_id: str, *, path: Path | None = None) -> None:
+        if os.path.isabs(run_id) or ".." in run_id or "/" in run_id or "\\" in run_id:
+            # run_id is the default path segment + the row key; a path-like value escapes runs_dir().
+            raise ValueError(f"run_id must be a single path segment, not path-like: {run_id!r}")
         self.run_id = run_id
         self.path = path or taskloop_db_path(run_id)
         self.path.parent.mkdir(parents=True, exist_ok=True)

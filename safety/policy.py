@@ -2,15 +2,40 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from core.schemas import ToolRequest
+from safety.sandbox import workspace_dir
 
 SHELL_EXES = {"bash", "sh", "zsh", "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh"}
 SHELL_TOKENS = ("|", "&", ";", ">", "<", "`", "$(", "&&", "||")
 DESTRUCTIVE_EXES = {"rm", "del", "rmdir", "format", "mkfs", "dd"}
 GIT_MUTATIONS = {"add", "commit", "reset", "checkout", "rebase", "push", "merge", "branch", "stash"}
+# Absolute path tokens: Windows drive paths (C:\ or C:/) and POSIX /-rooted paths.
+_ABS_PATH_RE = re.compile(r"[A-Za-z]:[\\/]+[^\s'\"]+|/[^\s'\"]+")
+
+
+def _argv_escapes_workspace(argv: list) -> bool:
+    """True if any *argument* references an absolute path outside the workspace.
+
+    argv[0] (the program — e.g. the python interpreter, legitimately outside the jail)
+    is exempt; every later element is scanned so inline code such as ``python -c
+    "open('/etc/passwd')"`` cannot read or exfiltrate files outside the workspace.
+    """
+    workspace = workspace_dir()
+    for part in argv[1:]:
+        for candidate in _ABS_PATH_RE.findall(str(part)):
+            normalized = candidate.replace("\\\\", "\\")  # collapse repr-doubled separators
+            try:
+                resolved = Path(normalized).resolve()
+            except (OSError, ValueError):
+                continue
+            if resolved != workspace and not resolved.is_relative_to(workspace):
+                return True
+    return False
 
 
 @dataclass(frozen=True)
@@ -39,6 +64,10 @@ def classify_terminal(argv: Any) -> PolicyDecision:
         "AGENT_ALLOW_GIT_MUTATIONS"
     ):
         return PolicyDecision(False, f"git {argv[1]} blocked (set AGENT_ALLOW_GIT_MUTATIONS=1)", "git_mutation", "blocked")
+    if _argv_escapes_workspace(argv):
+        return PolicyDecision(
+            False, "argv references an absolute path outside the workspace", "path_escape", "blocked"
+        )
     return PolicyDecision(True, risk="low")
 
 

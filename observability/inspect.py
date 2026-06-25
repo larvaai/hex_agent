@@ -53,7 +53,12 @@ def read_events(run_id: str | None = None, *, kind: str | None = None, topic: st
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
-        event = json.loads(line)
+        try:
+            event = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue  # skip truncated/partial writes
+        if not isinstance(event, dict):
+            continue  # skip valid JSON that is not an event object
         if kind and event.get("kind") != kind:
             continue
         if topic and event.get("topic") != topic:
@@ -78,7 +83,11 @@ def main(argv: list[str] | None = None) -> int:
         run_id = args[1] if len(args) > 1 else "latest"
         kind = None
         if "--kind" in args:
-            kind = args[args.index("--kind") + 1]
+            idx = args.index("--kind")
+            if idx + 1 >= len(args):
+                print("usage: inspect events [run|latest] --kind KIND")
+                return 2
+            kind = args[idx + 1]
         for event in read_events(run_id, kind=kind):
             print(json.dumps(event, ensure_ascii=False))
         return 0

@@ -116,6 +116,14 @@ def resume_task_loop(
     state = checkpoint_store.load()
     if state is None:
         raise FileNotFoundError(f"No TaskLoop checkpoint for run_id={checkpoint_store.run_id!r}")
+    # A checkpoint may only be resumed by the supervisor session that owns it — a
+    # foreign session/task identity must never adopt another run's Blackboard.
+    identity = supervisor_session.identity
+    if state.session_id != identity.session_id or state.task_id != identity.task_id:
+        raise ValueError(
+            f"Checkpoint identity (session={state.session_id!r}, task={state.task_id!r}) does not "
+            f"match the active supervisor session (session={identity.session_id!r}, task={identity.task_id!r})."
+        )
     ctx = _make_ctx(
         supervisor_session,
         delegation_service=delegation_service,

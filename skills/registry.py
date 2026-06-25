@@ -20,6 +20,8 @@ class SkillRegistry:
 
     # ── loading ────────────────────────────────────────────────────────────
     def register(self, spec: SkillSpec) -> SkillSpec:
+        if spec.name in self._skills:
+            raise ValueError(f"Skill '{spec.name}' is already registered; names must be unique.")
         self._skills[spec.name] = spec
         return spec
 

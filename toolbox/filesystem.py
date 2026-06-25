@@ -17,7 +17,11 @@ class FsRead:
             return {"ok": False, "error": str(exc)}
         if not path.is_file():
             return {"ok": False, "error": f"Not a file: {path}"}
-        return {"ok": True, "path": str(path), "content": path.read_text(encoding="utf-8")}
+        try:
+            content = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            return {"ok": False, "error": f"File is not valid UTF-8 text: {path}"}
+        return {"ok": True, "path": str(path), "content": content}
 
 
 class FsWrite:
@@ -30,8 +34,9 @@ class FsWrite:
             return {"ok": False, "error": str(exc)}
         content = str(request.args.get("content", ""))
         path.parent.mkdir(parents=True, exist_ok=True)
+        encoded = content.encode("utf-8")
         path.write_text(content, encoding="utf-8")
-        return {"ok": True, "path": str(path), "bytes": len(content)}
+        return {"ok": True, "path": str(path), "bytes": len(encoded)}
 
 
 class FsList:

@@ -30,6 +30,8 @@ class AgentRegistry:
 
     # ── loading ────────────────────────────────────────────────────────────
     def register(self, spec: RoleSpec) -> RoleSpec:
+        if spec.name in self._roles:
+            raise ValueError(f"Role '{spec.name}' is already registered; names must be unique.")
         self._roles[spec.name] = spec
         return spec
 

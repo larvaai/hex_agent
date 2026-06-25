@@ -23,6 +23,7 @@ from observability import EventLogger, attach_to_bus
 from observability.event_log import runs_dir
 from orchestrator import run as run_agent
 from orchestrator.loop import DEFAULT_SYSTEM
+from delegation.bootstrap import create_delegation_service
 from safety.sandbox import workspace_dir
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -238,6 +239,7 @@ class RunController:
         try:
             kernel = create_kernel()
             attach_to_bus(logger, kernel.events)
+            delegation_service = create_delegation_service(kernel)
             self._update(run_id, status="running")
             outcome = run_agent(
                 kernel,
@@ -245,6 +247,7 @@ class RunController:
                 system_prompt=system_prompt,
                 run_id=run_id,
                 checkpoint=True,
+                delegation_service=delegation_service,
             )
             status = str(outcome.get("status") or "completed")
             logger.finish(status, outcome=outcome)
@@ -383,12 +386,23 @@ class AgentUIHandler(BaseHTTPRequestHandler):
     def log_message(self, format_string: str, *args: Any) -> None:
         print(f"[ui] {self.address_string()} {format_string % args}")
 
+    def _send_baseline_security_headers(self) -> None:
+        """Baseline hardening headers on every response (local console, same-origin only)."""
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+            "object-src 'none'; base-uri 'self'",
+        )
+
     def _json(self, payload: Any, status: int = HTTPStatus.OK) -> None:
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
+        self._send_baseline_security_headers()
         self.end_headers()
         self.wfile.write(raw)
 
@@ -407,6 +421,7 @@ class AgentUIHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type + ("; charset=utf-8" if content_type.startswith("text/") else ""))
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
+        self._send_baseline_security_headers()
         self.end_headers()
         self.wfile.write(raw)
 
@@ -415,11 +430,14 @@ class AgentUIHandler(BaseHTTPRequestHandler):
         query = parse_qs(parsed.query)
         if parsed.path == "/api/bootstrap":
             scope = query.get("scope", ["workspace"])[0]
-            self._json({
-                "project": PROJECT_DIR.name,
-                "default_system_prompt": DEFAULT_SYSTEM,
-                **run_snapshot(None, scope, self.controller),
-            })
+            try:
+                self._json({
+                    "project": PROJECT_DIR.name,
+                    "default_system_prompt": DEFAULT_SYSTEM,
+                    **run_snapshot(None, scope, self.controller),
+                })
+            except ValueError as exc:
+                self._error(str(exc))
             return
         if parsed.path == "/api/runs":
             self._json({"runs": list_runs(self.controller)})
