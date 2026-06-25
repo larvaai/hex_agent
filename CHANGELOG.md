@@ -2,6 +2,13 @@
 
 Mỗi mục = một đợt thêm/sửa, gắn với **Sprint + Epic**, để theo dõi "thêm gì, vì sao". Mục mới nhất ở trên.
 
+## E21 — S21.33 evidence types + AC report · 2026-06-26
+
+- **Siết acceptance gate theo loại evidence** (`supervisor/evidence.py` MỚI; `supervisor/graph.py:238`): `evidence_type_of(artifact)` suy loại từ `artifact.kind`; `judge_acceptance` honor `passed` chỉ khi **mọi** id cited resolve trên Blackboard **và ≥1** id là evidence thật (≥1-valid, KHÔNG all-valid). Scaffolding (`session_plan`/`context_packet`/`ac_report` ∈ `NON_EVIDENCE_KINDS`) hoặc kind rỗng → không tính. Chặn O "pass" AC bằng cách trỏ vào scaffolding.
+- **AC report khi FINISHED** (`supervisor/evidence.py::record_ac_report`; `supervisor/loop.py:173`): loop đạt FINISHED sinh đúng một artifact `kind=ac_report` (id `ac_report-{session_id}` → idempotent qua resume, AC6) chụp `{session_id, task_id, checks[{status, evidence_ids, evidence_types}]}`. Finish-denied KHÔNG sinh.
+- **Phòng thủ adversarial** (`tests_audit/test_acceptance_evidence_adversarial.py` MỚI): ac_report không tự làm evidence (AC5), resume sau finish không nhân đôi report (AC6), property hypothesis ghim bất biến cổng (passed ⇒ all-exist + ≥1-typed).
+- Backward-compatible: `AcceptanceCheck` **không đổi** (evidence_type derive, không lưu) → 0 migration; `control/*` + `config/runtime_*_types.yaml` không đổi (artifact-only, no emit). Quyết định: **DEC-7**.
+
 ## E21 — Realtime Control Plane (Phase A + Phase B B1) · 2026-06-25
 
 - **Phase A — S-CONTRACT** (commit `7998c27`): contracts + 2 registry trong `control/` — `RuntimeEvent` envelope, `RuntimeCommand`, `RuntimeCheckpoint`, `Permission`, `Redactor` (mask 14 secret keys, không mutate gốc), `event_registry` + `command_registry` allowlist. Lớp ABOVE kernel (như `supervisor`), no I/O.
