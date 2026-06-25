@@ -32,13 +32,19 @@ DECIDE_SYSTEM = (
     "You are Agent O. Read the blackboard state and emit EXACTLY ONE JSON decision:\n"
     '{"decision":"continue|need_tool|finished|blocked|failed",'
     '"next_agent_calls":[{"agent_id":"..","objective":"..","scope_of_work":"..",'
-    '"allowed_capabilities":[".."]}],'
+    '"allowed_capabilities":[".."],"target_kind":"agent|department"}],'
+    '"commands":[{"command_type":"AddAgentToLoop","payload":{"agent_id":".."}}],'
     '"tool_requests":[{"tool":"..","args":{}}],'
     '"acceptance_status":[{"id":"..","status":"passed|failed|pending","evidence_ids":[".."]}],'
     '"final_output":{},"reason":".."}\n'
     "Mark a criterion 'passed' ONLY with real evidence_ids already on the blackboard. "
     "Reach 'finished' only when every criterion is passed with evidence; otherwise continue, "
-    "request a tool, block, or fail. You never call a tool yourself — emit a need_tool decision."
+    "request a tool, block, or fail. You never call a tool yourself — emit a need_tool decision.\n"
+    "GROWING THE TEAM: set target_kind='department' to delegate to every member of a "
+    "department (see 'departments' in the state); members already on the team run this round, "
+    "and any member not yet on the team joins next round. Use commands:[{command_type:"
+    "'AddAgentToLoop', payload:{agent_id}}] to add a single agent from the catalog. Either way a "
+    "new member runs the round AFTER it joins, so plan for one extra round when growing the team."
 )
 
 BROKER_SYSTEM = (
