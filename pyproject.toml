@@ -38,6 +38,7 @@ markers = [
 [tool.setuptools.packages.find]
 include = [
     "adapters*",
+    "control*",
     "core*",
     "delegation*",
     "discipline*",
