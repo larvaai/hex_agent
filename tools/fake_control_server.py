@@ -49,6 +49,7 @@ class FakeControlPlane:
         token: str = "dev-token",
         session_id: str = "t1_demo",
         inject_reality: bool = False,
+        reality_drop_after: int = 4,
         max_sse_connections: int = 1,
         event_registry: EventTypeRegistry | None = None,
         command_registry: CommandTypeRegistry | None = None,
@@ -56,6 +57,7 @@ class FakeControlPlane:
         self.token = token
         self.session_id = session_id
         self.inject_reality = inject_reality
+        self.reality_drop_after = reality_drop_after  # L3: force a mid-stream SSE drop after N frames
         self.max_sse_connections = max_sse_connections  # F12: cap concurrent streams (demo single-client)
         self.buffer = EventReplayBuffer()
         self.event_registry = event_registry or load_event_registry()
@@ -176,11 +178,16 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
+        self.send_header("Access-Control-Allow-Origin", "*")  # dev: UI runs on a different port
         self.end_headers()
+        sent = 0
         for frame in frames:
             if cp.inject_reality:
-                time.sleep(0.02)  # reality: per-event latency (L3)
+                time.sleep(0.01)  # reality: per-event latency (L3)
+                if sent >= cp.reality_drop_after:
+                    return  # reality: force a mid-stream drop → client reconnects via Last-Event-ID (S21.25)
             self.wfile.write(frame.encode("utf-8"))
+            sent += 1
         self.wfile.flush()
         # Demo: the fixture is fully present, so all frames are sent and the connection closes
         # (single-client, F12). A live backend would hold the socket and push new events here.

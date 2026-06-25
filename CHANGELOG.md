@@ -2,6 +2,15 @@
 
 Mỗi mục = một đợt thêm/sửa, gắn với **Sprint + Epic**, để theo dõi "thêm gì, vì sao". Mục mới nhất ở trên.
 
+## E21 — Control-plane UI on a fake backend (full T1) · 2026-06-26
+
+- **UI-first slice** (plan `260626-0212`): React+Vite+TS control-plane UI under `ui/control-plane/` built against a fake Python server (`tools/fake_control_server.py`) that **reuses `control/`** (same `Redactor`/`SessionSeq`/`parse_command`/registries/`build_snapshot`) — drop-in to the real backend is "change the URL".
+- **Backend contracts**: `control/snapshot.py` (`TaskLoopSnapshot`/`AgentView`/`build_snapshot` folding `loop.*` events — S21.9; reads redacted `ui_payload` only — F2), `CommandAck` in `control/commands.py` (S21.15), `control/replay.py` ring-buffer (2048) with `Last-Event-ID` catch-up + out-of-ring resync (F7).
+- **Generated TS contracts** from the dataclasses (`tools/gen_ts_contracts.py` + `--check` drift guard) — no hand-written types.
+- **Fake server**: `GET /api/snapshot`, SSE `/api/stream` (redacted `ui_payload` only, visibility-gate drops `secret`, read token via `?token=`), `POST /api/commands` (static-token authz, registry+schema validation, idempotency, `CommandAck`); inject-reality latency + forced SSE drop. `+SubmitPrompt` command type (F5/D8).
+- **UI**: Agent Graph (React Flow + dagre), virtualized Event Timeline, Inspector, Approval modal, Prompt/Send; one transport adapter, store written only by the stream (no optimistic mutate).
+- **Done = contract-seam test** (`ui/control-plane/src/test/contract-seam.test.ts`) drives the real adapter against the real fake server (UI reads only `ui_payload`, renders `[REDACTED]`, Approve posts a real `RuntimeCommand`, reconnect via `Last-Event-ID`). Live supervisor→snapshot wiring deferred (BACKLOG).
+
 ## E08 — RAG (Qdrant + fastembed), slices S2/S3 · 2026-06-25
 
 - **S2 prod adapter** — `rag/stores_qdrant.py::QdrantVectorStore` hiện thực `VectorStorePort` thật trên qdrant-client: collection tạo lười theo dim của vector ở lần `upsert` đầu, point id = `uuid5(source::chunk_index)` (re-upsert ghi đè đúng chỗ), `delete_by_source` lọc theo payload `source` (đã đánh index keyword), search qua `query_points` với `score_threshold` server-side. `health()` không ném: server không reachable → `{"ok": False}` để giữ cổng dependency-failure (S08.1) là control-flow thường.
