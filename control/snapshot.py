@@ -246,9 +246,15 @@ def build_snapshot(
             latest_calls = [_norm_call(c) for c in calls]
             for c in latest_calls:
                 see(c["agent_id"])
-            acc = view.get("acceptance_status")
-            if isinstance(acc, list):
-                acceptance = [dict(a) for a in acc if isinstance(a, dict)]
+            # C1: whitelist the acceptance fields — never copy an arbitrary dict that could
+            # carry a secret key. Prefer the redacted ui_payload as the source.
+            acc_src = redacted.get("acceptance_status") if isinstance(redacted, dict) else view.get("acceptance_status")
+            if isinstance(acc_src, list):
+                acceptance = [
+                    {k: a[k] for k in ("id", "text", "status") if k in a}
+                    for a in acc_src
+                    if isinstance(a, dict)
+                ]
 
         elif et == "loop.turn":
             aid = str(view.get("agent_id", ""))
@@ -294,8 +300,19 @@ def build_snapshot(
             )
 
         elif et == "checkpoint.reached":
-            checkpoints.append(dict(view))
-            aid = str(view.get("agent_id") or (view.get("payload") or {}).get("agent_id") or "")
+            # C1: never copy the raw payload dict — whitelist scalar fields, and include any
+            # free-form checkpoint payload ONLY from the redacted ui_payload (secrets masked).
+            src = redacted if isinstance(redacted, dict) else view
+            entry = {
+                k: src.get(k)
+                for k in ("checkpoint_id", "checkpoint_type", "risk_level", "status",
+                          "agent_id", "created_at", "resolved_at")
+                if k in src
+            }
+            if isinstance(redacted, dict) and isinstance(redacted.get("payload"), dict):
+                entry["payload"] = dict(redacted["payload"])
+            checkpoints.append(entry)
+            aid = str(entry.get("agent_id") or "")
             if aid:
                 see(aid)
                 waiting.add(aid)

@@ -107,6 +107,31 @@ def test_build_snapshot_folds_permission_changed():
     assert b.allowed_tools == ("read_file", "search_code")
 
 
+# ── C1 (review): an un-redacted event must NOT leak its raw payload into the snapshot ─
+def test_build_snapshot_never_folds_raw_payload_dicts():
+    """If an event reaches build_snapshot un-redacted (ui_payload is None), the fold must
+    still not copy a raw free-form dict (checkpoints / acceptance_status) — those could carry
+    secret keys. Whitelist scalars; take free-form payload only from the redacted ui_payload."""
+    raw_checkpoint = _ev(
+        "checkpoint.reached",
+        {"agent_id": "B", "checkpoint_id": "cp1", "status": "waiting",
+         "api_key": "sk-SECRET-LEAK", "token": "bearer-xyz"},
+    )  # ui_payload is None (never redacted)
+    raw_decision = _ev(
+        "loop.decision",
+        {"decision": "continue", "acceptance_status": [{"id": "ac1", "text": "ok", "status": "pending", "api_key": "sk-AC-LEAK"}]},
+    )
+    snap = build_snapshot([raw_checkpoint, raw_decision], session_id="s1")
+    blob = json.dumps(snap.as_dict())
+    assert "sk-SECRET-LEAK" not in blob
+    assert "bearer-xyz" not in blob
+    assert "sk-AC-LEAK" not in blob
+    # the safe scalar fields still surface (the Approval modal needs them)
+    assert snap.checkpoints[0]["checkpoint_id"] == "cp1"
+    assert snap.checkpoints[0]["status"] == "waiting"
+    assert snap.acceptance_status[0]["id"] == "ac1"
+
+
 # ── contract hygiene: snapshot round-trips losslessly + validates ─────────────
 def test_snapshot_roundtrip_and_agentview_validation():
     snap = build_snapshot(

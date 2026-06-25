@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import threading
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -67,25 +68,36 @@ class FakeControlPlane:
         self._emitted: list[dict] = []
         self._cmd_seq = 0
         self._trace = TraceContext(trace_id="fake-root", span_id="fake-span")
+        # ThreadingHTTPServer runs handlers concurrently over one FakeControlPlane, so every
+        # touch of the shared mutable state (dedup map, seq counter, buffer) is serialized.
+        self._lock = threading.Lock()
+        self._active_streams = 0
 
     # ── read: snapshot ────────────────────────────────────────────────────────
     def snapshot(self, session_id: str | None) -> tuple[int, dict]:
         if session_id and session_id != self.session_id:
             return 404, {"error": f"unknown session {session_id!r}"}
-        snap = build_snapshot(self.buffer.events, session_id=self.session_id)
+        with self._lock:  # copy events atomically — a concurrent _emit must not mutate mid-read
+            events = self.buffer.events
+        snap = build_snapshot(events, session_id=self.session_id)
         return 200, snap.as_dict()
 
     # ── read: SSE stream (pure — returns the frames to write) ─────────────────
     def stream(self, *, token: str | None, last_seq: int) -> tuple[int, list[str]]:
         if token != self.token:  # read-path token via ?token= (EventSource can't set headers — F8/D7)
             return 401, []
-        if self.buffer.needs_resync(last_seq):
-            return 200, ["event: resync\ndata: {}\n\n"]  # out-of-ring (F7) — client re-fetches snapshot
+        with self._lock:  # snapshot the catch-up window atomically before formatting
+            if self.buffer.needs_resync(last_seq):
+                return 200, ["event: resync\ndata: {}\n\n"]  # out-of-ring (F7) — client re-fetches snapshot
+            pending = self.buffer.events_after(last_seq)
         frames: list[str] = []
-        for ev in self.buffer.events_after(last_seq):
+        for ev in pending:
             et = str(ev.get("event_type", ""))
-            if self._visibility(et) == "secret":
-                continue  # visibility gate (F2/D6) — secret events never reach the wire
+            # Allowlist (review I1): only public/ui_safe events ever reach the wire — an internal
+            # or restricted event with a ui_payload must NOT leak to the UI (a denylist on 'secret'
+            # alone would). The Redactor still masks secret-keyed fields inside what does pass.
+            if self._visibility(et) not in ("public", "ui_safe"):
+                continue
             ui = ev.get("ui_payload")
             if ui is None:
                 ui = {}  # never fall back to the raw payload
@@ -102,24 +114,29 @@ class FakeControlPlane:
     def submit_command(self, *, token: str | None, body: dict) -> tuple[int, dict]:
         if token != self.token:  # L2 static-token seam
             return 401, {"error": "missing or invalid token"}
+        # L2 SCOPE (review I2): authz here is the static-token seam ONLY. The command registry's
+        # `requires_permission` is intentionally NOT enforced — the fake has no real identity/login.
+        # The real backend WILL enforce it and may return 403; the UI is built to surface a rejected
+        # ack, so the drop-in stays honest. Per-permission enforcement is out of this slice (BACKLOG).
         try:
             cmd = parse_command(body)  # schema gate (idempotency_key/issued_by) — S21.15
             self.command_registry.assert_known(cmd.command_type)  # registry gate (F4)
         except ControlContractError as exc:
             cid = str(body.get("command_id") or uuid.uuid4().hex)
-            self._emit("command.rejected", {"command_id": cid, "reason": str(exc)})
+            with self._lock:
+                self._emit("command.rejected", {"command_id": cid, "reason": str(exc)})
             ack = CommandAck(command_id=cid, status="rejected", rejection_reason=str(exc))
             return 400, ack.as_dict()
 
         key = (cmd.session_id, cmd.idempotency_key)
-        if key in self._dedup:
-            return 200, self._dedup[key]  # idempotent: same ack, applied exactly once (S21.10/F9)
-
-        seq = self._next_seq()
-        self._emit("command.received", {"command_id": cmd.command_id, "command_type": cmd.command_type}, seq=seq)
-        ack = CommandAck(command_id=cmd.command_id, status="received", seq=seq)
-        self._dedup[key] = ack.as_dict()
-        return 200, ack.as_dict()
+        with self._lock:  # check-and-set + seq stamp must be atomic (concurrent POSTs, S21.10/F9)
+            if key in self._dedup:
+                return 200, self._dedup[key]  # idempotent: same ack, applied exactly once
+            seq = self._next_seq()
+            self._emit("command.received", {"command_id": cmd.command_id, "command_type": cmd.command_type}, seq=seq)
+            ack = CommandAck(command_id=cmd.command_id, status="received", seq=seq)
+            self._dedup[key] = ack.as_dict()
+            return 200, ack.as_dict()
 
     # ── emit helper (records + streams the command lifecycle event) ───────────
     def _next_seq(self) -> int:
@@ -144,6 +161,19 @@ class FakeControlPlane:
     @property
     def emitted_types(self) -> list[str]:
         return [e["event_type"] for e in self._emitted]
+
+    # ── F12: actually enforce the SSE connection cap (was a declared-but-unused field) ───
+    def try_acquire_stream(self) -> bool:
+        """Reserve a stream slot. False → over the cap; the handler returns 503 (demo single-client)."""
+        with self._lock:
+            if self._active_streams >= self.max_sse_connections:
+                return False
+            self._active_streams += 1
+            return True
+
+    def release_stream(self) -> None:
+        with self._lock:
+            self._active_streams = max(0, self._active_streams - 1)
 
 
 # ── HTTP adapter ──────────────────────────────────────────────────────────────
@@ -175,22 +205,28 @@ class _Handler(BaseHTTPRequestHandler):
         if status != 200:
             self._json(status, {"error": "unauthorized"})
             return
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Cache-Control", "no-cache")
-        self.send_header("Access-Control-Allow-Origin", "*")  # dev: UI runs on a different port
-        self.end_headers()
-        sent = 0
-        for frame in frames:
-            if cp.inject_reality:
-                time.sleep(0.01)  # reality: per-event latency (L3)
-                if sent >= cp.reality_drop_after:
-                    return  # reality: force a mid-stream drop → client reconnects via Last-Event-ID (S21.25)
-            self.wfile.write(frame.encode("utf-8"))
-            sent += 1
-        self.wfile.flush()
-        # Demo: the fixture is fully present, so all frames are sent and the connection closes
-        # (single-client, F12). A live backend would hold the socket and push new events here.
+        if not cp.try_acquire_stream():  # F12: enforce the concurrent-stream cap (demo single-client)
+            self._json(503, {"error": "stream limit reached (demo single-client)"})
+            return
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Access-Control-Allow-Origin", "*")  # dev: UI runs on a different port
+            self.end_headers()
+            sent = 0
+            for frame in frames:
+                if cp.inject_reality:
+                    time.sleep(0.01)  # reality: per-event latency (L3)
+                    if sent >= cp.reality_drop_after:
+                        return  # reality: force a mid-stream drop → client reconnects via Last-Event-ID (S21.25)
+                self.wfile.write(frame.encode("utf-8"))
+                sent += 1
+            self.wfile.flush()
+            # Demo: the fixture is fully present, so all frames are sent and the connection closes.
+            # A live backend would hold the socket and push new events here.
+        finally:
+            cp.release_stream()
 
     def do_POST(self) -> None:
         if urlparse(self.path).path != "/api/commands":
@@ -205,6 +241,18 @@ class _Handler(BaseHTTPRequestHandler):
             body = {}
         status, ack = self._cp().submit_command(token=token, body=body)
         self._json(status, ack)
+
+    def do_OPTIONS(self) -> None:
+        # CORS preflight: the browser sends this before any POST carrying a custom header
+        # (X-Auth-Token). Without it the cross-origin write path (Approve/Reject/Send) dies
+        # at the preflight — same-process tests never see it because they don't enforce CORS.
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Auth-Token, Authorization, Last-Event-ID")
+        self.send_header("Access-Control-Max-Age", "86400")  # cache the preflight (one round-trip per session)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _json(self, status: int, body: dict) -> None:
         data = json.dumps(body).encode("utf-8")

@@ -183,6 +183,57 @@ def test_post_command_ack_and_idempotency():
     assert cp.emitted_types.count("command.received") == 1  # applied exactly once
 
 
+# ── CORS preflight (browser write path: POST carries X-Auth-Token → preflight) ─
+def test_options_preflight_allows_cross_origin_post():
+    """A real browser sends a CORS preflight OPTIONS before any POST that carries a
+    custom header (X-Auth-Token). Without handling it, the Approve/Reject/Send write
+    path silently fails cross-origin (501 on preflight) even though same-process tests
+    pass — the UI runs on a different port than the server. S21.15 / F8 (drop-in seam)."""
+    import http.client
+    import threading
+
+    gen = _load_server()
+    cp = _cp()
+    httpd = gen.build_server(cp, host="127.0.0.1", port=0)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        port = httpd.server_address[1]
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+        conn.request(
+            "OPTIONS",
+            "/api/commands",
+            headers={
+                "Origin": "http://localhost:5176",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "x-auth-token,content-type",
+            },
+        )
+        resp = conn.getresponse()
+        resp.read()
+        assert resp.status in (200, 204)  # preflight must succeed, not 501
+        assert resp.getheader("Access-Control-Allow-Origin") == "*"
+        allow_methods = (resp.getheader("Access-Control-Allow-Methods") or "").upper()
+        assert "POST" in allow_methods
+        allow_headers = (resp.getheader("Access-Control-Allow-Headers") or "").lower()
+        assert "x-auth-token" in allow_headers  # the auth header the write path sends
+        conn.close()
+
+        # and the real POST after a passing preflight reaches the handler + acks
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+        conn.request(
+            "POST",
+            "/api/commands",
+            body=json.dumps(_cmd()),
+            headers={"Content-Type": "application/json", "X-Auth-Token": "tok"},
+        )
+        resp = conn.getresponse()
+        body = json.loads(resp.read())
+        assert resp.status == 200 and body["status"] == "received"
+        conn.close()
+    finally:
+        httpd.shutdown()
+
+
 # ── HTTP wiring smoke (R6 import path + handler) ──────────────────────────────
 def test_http_server_serves_snapshot():
     import http.client
@@ -204,3 +255,33 @@ def test_http_server_serves_snapshot():
         conn.close()
     finally:
         httpd.shutdown()
+
+
+# ── review I1: SSE gate is an allowlist — internal/restricted events never reach the wire ─
+def test_sse_drops_non_uisafe_visibility():
+    reg = parse_event_registry(
+        {
+            "event_types": {
+                "loop.turn": {"visibility": "ui_safe"},
+                "agent.secret": {"visibility": "internal"},
+                "agent.locked": {"visibility": "restricted"},
+            }
+        }
+    )
+    cp = _cp(event_registry=reg)
+    cp.buffer.append(_redacted("agent.secret", {"x": 1}, seq=1))
+    cp.buffer.append(_redacted("agent.locked", {"y": 2}, seq=2))
+    cp.buffer.append(_redacted("loop.turn", {"agent_id": "A"}, seq=3))
+    _, frames = cp.stream(token="tok", last_seq=0)
+    blob = "".join(frames)
+    assert "agent.secret" not in blob and "agent.locked" not in blob  # internal/restricted dropped
+    assert "loop.turn" in blob  # ui_safe passes
+
+
+# ── review I3: the SSE connection cap is actually enforced (was a dead field) ──
+def test_stream_cap_is_enforced():
+    cp = _cp(max_sse_connections=1)
+    assert cp.try_acquire_stream() is True  # first slot
+    assert cp.try_acquire_stream() is False  # over the cap
+    cp.release_stream()
+    assert cp.try_acquire_stream() is True  # slot freed
