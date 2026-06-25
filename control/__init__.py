@@ -22,6 +22,7 @@ from control.command_registry import (
     parse_command_registry,
 )
 from control.commands import ISSUER_TYPES, IssuedBy, RuntimeCommand, parse_command
+from control.emitter import BusEventSink, EventEmitter, bus_emitter
 from control.errors import ControlContractError
 from control.event_registry import (
     EventTypeRegistry,
@@ -40,6 +41,7 @@ from control.events import (
     utc_now,
 )
 from control.permission import EFFECTIVE_FROM, Permission
+from control.ports import EventSinkPort
 from control.redaction import REDACTED, SECRET_KEYS, Redactor
 
 __all__ = [
@@ -82,4 +84,9 @@ __all__ = [
     "Redactor",
     "SECRET_KEYS",
     "REDACTED",
+    # emitter + ports (B1)
+    "EventEmitter",
+    "BusEventSink",
+    "bus_emitter",
+    "EventSinkPort",
 ]

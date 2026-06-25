@@ -53,6 +53,7 @@ def _make_ctx(
     agent_registry: Any | None,
     store_slice_provider: Any | None,
     checkpoint_store: Any | None,
+    emitter: Any | None,
 ) -> SupervisorContext:
     return SupervisorContext(
         supervisor_session=supervisor_session,
@@ -62,6 +63,7 @@ def _make_ctx(
         agent_registry=agent_registry,
         store_slice_provider=store_slice_provider or default_store_slice,
         checkpoint=checkpoint_store.save if checkpoint_store is not None else None,
+        emitter=emitter,
     )
 
 
@@ -79,6 +81,7 @@ def run_task_loop(
     store_slice_provider: Any | None = None,
     budget: Budget | None = None,
     checkpoint_store: Any | None = None,
+    emitter: Any | None = None,
 ) -> dict[str, Any]:
     ctx = _make_ctx(
         supervisor_session,
@@ -88,6 +91,7 @@ def run_task_loop(
         agent_registry=agent_registry,
         store_slice_provider=store_slice_provider,
         checkpoint_store=checkpoint_store,
+        emitter=emitter,
     )
     state = TaskLoopState(
         session_id=supervisor_session.identity.session_id,
@@ -111,6 +115,7 @@ def resume_task_loop(
     max_decision_repeats: int = 3,
     store_slice_provider: Any | None = None,
     budget: Budget | None = None,
+    emitter: Any | None = None,
 ) -> dict[str, Any]:
     """Restore the Blackboard from SQLite and continue from the next pending round."""
     state = checkpoint_store.load()
@@ -132,6 +137,7 @@ def resume_task_loop(
         agent_registry=agent_registry,
         store_slice_provider=store_slice_provider,
         checkpoint_store=checkpoint_store,
+        emitter=emitter,
     )
     if state.is_terminal:
         return _result(state)
