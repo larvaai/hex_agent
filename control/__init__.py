@@ -4,7 +4,7 @@ A thin layer ABOVE the frozen kernel (like ``supervisor``): the infra-independen
 contracts every part of the control plane shares — RuntimeEvent envelope, RuntimeCommand,
 RuntimeCheckpoint, Permission, Redactor — plus the event/command type registries. No I/O
 here; transport/storage (SQLite/JSONL/EventBus now, Kafka/Redis/Postgres behind ports
-later) arrives in Phase B/C. See docs/rebuild_from_zero/E21_realtime_control_plane/.
+later) arrives in Phase B/C. See docs/spec/active/E21-realtime-control-plane/.
 """
 from __future__ import annotations
 

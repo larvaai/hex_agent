@@ -1,6 +1,6 @@
 """E08 RAG — acceptance tests (offline, deterministic; no docker/network).
 
-AC map (docs/rebuild_from_zero/E08_rag/acceptance.md):
+AC map (docs/spec/done/E08-rag/BUILD_PLAN.md):
   S08.1 health gate        -> test_search_blocked_when_unhealthy / test_ingest_blocked_when_unhealthy
   S08.2 ingest filters     -> test_ingest_filters_extensions
   S08.3 re-ingest replace  -> test_reingest_replaces_source

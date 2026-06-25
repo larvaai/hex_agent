@@ -2,6 +2,20 @@
 
 Mỗi mục = một đợt thêm/sửa, gắn với **Sprint + Epic**, để theo dõi "thêm gì, vì sao". Mục mới nhất ở trên.
 
+## E21 — Realtime Control Plane (Phase A + Phase B B1) · 2026-06-25
+
+- **Phase A — S-CONTRACT** (commit `7998c27`): contracts + 2 registry trong `control/` — `RuntimeEvent` envelope, `RuntimeCommand`, `RuntimeCheckpoint`, `Permission`, `Redactor` (mask 14 secret keys, không mutate gốc), `event_registry` + `command_registry` allowlist. Lớp ABOVE kernel (như `supervisor`), no I/O.
+- **Phase B B1 — EventEmitter canonical path** (commit `f73d377`): `control/emitter.py` publish envelope qua `EventSinkPort`; `BusEventSink` bridge → EventBus/EventLogger. Luồng: gate → seq → redact → fan-out.
+- **Gộp E16+E17+E18** thành E21 (review gate + live control + UI dashboard). **PENDING**: transport (POST /api/commands + SSE redaction), Control-Tower UI, command lifecycle, approval-checkpoint, reliability. Chưa wire vào live runtime/UI (supervisor emitter opt-in, default None — `supervisor/graph.py:47`).
+- Thiết kế đầy đủ: `docs/spec/active/E21-realtime-control-plane/`.
+
+## E10 — Multi-agent + Delegation · 2026-06-25
+
+- **TaskLoop (Agent O)** (`supervisor/`): vòng lặp round-based trên blackboard — Agent O compose team + scoped context, phát structured decisions, `_drive` lặp tới terminal; `judge_acceptance` gate (honor-system, evidence resolve trên artifacts).
+- **DelegationManager** (`delegation/`): chokepoint RIÊNG (không phải method kernel — `delegation/manager.py:63`), policy engine, in-memory store, scripted + LangGraph adapter (`adapters/`); session con scope ⊆ parent.
+- Consolidate Sprint 3/4 (commit `4377daa`): KernelSession + EventBus concurrency. Xây trên nền delegation Sprint 4.
+- Thiết kế đầy đủ: `docs/spec/done/E10-multi-agent-graph/`.
+
 ## E08 — RAG (Qdrant + fastembed), slices S2/S3 · 2026-06-25
 
 - **S2 prod adapter** — `rag/stores_qdrant.py::QdrantVectorStore` hiện thực `VectorStorePort` thật trên qdrant-client: collection tạo lười theo dim của vector ở lần `upsert` đầu, point id = `uuid5(source::chunk_index)` (re-upsert ghi đè đúng chỗ), `delete_by_source` lọc theo payload `source` (đã đánh index keyword), search qua `query_points` với `score_threshold` server-side. `health()` không ném: server không reachable → `{"ok": False}` để giữ cổng dependency-failure (S08.1) là control-flow thường.
