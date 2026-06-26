@@ -31,6 +31,15 @@ class Tree:
     def set_status(self, node_id: str, status: str) -> None:
         self.nodes[node_id] = replace(self.nodes[node_id], status=status)
 
+    def rebuild_children(self) -> None:
+        """Recompute the parent→children index from current parent pointers (after runtime
+        decomposition attaches new child nodes)."""
+        children: dict[str, list[str]] = {nid: [] for nid in self.nodes}
+        for node in self.nodes.values():
+            if node.parent is not None and node.parent in children:
+                children[node.parent].append(node.id)
+        self._children = {k: tuple(v) for k, v in children.items()}
+
     def next_node(self) -> Node | None:
         ready = [
             n for n in self.nodes.values()

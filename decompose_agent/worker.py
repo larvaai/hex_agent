@@ -19,7 +19,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
-from .json_repair import normalize_action, parse_object
+from .json_repair import normalize_action, parse_children, parse_object
 from .node import DoneWhen, Node
 
 IDENTITY = (
@@ -157,10 +157,13 @@ class ScriptedWorker:
     (parsed through the repair ladder; a torn string raises JsonGateError, exercising the
     parse-fumble path). With `satisfy=tree`, an un-scripted node gets a synthesized pass action."""
 
-    def __init__(self, scripts: dict[str, list[Any]] | None = None, *, satisfy=None) -> None:
+    def __init__(self, scripts: dict[str, list[Any]] | None = None, *, satisfy=None,
+                 decompose_scripts: dict[str, list[Any]] | None = None) -> None:
         self._scripts = scripts or {}
+        self._decompose_scripts = decompose_scripts or {}
         self._satisfy = satisfy
         self._calls: dict[str, int] = defaultdict(int)
+        self._dcalls: dict[str, int] = defaultdict(int)
 
     def propose(self, ctx: FourCell) -> dict[str, Any]:
         nid = ctx.node_id
@@ -176,8 +179,19 @@ class ScriptedWorker:
             return write_action(satisfying_files(self._satisfy.nodes[nid].done_when))
         return write_action({})  # no script, no satisfier → no-op (gate will FAIL)
 
-    def decompose(self, node: Node, failure_evidence: Any = None, reason: str | None = None) -> Any:
-        raise NotImplementedError("decompose() arrives in phase 4")
+    def decompose(self, node: Node, failure_evidence: Any = None, reason: str | None = None) -> list[dict]:
+        nid = node.id
+        i = self._dcalls[nid]
+        self._dcalls[nid] += 1
+        script = self._decompose_scripts.get(nid)
+        if script:
+            item = script[i] if i < len(script) else script[-1]
+            return parse_children(item) if isinstance(item, str) else item
+        if self._satisfy is not None:
+            # deterministic 2-way split: each child gets one trivial criterion (dwc=1 < parent's dwc)
+            return [{"id": f"{nid}.c{j}", "depends_on": [],
+                     "done_when": [{"check": "file_exists", "artifact": f"c{j}.txt"}]} for j in range(2)]
+        raise NotImplementedError(f"decompose() not scripted for {nid!r}")
 
 
 class LocalLLMWorker:
@@ -211,5 +225,24 @@ class LocalLLMWorker:
         raw = resp.choices[0].message.content or ""
         return normalize_action(parse_object(raw))
 
-    def decompose(self, node: Node, failure_evidence: Any = None, reason: str | None = None) -> Any:
-        raise NotImplementedError("decompose() arrives in phase 4")
+    def decompose(self, node: Node, failure_evidence: Any = None, reason: str | None = None) -> list[dict]:
+        sys_msg = (
+            "You split ONE task that's too hard into >=2 SMALLER child tasks. Reply with EXACTLY ONE "
+            "JSON array of children. Each child has fewer done_when criteria than the parent (strictly "
+            "smaller). Shape:\n"
+            '  [{"id":"<parent_id>.<slug>","depends_on":[],'
+            '"done_when":[{"check":"<check>","params":{...},"artifact":"<relative/path>"}]}]\n'
+            "No prose, no fences — one JSON array only."
+        )
+        parts = [_node_cell(node)]
+        if reason:
+            parts.append(f"[PRIOR REJECTION — fix this]\n{reason}")
+        if failure_evidence:
+            parts.append(f"[FAILURE EVIDENCE]\n{failure_evidence}")
+        resp = self._get_client().chat.completions.create(
+            model=self._model,
+            messages=[{"role": "system", "content": sys_msg}, {"role": "user", "content": "\n\n".join(parts)}],
+            temperature=0.0,  # temp-0: content-addressed cache wants a stable sample
+            max_tokens=int(os.getenv("LLM_MAX_TOKENS", "2048")),
+        )
+        return parse_children(resp.choices[0].message.content or "")

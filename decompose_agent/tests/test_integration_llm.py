@@ -36,3 +36,21 @@ def test_real_35b_solves_trivial_leaf(tmp_path):
     tree = load_tree(p)
     res = solve(tree, W.LocalLLMWorker(), root="t", workspace_root=tmp_path)
     assert tree.nodes["t.leaf"].status == "done", f"blocked={res.blocked}"
+
+
+@pytest.mark.skipif(not _llm_reachable(), reason="LLM_BASE_URL unreachable")
+def test_real_35b_decompose_path_runs(tmp_path):
+    # a node hard enough that the leaf attempts won't one-shot it → the decompose path executes.
+    # Lenient: we only assert the node left `pending` (decompose ran) and, if children were
+    # accepted, that μ strictly shrank (Gate-2 held against the real model).
+    from decompose_agent.accept import mu
+    p = tmp_path / "t.yaml"
+    p.write_text(
+        "- {id: h, parent: null, kind: work, status: pending, depends_on: [],\n"
+        "   done_when: [{check: all_children_done}, {check: all_children_done}]}\n"
+    )
+    tree = load_tree(p)
+    solve(tree, W.LocalLLMWorker(), root="h", workspace_root=tmp_path)
+    assert tree.nodes["h"].status != "pending"
+    for kid in tree.children_of("h"):
+        assert len(tree.nodes[kid].done_when) < mu(tree.nodes["h"])
