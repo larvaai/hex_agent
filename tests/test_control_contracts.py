@@ -10,6 +10,7 @@ import pytest
 
 from control import (
     Actor,
+    CommandAck,
     ControlContractError,
     IssuedBy,
     Permission,
@@ -122,6 +123,24 @@ def test_issued_by_human_requires_user_id():
         IssuedBy(type="human")
 
 
+# ── S21.15 CommandAck — the synchronous receipt for POST /api/commands ────────
+def test_command_ack_roundtrip():
+    ack = CommandAck(command_id="c1", status="received", seq=5)
+    assert CommandAck.from_dict(ack.as_dict()).as_dict() == ack.as_dict()
+    rej = CommandAck(command_id="c2", status="rejected", rejection_reason="unknown command_type")
+    assert CommandAck.from_dict(rej.as_dict()).as_dict() == rej.as_dict()
+    assert rej.seq is None  # ACK is a receipt; the applied/accepted seq arrives later via SSE
+
+
+def test_command_ack_rejected_requires_reason_and_valid_status():
+    with pytest.raises(ControlContractError):
+        CommandAck(command_id="c3", status="rejected")  # rejected must carry a reason
+    with pytest.raises(ControlContractError):
+        CommandAck(command_id="", status="received")  # command_id required
+    with pytest.raises(ControlContractError):
+        CommandAck(command_id="c4", status="queued")  # not received|rejected
+
+
 # ── S21.4 command-type registry ──────────────────────────────────────────────
 def test_command_registry_apply_at_and_permission():
     reg = load_command_registry()
@@ -131,6 +150,15 @@ def test_command_registry_apply_at_and_permission():
     assert reg.requires_permission("UpdateAgentPermission") == "workflow.modify_permissions"
     with pytest.raises(ControlContractError):
         reg.assert_known("FrobnicateEverything")
+
+
+def test_command_registry_has_submit_prompt():
+    # E21 control-plane UI "Send" maps to SubmitPrompt (F5/D8) — the fake gateway calls
+    # assert_known(), so an undeclared SubmitPrompt would 400 the Send path.
+    reg = load_command_registry()
+    reg.assert_known("SubmitPrompt")
+    assert reg.apply_at("SubmitPrompt") == "next_checkpoint"
+    assert reg.requires_permission("SubmitPrompt") is None
 
 
 # ── S21.5 RuntimeCheckpoint contract ─────────────────────────────────────────
