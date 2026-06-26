@@ -13,6 +13,7 @@ from core.schemas import (
     DelegationResult,
 )
 from core.session import KernelSession
+from core.tool_guide import tool_guide
 from discipline import Budget
 from graph.runtime import COMPAT_SYSTEM_PROMPT, build_agent_graph
 from graph.state import AgentState, budget_from_state, new_agent_state
@@ -34,10 +35,13 @@ class LangGraphDelegationAgent:
         child_session: KernelSession,
         progress_sink: ProgressSink,
     ) -> DelegationResult:
+        # Same live tool catalog the root gets — without it the child runs on the bare COMPAT
+        # prompt and a local model invents tool names ('write_file'/'bash') that aren't in scope.
+        system = COMPAT_SYSTEM_PROMPT + "\n\n" + tool_guide(child_session.kernel)
         initial = new_agent_state(
             session=child_session,
             messages=[
-                {"role": "system", "content": COMPAT_SYSTEM_PROMPT},
+                {"role": "system", "content": system},
                 {"role": "user", "content": request.spec.objective},
             ],
             budget=Budget(max_steps=request.policy.max_steps),
