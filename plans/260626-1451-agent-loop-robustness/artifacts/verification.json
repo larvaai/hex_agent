@@ -1,0 +1,45 @@
+{
+  "stage": "verification",
+  "plan": "260626-1451-agent-loop-robustness",
+  "actor": "claude-opus-4-8",
+  "ts": "2026-06-26T15:05:00+07:00",
+  "checks": [
+    {
+      "name": "root-cause-evidence",
+      "status": "PASS",
+      "detail": "Two defects behind 'too stupid' output, both evidenced live. (1) Budget.parse_errors was cumulative+never-reset at max 3 — a run making progress died on 3 SCATTERED fumbles (live run1: steps interleaved with 3 parse errors -> 'too many parse errors'). (2) The local model emits flattened tool calls {\"action\":\"tool\",\"tool\":\"fs_write\",\"path\":..,\"content\":..} with params at top level, so action.get('args')=={} and every fs_write hit '[Errno 21] Is a directory' (workspace root) — captured raw via direct LM Studio call. Net: the agent could not write a single file and fabricated success ('Due to filesystem restrictions I couldn't write the file')."
+    },
+    {
+      "name": "regression-test-red",
+      "status": "PASS",
+      "detail": "Stashed the 4 source fixes (kept new tests): test_budget_resets_consecutive_parse_errors_on_progress, test_budget_record_parse_success_clears_streak, test_loop_survives_scattered_parse_errors_across_progress all FAILED — the integration test showed 'failed == completed' (old code dies at the 2nd cumulative fumble)."
+    },
+    {
+      "name": "regression-test-green",
+      "status": "PASS",
+      "detail": "After fix all GREEN. Consecutive-reset semantics (budget), scattered-fumble survival (loop), and normalize_action shapes (a)flattened-args (b)name-as-action (c)double-encoded-dict-args, plus canonical/final no-op guard."
+    },
+    {
+      "name": "live-end-to-end",
+      "status": "PASS",
+      "detail": "Same hard prompt, real LM Studio (local-model). BEFORE: 8 tool.failed, 3 parse errors, delegation flailing, 280s, file NEVER written. AFTER: 1 parse error (recovered), 3 clean steps, fs_write OK + fs_read OK + final, 28s, 0 failures. Wrote text_stats.py (1094B) — verified it imports and analyze() returns the spec'd dict with correct case-insensitive/punctuation-stripped top-3."
+    },
+    {
+      "name": "adversarial-review",
+      "status": "PASS",
+      "detail": "Workflow review-loop-robustness-fix, 12 agents, find->verify. 1 confirmed (medium): normalize_action case-(c) leaves a double-encoded NON-dict args (array/scalar) as a string -> tool_node coerces to {}. Accepted as known limitation: non-regressive (pre-existing), the suggested fix is a no-op for dispatch (tool_node rejects string AND list to {} identically), our tool-args contract is always an object so list-as-args is malformed with no sound mapping, and it self-heals via the tool-error retry. 8 findings dismissed incl. _sync_budget omitting consecutive (end-of-run value irrelevant; persisted budget carries it), delegate/final envelopes not corrupted, canonical no-op confirmed."
+    },
+    {
+      "name": "full-suite",
+      "status": "PASS",
+      "detail": "python3 -m pytest -m 'not integration_llm' -p no:randomly -q — all pass (354), 1 skipped. Touched-area gate (discipline+orchestrator+supervisor) green."
+    },
+    {
+      "name": "ruff",
+      "status": "PASS",
+      "detail": "ruff check discipline/ orchestrator/loop.py supervisor/graph.py tests/ — clean."
+    }
+  ],
+  "verdict": "PASS_WITH_RISK",
+  "risk_note": "Accepted known limitation: double-encoded non-dict tool args (e.g. args=\"[...]\") degrade to empty args -> recoverable tool error, no sound normalization exists. Default max_parse_errors raised 3->8 (consecutive); AGENT_MAX_PARSE_ERRORS / AGENT_MAX_STEPS env knobs added for tuning without code change."
+}

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from adapters.agents import LangGraphDelegationAgent
 from core.ports import DelegationPort
+from discipline import Budget
 from supervisor import run_task_loop
 from tests.conftest import RecordingDelegationAgent, compose_json, decision_json
 
@@ -111,11 +112,13 @@ def test_bad_json_repaired_then_proceeds(make_env):
 
 
 def test_parse_error_budget_exhausted_fails(make_env):
+    # Explicit budget — the gate trips on CONSECUTIVE fumbles, so three in a row at a limit of three
+    # exhausts it. (Pinned here rather than relying on the default, which tolerates 8.)
     env = make_env(
         compose=compose_json(("code", "r")),
         decisions=["not json", "still not json", "nope"],
     )
-    result = run(env)
+    result = run(env, budget=Budget(max_parse_errors=3))
     assert result["status"] == "failed"
     assert "parse-error budget" in result["reason"]
 

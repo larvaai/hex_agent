@@ -61,6 +61,26 @@ def test_loop_recovers_from_bad_json():
     assert b.steps == 1                                 # parse error did not consume a step
 
 
+def test_loop_survives_scattered_parse_errors_across_progress():
+    """Fumbles the model recovers from must not accumulate into a fatal total — the gate trips only
+    on a CONSECUTIVE streak. 3 lifetime parse errors at max_parse_errors=2 used to kill the run at
+    the 2nd; with per-progress reset the run runs to completion. This is the 'too many parse errors'
+    bug a local model hit on any non-trivial task."""
+    k = _agent(_scripted_client([
+        "garbage 1",
+        '{"action":"tool","tool":"echo","args":{"i":1}}',
+        "garbage 2",
+        '{"action":"tool","tool":"echo","args":{"i":2}}',
+        "garbage 3",
+        '{"action":"final","message":"recovered","finish_reason":"done"}',
+    ]))
+    b = Budget(max_parse_errors=2)
+    out = run(k, "x", budget=b)
+    assert out["status"] == "completed" and out["result"] == "recovered"
+    assert b.parse_errors == 3                          # three lifetime fumbles…
+    assert b.consecutive_parse_errors == 0             # …never two in a row
+
+
 def test_loop_finish_gate_blocks_then_blocker():
     k = _agent(_scripted_client([
         '{"action":"final","message":"x","finish_reason":"done"}',

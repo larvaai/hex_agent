@@ -118,6 +118,7 @@ def o_decide(state: TaskLoopState, ctx: SupervisorContext, *, budget: Budget) ->
             if budget.parse_exceeded():
                 return None
             continue
+        budget.record_parse_success()  # O recovered — clear the consecutive-fumble streak
         ctx.emit("loop.decision", {"round": state.round_no, "decision": decision.decision})
         return decision
 

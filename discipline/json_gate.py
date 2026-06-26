@@ -408,17 +408,86 @@ def parse_json_object(text: str) -> dict[str, Any]:
     return obj
 
 
+# Control verbs the loop dispatches on; anything else in 'action' is a misplaced tool name.
+_CONTROL_VERBS = frozenset({"tool", "final", "delegate"})
+# Envelope keys that are NEVER tool args — everything else at the top level of a tool call is.
+_ENVELOPE_KEYS = frozenset(
+    {"action", "tool", "name", "args", "finish_reason", "message", "target", "spec",
+     "policy", "thought", "reasoning", "thinking", "observation"}
+)
+
+
+def normalize_action(obj: dict[str, Any]) -> dict[str, Any]:
+    """Coerce the action shapes local models actually emit into the canonical envelope.
+
+    Three observed breakages, all of which parse as valid JSON yet leave the loop unable to
+    dispatch (so it wastes the parse-error / step budget or fails outright):
+
+      (a) tool params flattened to the TOP LEVEL instead of nested under 'args' —
+          ``{"action":"tool","tool":"fs_write","path":"x","content":"y"}``  → args was {} → wrote to the dir.
+      (b) the tool NAME used as the 'action' value —
+          ``{"action":"fs_write","path":"x"}``                              → verb wasn't 'tool' → "unknown action".
+      (c) 'args' delivered as a JSON STRING instead of an object —
+          ``{"action":"tool","tool":"X","args":"{\\"path\\":\\"x\\"}"}``     → not a dict → dropped.
+
+    Canonical envelopes are returned untouched (the common case stays a no-op)."""
+    if not isinstance(obj, dict):
+        return obj
+    out = dict(obj)
+    action = out.get("action")
+    tool = out.get("tool") or out.get("name")
+
+    # (b) action carries a non-control verb, there's no explicit tool, it isn't a final
+    # (no 'message'), and there ARE leftover param keys → the action value IS the tool name.
+    if (
+        isinstance(action, str)
+        and action not in _CONTROL_VERBS
+        and tool is None
+        and "message" not in out
+        and any(k not in _ENVELOPE_KEYS for k in out)
+    ):
+        tool = action
+        out["action"] = "tool"
+
+    if tool is not None and not out.get("tool"):
+        out["tool"] = tool
+
+    if out.get("action") == "tool":
+        args = out.get("args")
+        # (c) args double-encoded as a JSON string → decode to an object.
+        if isinstance(args, str):
+            try:
+                decoded = json.loads(args)
+            except (json.JSONDecodeError, ValueError):
+                decoded = None
+            if isinstance(decoded, dict):
+                out["args"] = args = decoded
+        # (a) no usable args object → gather the leftover top-level keys into args.
+        if not isinstance(args, dict) or not args:
+            leftover = {k: v for k, v in out.items() if k not in _ENVELOPE_KEYS}
+            if leftover:
+                out["args"] = leftover
+                for key in leftover:
+                    out.pop(key, None)
+    return out
+
+
 def parse_action(text: str) -> dict[str, Any]:
     """Parse one JSON action object from model output, repairing common breakage."""
-    obj = parse_json_object(text)
+    obj = normalize_action(parse_json_object(text))
     if "action" not in obj:
         raise JsonGateError("Missing required 'action' field.", stage="schema", candidate=str(obj)[:200])
     return obj
 
 
 def build_retry_message(error: JsonGateError) -> str:
+    """A corrective re-prompt that shows the model the exact shape to copy. A local model recovers
+    far better from a concrete skeleton than from an abstract 'return a valid action' instruction."""
     return (
-        "Your previous output was not a valid action object "
-        f"(stage={error.stage}). Return exactly ONE JSON object with an 'action' field "
-        "and no markdown fences or prose."
+        f"PARSE ERROR (stage={error.stage}): your last message was not a single valid JSON action.\n"
+        "Reply with EXACTLY ONE JSON object — no prose, no markdown fences, no comments, no trailing text.\n"
+        "Use one of these shapes:\n"
+        '  {"action":"tool","tool":"<exact_tool_name>","args":{...}}\n'
+        '  {"action":"final","message":"<your answer>","finish_reason":"done"}\n'
+        "Your reply must start with { and end with }."
     )
