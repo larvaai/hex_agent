@@ -1,0 +1,61 @@
+:root {
+  --bg: #0f1117;
+  --panel: #171a23;
+  --line: #2a2f3a;
+  --txt: #e6e8ee;
+  --muted: #8b93a7;
+  --accent: #5b8cff;
+  --done: #3fb950;
+  --blocked: #f85149;
+  --active: #58a6ff;
+  --pending: #6e7681;
+  --unverified: #d29922;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--txt); font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; }
+.app { display: flex; flex-direction: column; height: 100vh; }
+.app__bar { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.app__task { flex: 1; background: var(--bg); color: var(--txt); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
+.app__run { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-weight: 600; }
+.app__run:disabled { opacity: 0.45; cursor: not-allowed; }
+.app__main { flex: 1; display: grid; grid-template-columns: 1fr 360px; min-height: 0; }
+
+.canvas { display: flex; min-height: 0; }
+.palette { width: 132px; padding: 10px; border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; gap: 6px; }
+.palette__title { font-weight: 700; color: var(--muted); text-transform: uppercase; font-size: 11px; }
+.palette__item { text-align: left; background: var(--bg); color: var(--txt); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; cursor: grab; }
+.palette__item:hover { border-color: var(--accent); }
+.palette__hint { color: var(--muted); font-size: 11px; margin-top: auto; }
+.canvas__flow { flex: 1; min-width: 0; }
+
+.topo-node { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-width: 120px; }
+.topo-node__type { font-size: 10px; text-transform: uppercase; color: var(--muted); letter-spacing: 0.5px; }
+.topo-node__attr { width: 100%; margin-top: 4px; background: var(--bg); color: var(--txt); border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; }
+.topo-node__attr--static { color: var(--muted); }
+.topo-node__entry { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); margin-top: 4px; }
+.topo-agent { border-color: #2f5bd6; }
+.topo-tool { border-color: #2c7a4b; }
+.topo-router { border-color: #8a6d1f; }
+
+.treeview { border-left: 1px solid var(--line); background: var(--panel); padding: 12px; overflow: auto; }
+.treeview__head { display: flex; justify-content: space-between; font-weight: 700; margin-bottom: 10px; }
+.treeview__status { font-weight: 600; }
+.treeview__errors { background: #2d1416; border: 1px solid var(--blocked); border-radius: 6px; padding: 8px; margin-bottom: 10px; color: #ffb3ad; }
+.treeview__errors ul { margin: 4px 0 0; padding-left: 18px; }
+.treeview__inject { background: #2a230f; border: 1px solid var(--unverified); border-radius: 6px; padding: 8px; margin-bottom: 10px; }
+.treeview__inject button { display: block; margin-top: 6px; background: var(--unverified); border: 0; color: #1a1a1a; font-weight: 600; border-radius: 5px; padding: 5px 10px; cursor: pointer; }
+.treeview__empty { color: var(--muted); }
+
+.tree-node { padding: 2px 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tree-node__dot { width: 9px; height: 9px; border-radius: 50%; background: var(--pending); flex: none; }
+.status-done { background: var(--done); }
+.status-blocked { background: var(--blocked); }
+.status-active { background: var(--active); }
+.status-decomposed { background: var(--accent); }
+.status-unverified { background: var(--unverified); }
+.tree-node__goal { font-weight: 500; }
+.tree-node__verdict { font-size: 11px; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); }
+.verdict-done { color: var(--done); border-color: var(--done); }
+.verdict-blocked { color: var(--blocked); border-color: var(--blocked); }
+.verdict-unverified { color: var(--unverified); border-color: var(--unverified); }
+.tree-node__agent { font-size: 11px; color: var(--muted); }

@@ -367,7 +367,8 @@ class App:
         self.runs = {run.id: run}
         self.default_run = run
         self.static_dir = os.path.abspath(static_dir)
-        self.index_file = index_file
+        # Serve the Vite SPA index (app/dist/index.html) when present, else the legacy ui/ index.
+        self.index_file = "index.html" if os.path.isfile(os.path.join(self.static_dir, "index.html")) else index_file
         # substrate-agnostic run factory: an LLM *factory* (minted per run, never shared) + a tool catalog.
         self.llm_provider = llm_provider or (lambda: FakeLLM(_default_responder))
         self.tool_catalog = tool_catalog if tool_catalog is not None else default_tool_catalog()

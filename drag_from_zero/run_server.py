@@ -15,8 +15,17 @@ from dragzero import Agent, Orchestrator, Roster, FakeLLM
 from dragzero.adapters.tools_fs import FsSandbox, build_fs_tools
 from dragzero.server import Run, make_server
 
-UI_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui")
+_HERE = os.path.dirname(os.path.abspath(__file__))
+UI_DIR = os.path.join(_HERE, "ui")
+APP_DIST = os.path.join(_HERE, "app", "dist")
 TASK = "Implement an auth module (login + session) with unit tests"
+
+
+def _resolve_ui_dir(explicit: str | None) -> str:
+    """Serve the React Flow app build if present (prod), else the legacy ui/ (prior-art)."""
+    if explicit:
+        return explicit
+    return APP_DIST if os.path.isdir(APP_DIST) else UI_DIR
 
 # Acceptance spec — what CODE checks over the sandbox, keyed by agent role (+ "__root__" for the
 # entry task). The model never sets these verdicts; the gate re-derives PASS/FAIL from the files
@@ -108,12 +117,24 @@ def main() -> int:
     ap.add_argument("--base-url", default=os.environ.get("OPENAI_BASE_URL", "http://localhost:1234/v1"))
     ap.add_argument("--model", default=os.environ.get("MODEL", "local-model"))
     ap.add_argument("--api-key", default=os.environ.get("OPENAI_API_KEY", "lm-studio"))
+    ap.add_argument("--ui-dir", default=None, help="static dir to serve (default: app/dist if built, else ui/)")
     args = ap.parse_args()
+
+    # LLM factory (callable, minted per run — never shared) drives create_run() from the authoring UI.
+    if args.real:
+        from dragzero.adapters.llm_local import OpenAICompatLLM
+        llm_provider = lambda: OpenAICompatLLM(  # noqa: E731
+            base_url=args.base_url, model=args.model, api_key=args.api_key,
+            roles=["planner", "coder", "reviewer", "tester", "devops"])
+    else:
+        llm_provider = lambda: FakeLLM(_demo_responder)  # noqa: E731
 
     builder = _real_builder(args) if args.real else _demo_builder()
     pace = 0.0 if args.real else args.pace
-    run = Run(id="run-1", title="auth feature", task=TASK, builder=builder, pace=pace, done_when=DONE_WHEN)
-    httpd = make_server(run, static_dir=UI_DIR, host=args.host, port=args.port)
+    run = Run(id="run-1", title="auth feature", task=TASK, builder=builder, pace=pace,
+              done_when=DONE_WHEN, llm_provider=llm_provider)
+    httpd = make_server(run, static_dir=_resolve_ui_dir(args.ui_dir), host=args.host, port=args.port,
+                        llm_provider=llm_provider)
     url = f"http://{args.host}:{args.port}"
     print(f"dragzero UI server → {url}   (Ctrl-C to stop)")
     try:
