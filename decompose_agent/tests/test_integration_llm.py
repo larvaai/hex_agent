@@ -34,15 +34,18 @@ def test_real_35b_solves_trivial_leaf(tmp_path):
         "   done_when: [{check: json_field_equals, params: {ptr: /ok, value: true}, artifact: out.json}]}\n"
     )
     tree = load_tree(p)
-    res = solve(tree, W.LocalLLMWorker(), root="t", workspace_root=tmp_path)
+    res = solve(tree, W.LocalLLMWorker(timeout=45, retries=1), root="t", workspace_root=tmp_path)
     assert tree.nodes["t.leaf"].status == "done", f"blocked={res.blocked}"
 
 
 @pytest.mark.skipif(not _llm_reachable(), reason="LLM_BASE_URL unreachable")
+@pytest.mark.skipif(not os.getenv("DECOMPOSE_AGENT_LLM_SLOW"),
+                    reason="heavy: several full 35B generations; set DECOMPOSE_AGENT_LLM_SLOW=1 to run")
 def test_real_35b_decompose_path_runs(tmp_path):
     # a node hard enough that the leaf attempts won't one-shot it → the decompose path executes.
-    # Lenient: we only assert the node left `pending` (decompose ran) and, if children were
-    # accepted, that μ strictly shrank (Gate-2 held against the real model).
+    # Several real generations (3 leaf attempts + decompose), so opt-in. Each call is now bounded
+    # by the worker timeout (no infinite hang — the point of the #2 fix); cumulatively slow on a
+    # local model. Lenient: only assert the node left `pending` (decompose ran).
     from decompose_agent.accept import mu
     p = tmp_path / "t.yaml"
     p.write_text(
@@ -50,7 +53,7 @@ def test_real_35b_decompose_path_runs(tmp_path):
         "   done_when: [{check: all_children_done}, {check: all_children_done}]}\n"
     )
     tree = load_tree(p)
-    solve(tree, W.LocalLLMWorker(), root="h", workspace_root=tmp_path)
+    solve(tree, W.LocalLLMWorker(timeout=45, retries=1), root="h", workspace_root=tmp_path)
     assert tree.nodes["h"].status != "pending"
     for kid in tree.children_of("h"):
         assert len(tree.nodes[kid].done_when) < mu(tree.nodes["h"])

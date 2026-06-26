@@ -15,12 +15,45 @@ Workers:
 from __future__ import annotations
 
 import os
+import time
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 from .json_repair import normalize_action, parse_children, parse_object
 from .node import DoneWhen, Node
+
+_sleep = time.sleep  # module-level so tests can patch out the backoff wait
+
+
+class WorkerError(RuntimeError):
+    """The worker (LLM) failed unrecoverably — infra (endpoint down, timed out), not a hard task.
+    solve() blocks the node immediately instead of burning K attempts against a dead endpoint."""
+
+
+def _status_of(exc: Exception) -> int | None:
+    s = getattr(exc, "status_code", None)
+    if not isinstance(s, int):
+        s = getattr(exc, "status", None)
+    return s if isinstance(s, int) else None
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Worth a retry: timeouts, dropped connections, 429, 5xx. Duck-typed so we never import
+    openai's exception classes (keeps the worker lazy + injectable)."""
+    status = _status_of(exc)
+    if status is not None:
+        return status == 429 or status >= 500
+    name = type(exc).__name__.lower()
+    return "timeout" in name or "connection" in name
+
+
+def _is_connection_error(exc: Exception) -> bool:
+    """The request never got an HTTP status → the endpoint is unreachable (server down / wrong
+    host:port) — the #1 local-LLM failure. Drives the actionable hint."""
+    if _status_of(exc) is not None:
+        return False
+    return "connection" in type(exc).__name__.lower()
 
 IDENTITY = (
     "You are a local worker solving ONE task node. Read the NODE cell (its done_when criteria "
@@ -199,30 +232,53 @@ class LocalLLMWorker:
     `client` is injectable for tests so nothing hits the network."""
 
     def __init__(self, *, client: Any = None, model: str | None = None,
-                 base_url: str | None = None, temperature: float = 0.0) -> None:
+                 base_url: str | None = None, temperature: float = 0.0,
+                 timeout: float | None = None, retries: int | None = None,
+                 retry_base: float | None = None) -> None:
         self._client = client
         self._model = model or os.getenv("LLM_MODEL", "local-model")
         self._base_url = base_url or os.getenv("LLM_BASE_URL", "http://localhost:1234/v1")
         self._temperature = temperature
+        self._timeout = float(os.getenv("LLM_TIMEOUT", "90")) if timeout is None else timeout
+        self._retries = int(os.getenv("LLM_MAX_RETRIES", "2")) if retries is None else retries
+        self._retry_base = float(os.getenv("LLM_RETRY_BASE", "0.4")) if retry_base is None else retry_base
+        self._max_tokens = int(os.getenv("LLM_MAX_TOKENS", "2048"))
 
     def _get_client(self) -> Any:
         if self._client is None:
             from openai import OpenAI  # lazy import — only when actually calling out
-            self._client = OpenAI(base_url=self._base_url, api_key=os.getenv("LLM_API_KEY", "lm-studio"))
+            self._client = OpenAI(base_url=self._base_url, api_key=os.getenv("LLM_API_KEY", "lm-studio"),
+                                  timeout=self._timeout)
         return self._client
 
+    def _chat(self, messages: list[dict], temperature: float) -> str:
+        """One chat call with a finite per-request timeout + exponential backoff on transient
+        failures. Raises WorkerError (with an actionable hint for a dead endpoint) when it gives up."""
+        client = self._get_client()
+        last: Exception | None = None
+        for attempt in range(self._retries + 1):
+            try:
+                resp = client.chat.completions.create(
+                    model=self._model, messages=messages, temperature=temperature,
+                    max_tokens=self._max_tokens, timeout=self._timeout,
+                    # NOTE: deliberately NO response_format — text mode (DEC-D3/F6); LM Studio 400s
+                    # on json_object, the repair ladder parses plain text.
+                )
+                return resp.choices[0].message.content or ""
+            except Exception as exc:  # duck-typed transient check; never import openai exc classes
+                last = exc
+                if attempt < self._retries and _is_transient(exc):
+                    _sleep(self._retry_base * (2 ** attempt))
+                    continue
+                break
+        detail = str(last)
+        if last is not None and _is_connection_error(last):
+            detail = f"{detail} — cannot reach the LLM at {self._base_url}; is the server running?"
+        raise WorkerError(f"LLM call failed after {self._retries + 1} attempt(s): {detail}")
+
     def propose(self, ctx: FourCell) -> dict[str, Any]:
-        messages = [{"role": "system", "content": ctx.identity},
-                    {"role": "user", "content": ctx.render()}]
-        resp = self._get_client().chat.completions.create(
-            model=self._model,
-            messages=messages,
-            temperature=self._temperature,
-            max_tokens=int(os.getenv("LLM_MAX_TOKENS", "2048")),
-            # NOTE: deliberately NO response_format — text mode (DEC-D3/F6). The repair
-            # ladder parses plain text; LM Studio 400s on response_format=json_object.
-        )
-        raw = resp.choices[0].message.content or ""
+        raw = self._chat([{"role": "system", "content": ctx.identity},
+                          {"role": "user", "content": ctx.render()}], self._temperature)
         return normalize_action(parse_object(raw))
 
     def decompose(self, node: Node, failure_evidence: Any = None, reason: str | None = None) -> list[dict]:
@@ -239,10 +295,6 @@ class LocalLLMWorker:
             parts.append(f"[PRIOR REJECTION — fix this]\n{reason}")
         if failure_evidence:
             parts.append(f"[FAILURE EVIDENCE]\n{failure_evidence}")
-        resp = self._get_client().chat.completions.create(
-            model=self._model,
-            messages=[{"role": "system", "content": sys_msg}, {"role": "user", "content": "\n\n".join(parts)}],
-            temperature=0.0,  # temp-0: content-addressed cache wants a stable sample
-            max_tokens=int(os.getenv("LLM_MAX_TOKENS", "2048")),
-        )
-        return parse_children(resp.choices[0].message.content or "")
+        raw = self._chat([{"role": "system", "content": sys_msg}, {"role": "user", "content": "\n\n".join(parts)}],
+                         0.0)  # temp-0: content-addressed cache wants a stable sample
+        return parse_children(raw)

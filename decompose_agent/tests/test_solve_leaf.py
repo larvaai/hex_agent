@@ -92,6 +92,24 @@ def test_journal_appends_each_attempt_and_is_readable(tmp_path):
     assert all({"node", "action", "verdict"} <= set(r) for r in attempts)
 
 
+def test_solve_blocks_on_worker_error_without_burning_attempts(tmp_path):
+    # a dead LLM is infra failure, not a hard task → block immediately, don't waste K attempts
+    tree = _load(tmp_path, ONE_LEAF)
+
+    class _DeadWorker:
+        def propose(self, ctx):
+            raise W.WorkerError("cannot reach the LLM at http://x; is the server running?")
+
+        def decompose(self, *a, **k):
+            raise W.WorkerError("dead")
+
+    budget = RootBudget(max_steps=100)
+    res = solve(tree, _DeadWorker(), root="t", workspace_root=tmp_path, budget=budget)
+    assert tree.nodes["t.leaf"].status == "blocked"
+    assert res.blocked.reason == "WORKER_ERROR"
+    assert budget.steps == 0  # never charged a step against the dead endpoint
+
+
 def test_journal_tail_tolerates_corruption(tmp_path):
     journal = Journal(tmp_path, "t")
     journal.append("t.leaf", {"event": "attempt", "verdict": "FAIL"})

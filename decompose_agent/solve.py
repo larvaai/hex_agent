@@ -26,7 +26,7 @@ from .json_repair import JsonGateError
 from .node import ARTIFACTLESS_CHECKS, DoneWhen, Node
 from .reduce import run_reduce
 from .store import DEFAULT_DECOMPOSER_VERSION, DecompCache, decomp_id, decomp_sig
-from .worker import assemble_4cell
+from .worker import WorkerError, assemble_4cell
 from .workspace import node_dir, write_artifact
 
 K = 3
@@ -92,6 +92,9 @@ def solve_leaf(tree, node_id: str, worker, budget: RootBudget, journal: Journal,
         ctx = assemble_4cell(tree.nodes[node_id], tree, journal)
         try:
             action = worker.propose(ctx)
+        except WorkerError as exc:  # dead/timed-out endpoint → infra block, don't burn K attempts
+            journal.append(node_id, {"event": "worker_error", "node": node_id, "error": str(exc)})
+            return _block(tree, node_id, "WORKER_ERROR", journal)
         except JsonGateError as exc:
             parse.record_error()  # fumble: NO step, NO attempt
             journal.append(node_id, {"event": "parse_error", "node": node_id, "error": str(exc)})
@@ -140,6 +143,9 @@ def _decompose(tree, node_id: str, worker, budget: RootBudget, journal: Journal,
             return _block(tree, node_id, "BUDGET", journal)
         try:
             raw = worker.decompose(node, failure_evidence=journal.tail(node_id, K), reason=last_reason)
+        except WorkerError as exc:  # dead/timed-out endpoint → infra block
+            journal.append(node_id, {"event": "worker_error", "node": node_id, "error": str(exc)})
+            return _block(tree, node_id, "WORKER_ERROR", journal)
         except JsonGateError as exc:
             rejections += 1
             last_reason = f"DECOMP_PARSE: {exc}"

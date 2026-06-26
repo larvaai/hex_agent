@@ -134,3 +134,60 @@ def test_write_artifact_rejects_escape_into_sibling_dir(tmp_path):
     with pytest.raises(UnsafeArtifactPath):
         write_artifact(tmp_path, "P", a, "../P.b/b.txt", "forged")
     assert not (node_dir(tmp_path, "P", "P.b") / "b.txt").exists()
+
+
+# ── LocalLLMWorker resilience: timeout + retry/backoff + actionable error (#2) ──
+
+class _ApiConnectionError(Exception):
+    """name contains 'connection' → treated as an unreachable-endpoint error."""
+
+
+class _Transient(Exception):
+    def __init__(self, msg="busy", status=503):
+        super().__init__(msg)
+        self.status_code = status
+
+
+class _FlakyClient:
+    def __init__(self, content="{}", fail=0, exc=None):
+        self.calls = 0
+        self.last_kwargs = None
+        outer = self
+
+        class _Completions:
+            def create(self, **kwargs):
+                outer.calls += 1
+                outer.last_kwargs = kwargs
+                if outer.calls <= fail:
+                    raise exc or _Transient()
+                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+        self.chat = SimpleNamespace(completions=_Completions())
+
+
+def test_local_llm_passes_a_timeout_to_create(tmp_path):
+    tree = _tree(tmp_path)
+    fake = _FlakyClient('{"action":"tool","tool":"x","args":{}}')
+    W.LocalLLMWorker(client=fake, timeout=12.5).propose(W.assemble_4cell(tree.nodes["P.a"], tree))
+    assert fake.last_kwargs["timeout"] == 12.5  # a hung socket can no longer block forever
+
+
+def test_local_llm_retries_transient_then_succeeds(tmp_path, monkeypatch):
+    monkeypatch.setattr(W, "_sleep", lambda *_: None)
+    tree = _tree(tmp_path)
+    fake = _FlakyClient('{"action":"tool","tool":"write_artifacts","args":{"files":{}}}', fail=2)
+    action = W.LocalLLMWorker(client=fake, retries=2).propose(W.assemble_4cell(tree.nodes["P.a"], tree))
+    assert action["tool"] == "write_artifacts"
+    assert fake.calls == 3  # 2 transient failures + 1 success
+
+
+def test_local_llm_unreachable_raises_actionable_worker_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(W, "_sleep", lambda *_: None)
+    tree = _tree(tmp_path)
+    fake = _FlakyClient(fail=99, exc=_ApiConnectionError("refused"))
+    w = W.LocalLLMWorker(client=fake, base_url="http://localhost:9999/v1", retries=1)
+    with pytest.raises(W.WorkerError) as e:
+        w.propose(W.assemble_4cell(tree.nodes["P.a"], tree))
+    msg = str(e.value).lower()
+    assert "localhost:9999" in msg and "running" in msg
+    assert fake.calls == 2  # 1 try + 1 retry, then give up (no infinite hang)
