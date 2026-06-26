@@ -5,6 +5,7 @@ Mỗi mục = một đợt thêm/sửa, gắn với **Sprint + Epic**, để the
 ## E21/E06 — Port kỷ luật harness vào control plane (DEC-8) · 2026-06-26
 
 - **Doctrine attribution≠authz + predicate** (`control/authz.py` MỚI; `docs/explanation/authz-vs-attribution.md` MỚI): `issued_by`/`Actor` = attribution tự khai (audit/trail), KHÔNG phải authz. `is_permission_escalating` bắt cờ `can_*` False→True; `command_needs_human_checkpoint` ép `UpdateAgentPermission`→`can_modify_permissions` cần human `RuntimeCheckpoint` kể cả dưới trust-O. Enforcement (`command_bridge`) hoãn (DEC-7) — doc đặt tên call-site MUST gọi predicate trước khi áp. Sửa docstring `commands.py` "authz"→"audit/attribution". `feat(E21): authz≠attribution doctrine + predicate`.
+- **Overall verdict trên ac_report** (`supervisor/evidence.py::_overall_verdict` + `STRONG_EVIDENCE_TYPES`): thêm field annotation `verdict ∈ {passed, passed_with_risk, pending}` lên `ac_report` — `passed_with_risk` khi mọi AC passed nhưng ≥1 AC chỉ dựa evidence `artifact` generic (không loại mạnh). Policy thuần trong code, **không** đổi gate FINISHED (`all_accepted` nguyên vẹn); chỉ là read-model. `feat(E21): overall verdict (passed/passed_with_risk/pending) on ac_report`.
 
 ## E21 — S21.33 evidence types + AC report · 2026-06-26
 

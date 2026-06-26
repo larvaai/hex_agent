@@ -143,6 +143,7 @@ def test_finished_emits_ac_report(make_env):
     assert len(reports) == 1
     assert reports[0]["checks"][0]["status"] == "passed"
     assert reports[0]["checks"][0]["evidence_types"] == ["tool_result"]
+    assert reports[0]["verdict"] == "passed"  # tool_result is a strong evidence type
 
 
 def test_finish_denied_no_ac_report(make_env):
@@ -154,3 +155,48 @@ def test_finish_denied_no_ac_report(make_env):
     result = run(env)
     assert result["status"] != "finished"
     assert _ac_reports(result) == []
+
+
+# ── overall verdict (Phase 03 — additive read-model annotation) ──────────────
+
+
+def test_verdict_passed_with_risk_on_generic_artifact(make_env):
+    # An AC passed by citing only a generic-kind artifact (delegation_result → "artifact",
+    # not a strong type) is PASSED but flagged: every evidence type for some AC is generic.
+    env = make_env(
+        compose=compose_json(("code", "r")),
+        decisions=[
+            decision_json("continue", next_agent_calls=[call("code")]),
+            decision_json(
+                "finished",
+                # session_plan-0000, context_packet-0001, <worker finding>-uuid,
+                # delegation_result-0003 → cite the generic delegation_result.
+                acceptance_status=[
+                    {"id": "ac1", "status": "passed", "evidence_ids": ["delegation_result-0003"]}
+                ],
+                final_output={"answer": 1},
+            ),
+        ],
+    )
+    result = run(env)
+    assert result["status"] == "finished"
+    reports = _ac_reports(result)
+    assert reports[0]["checks"][0]["evidence_types"] == ["artifact"]
+    assert reports[0]["verdict"] == "passed_with_risk"
+
+
+def test_overall_verdict_policy_is_pure_and_total():
+    # Policy lives in code (evidence._overall_verdict) — pin the full matrix directly,
+    # incl. the `pending` branch the live gate can never mint (FINISHED ⇒ all passed).
+    from supervisor.evidence import _overall_verdict
+
+    strong = {"id": "a", "status": "passed", "evidence_types": ["tool_result"]}
+    generic = {"id": "b", "status": "passed", "evidence_types": ["artifact"]}
+    mixed = {"id": "c", "status": "passed", "evidence_types": ["artifact", "diff"]}
+    not_passed = {"id": "d", "status": "pending", "evidence_types": ["tool_result"]}
+
+    assert _overall_verdict([strong]) == "passed"
+    assert _overall_verdict([strong, mixed]) == "passed"  # mixed AC has ≥1 strong
+    assert _overall_verdict([strong, generic]) == "passed_with_risk"
+    assert _overall_verdict([generic]) == "passed_with_risk"
+    assert _overall_verdict([strong, not_passed]) == "pending"
