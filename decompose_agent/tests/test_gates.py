@@ -164,6 +164,26 @@ def test_verdict_is_frozen_and_code_written(tmp_path):
         v.results[0].ok = True  # type: ignore[misc]
 
 
+def test_test_passes_runs_whitelisted_cmd(tmp_path):
+    import sys
+
+    from decompose_agent import exec_cmd as E
+    E.register_cmd("g_ok", [sys.executable, "-c", "raise SystemExit(0)"])
+    E.register_cmd("g_fail", [sys.executable, "-c", "raise SystemExit(1)"])
+    ok = mknode([{"check": "test_passes", "params": {"cmd_id": "g_ok"}}])
+    fail = mknode([{"check": "test_passes", "params": {"cmd_id": "g_fail"}}])  # exit 1 → FAIL (success fixed at 0)
+    unwhitelisted = mknode([{"check": "test_passes", "params": {"cmd_id": "g_ghost"}}])
+    assert gates.run_checks(ok, tmp_path).ok
+    assert not gates.run_checks(fail, tmp_path).ok
+    assert not gates.run_checks(unwhitelisted, tmp_path).ok  # raw/unknown cmd_id can't pass a gate
+
+
+def test_donewhen_construction_forbids_expect_code():
+    from decompose_agent.node import DoneWhen
+    with pytest.raises(ValueError):  # the worker can't pick the passing exit code
+        DoneWhen.from_dict({"check": "test_passes", "params": {"cmd_id": "x", "expect_code": 0}})
+
+
 @pytest.mark.parametrize("body", ['not json', '{}', '[1,2,3]', '{"x":"str"}', '{"x":null}', '   ', '{"x":'])
 def test_json_field_in_range_never_raises_on_junk(tmp_path, body):
     write(tmp_path / "j.json", body)

@@ -14,14 +14,16 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Any
 
+from .exec_cmd import CMD_CHECKS
+
 # Verdict-shaped keys a criterion must never carry — the gate writes verdicts, not the author.
 FORBIDDEN_VERDICT_KEYS = frozenset({"verdict", "passed", "status", "score", "done"})
 
 # The full criterion shape. Anything else is "not the triple" → reject.
 _CRITERION_KEYS = frozenset({"check", "params", "artifact"})
 
-# Checks that operate on tree structure, not a file → they legitimately have no artifact.
-ARTIFACTLESS_CHECKS = frozenset({"all_children_done"})
+# Checks that read no artifact: structural (all_children_done) + cmd-gate checks (they run a command).
+ARTIFACTLESS_CHECKS = frozenset({"all_children_done"}) | CMD_CHECKS
 
 VALID_STATUSES = frozenset({"pending", "active", "decomposed", "done", "blocked"})
 VALID_KINDS = frozenset({"work", "reduce"})  # reduce = synthetic pure-code compose node
@@ -58,6 +60,9 @@ class DoneWhen:
             raise ValueError("done_when criterion is missing a non-empty 'check'")
         if not isinstance(self.params, dict):
             raise ValueError(f"done_when criterion 'params' must be a mapping, got {type(self.params).__name__}")
+        if self.check in CMD_CHECKS and "expect_code" in self.params:
+            # the gate fixes success at exit 0 — a worker setting expect_code could fake a pass
+            raise ValueError(f"cmd check {self.check!r} must not set 'expect_code' (operator-controlled)")
         if self.artifact is not None:
             object.__setattr__(self, "artifact", assert_safe_relpath(self.artifact))
         elif self.check not in ARTIFACTLESS_CHECKS:

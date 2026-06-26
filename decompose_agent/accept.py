@@ -9,20 +9,44 @@ a machine-readable reason to inject back into the re-decompose prompt.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
 
+from .exec_cmd import CMD_CHECKS, CMD_TEMPLATES, CONTROL_KEYS, unsafe_path_value
 from .gates import CHECK_VOCAB
 from .node import ARTIFACTLESS_CHECKS, FORBIDDEN_VERDICT_KEYS, Node
 
 MAX_FANOUT = 8
+JACCARD_MAX = 0.80  # a child whose scope tokens overlap the parent's by >80% is a RENAME (D3)
 _CRIT_KEYS = frozenset({"check", "params", "artifact"})
+_WORD_RE = re.compile(r"[a-z0-9_]+")
 
 # block-reason priority for the second-rejection BLOCKED code
-_CODES = ("STUCK_DECOMP", "NOT_SMALLER", "SINGLETON", "FANOUT", "PROSE_CHILD", "UNDERCOVER",
-          "unknown check", "self-dependency", "cycle", "child==parent", "dup id", "dup title",
-          "unsafe", "missing artifact", "verdict")
+_CODES = ("STUCK_DECOMP", "NOT_SMALLER", "SINGLETON", "FANOUT", "PROSE_CHILD", "UNDERCOVER", "RENAME",
+          "unknown check", "cmd not whitelisted", "self-dependency", "cycle", "child==parent",
+          "dup id", "dup title", "unsafe", "missing artifact", "verdict")
+
+
+def _scope_tokens(criteria, extra=()) -> set[str]:
+    """Word-set over a node's WORK content (done_when + notes/title) — NOT its id (ids share the
+    parent prefix and would inflate every child's similarity). Used by the D3 rename detector."""
+    parts: list[str] = [str(e) for e in extra]
+    for cr in criteria:
+        if isinstance(cr, dict):
+            parts += [str(cr.get("check") or ""), str(cr.get("params") or ""), str(cr.get("artifact") or "")]
+        else:  # a DoneWhen
+            parts += [str(cr.check), str(cr.params or ""), str(cr.artifact or "")]
+    toks: set[str] = set()
+    for p in parts:
+        toks.update(_WORD_RE.findall(p.lower()))
+    return toks
+
+
+def _jaccard(a: set[str], b: set[str]) -> float:
+    union = a | b
+    return len(a & b) / len(union) if union else 0.0
 
 
 def mu(node: Node) -> int:
@@ -169,6 +193,7 @@ def accept_decomposition(parent: Node, children: list[dict]) -> Accept | Reject:
 
     parent_mu = mu(parent)
     parent_title = _norm(parent.id)
+    parent_tokens = _scope_tokens(parent.done_when)  # D3 reference — structural content only, no notes
     visible_deps = set(parent.depends_on)
     child_ids = {c.get("id") for c in children if c.get("id")}
     ids: set[str] = set()
@@ -194,6 +219,10 @@ def accept_decomposition(parent: Node, children: list[dict]) -> Accept | Reject:
             V.append(f"{cid}: empty done_when (PROSE_CHILD)")
         if len(dw) >= parent_mu:
             V.append(f"{cid}: NOT_SMALLER (mu {len(dw)} >= parent {parent_mu})")
+        if dw and parent_tokens:  # D3: a child that just restates the parent is a rename, not a split
+            child_tokens = _scope_tokens(dw)  # structural only — notes can't dilute the score
+            if _jaccard(parent_tokens, child_tokens) > JACCARD_MAX:
+                V.append(f"{cid}: RENAME of parent (jaccard > {JACCARD_MAX})")
         for crit in dw:
             if not isinstance(crit, dict):
                 V.append(f"{cid}: malformed criterion")
@@ -202,9 +231,20 @@ def accept_decomposition(parent: Node, children: list[dict]) -> Accept | Reject:
             if forged:
                 V.append(f"{cid}: self-grade verdict field {sorted(forged)} forbidden")
             check = crit.get("check")
-            if check not in CHECK_VOCAB and check not in ARTIFACTLESS_CHECKS:
+            if check not in CHECK_VOCAB and check not in ARTIFACTLESS_CHECKS and check not in CMD_CHECKS:
                 V.append(f"{cid}: unknown check {check!r} (prose)")
-            if check not in ARTIFACTLESS_CHECKS:
+            if check in CMD_CHECKS:  # cmd checks: whitelisted cmd_id only, no verdict-shaping, jailed params
+                p = crit.get("params") or {}
+                if p.get("cmd_id") not in CMD_TEMPLATES:
+                    V.append(f"{cid}: cmd not whitelisted (cmd_id={p.get('cmd_id')!r})")
+                if "expect_code" in p:  # the success code is fixed at 0; the author must not set it
+                    V.append(f"{cid}: expect_code is operator-controlled, not author-settable")
+                if "timeout" in p and not isinstance(p["timeout"], (int, float)):
+                    V.append(f"{cid}: cmd timeout must be a number")
+                for key, value in p.items():
+                    if key not in CONTROL_KEYS and unsafe_path_value(value):
+                        V.append(f"{cid}: unsafe path in cmd param {key!r}")
+            elif check not in ARTIFACTLESS_CHECKS:
                 art = crit.get("artifact")
                 if not art:
                     V.append(f"{cid}: missing artifact for {check}")

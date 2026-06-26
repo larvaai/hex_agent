@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
+from .exec_cmd import CMD_CHECKS, DEFAULT_TIMEOUT, run_cmd
 from .node import Node
 
 
@@ -218,6 +219,18 @@ def _check_all_children_done(child_statuses: Sequence[str] | None) -> CheckResul
     return CheckResult(not pending, "" if not pending else f"{len(pending)}/{len(statuses)} children not done")
 
 
+def _check_cmd(params: dict, workspace: Path) -> CheckResult:
+    """test_passes: run a WHITELISTED command in the node's dir; PASS iff exit code == 0.
+
+    The success code is FIXED at 0 (the universal convention) — the worker does NOT get to choose
+    the expected code, else it could set expect_code to match its own failure and fake the gate."""
+    params = params or {}
+    result = run_cmd(params.get("cmd_id"), params, workspace, timeout=params.get("timeout", DEFAULT_TIMEOUT))
+    if not result.ok:
+        return CheckResult(False, f"cmd did not run: {result.reason}")
+    return CheckResult(result.code == 0, "" if result.code == 0 else f"exit {result.code} != 0")
+
+
 def run_checks(node: Node, workspace: str | Path, *, child_statuses: Sequence[str] | None = None) -> Verdict:
     """Evaluate every criterion in CODE and return the frozen verdict. Never raises on a bad
     artifact or a malformed predicate — those resolve to a FAIL result with a reason."""
@@ -226,6 +239,8 @@ def run_checks(node: Node, workspace: str | Path, *, child_statuses: Sequence[st
     for crit in node.done_when:
         if crit.check == ALL_CHILDREN_DONE:
             res = _check_all_children_done(child_statuses)
+        elif crit.check in CMD_CHECKS:  # runs a whitelisted command in the node dir (no artifact)
+            res = _check_cmd(crit.params, workspace)
         elif crit.check not in CHECK_VOCAB:
             res = CheckResult(False, f"unknown check {crit.check!r}")
         else:

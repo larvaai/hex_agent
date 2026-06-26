@@ -112,6 +112,44 @@ def test_reject_undercover():
     assert "UNDERCOVER" in accept_decomposition(parent(), kids).reason
 
 
+def test_reject_rename_high_jaccard():
+    # parent has two near-identical criteria; a child that restates one of them ~verbatim is a
+    # RENAME (token overlap > 0.80), not a genuine split (D3).
+    p = parent(done_when=[
+        {"check": "json_field_in_range", "params": {"ptr": "/m", "min": 0.80, "max": 1.0}, "artifact": "recall.json"},
+        {"check": "json_field_in_range", "params": {"ptr": "/m", "min": 0.81, "max": 1.0}, "artifact": "recall.json"},
+    ])
+    kids = [
+        {"id": "P.c0", "done_when": [{"check": "json_field_in_range", "params": {"ptr": "/m", "min": 0.80, "max": 1.0}, "artifact": "recall.json"}]},
+        {"id": "P.c1", "done_when": [{"check": "file_exists", "artifact": "side.txt"}]},
+    ]
+    assert "RENAME" in accept_decomposition(p, kids).reason
+
+
+def test_cmd_check_must_be_whitelisted():
+    # a child naming an un-whitelisted cmd_id for test_passes is rejected (no raw commands)
+    p = parent(done_when=[{"check": "file_exists", "artifact": "a.txt"}, {"check": "file_exists", "artifact": "b.txt"}])
+    kids = [{"id": "P.c0", "done_when": [{"check": "test_passes", "params": {"cmd_id": "rm_rf_slash"}}]},
+            {"id": "P.c1", "done_when": [{"check": "file_exists", "artifact": "b.txt"}]}]
+    assert "cmd not whitelisted" in accept_decomposition(p, kids).reason
+
+
+def _cmd_parent():
+    return parent(done_when=[{"check": "file_exists", "artifact": "a.txt"}, {"check": "file_exists", "artifact": "b.txt"}])
+
+
+def test_gate2_rejects_author_set_expect_code():
+    kids = [{"id": "P.c0", "done_when": [{"check": "test_passes", "params": {"cmd_id": "x", "expect_code": 1}}]},
+            {"id": "P.c1", "done_when": [{"check": "file_exists", "artifact": "b.txt"}]}]
+    assert "expect_code" in accept_decomposition(_cmd_parent(), kids).reason
+
+
+def test_gate2_rejects_path_escape_in_cmd_param():
+    kids = [{"id": "P.c0", "done_when": [{"check": "test_passes", "params": {"cmd_id": "x", "path": "../../../etc/passwd"}}]},
+            {"id": "P.c1", "done_when": [{"check": "file_exists", "artifact": "b.txt"}]}]
+    assert "unsafe path" in accept_decomposition(_cmd_parent(), kids).reason
+
+
 def test_coverage_is_by_implication_not_artifact_name():
     # child covers the /m metric with a DIFFERENT artifact name + a tighter range — must accept (F5)
     p = parent(done_when=[{"check": "json_field_in_range", "params": {"ptr": "/m", "min": 0.8, "max": 1.0}, "artifact": "recall.json"},

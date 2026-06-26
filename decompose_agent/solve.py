@@ -123,6 +123,12 @@ def solve_leaf(tree, node_id: str, worker, budget: RootBudget, journal: Journal,
 
 # ── decompose path (spec.md:203-227) ──────────────────────────────────────────
 
+# D5 (oscillation / CYCLE) is intentionally NOT implemented: with μ strictly shrinking (D2) and no
+# cross-tree `needs`, a descendant's children are always strictly smaller than any ancestor's, so a
+# decomposition signature can never recur down the DFS path — D5 would be unreachable. It earns its
+# keep only once `needs` (or a non-shrinking μ) can reintroduce a shape; fenced until then.
+
+
 def _decompose(tree, node_id: str, worker, budget: RootBudget, journal: Journal,
                workspace_root, root: str, cache: DecompCache, decomposer_version: int,
                parse_max: int) -> Outcome:
