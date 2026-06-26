@@ -1,0 +1,58 @@
+# Hand-baked 2-level RAG tree — phase-1 slice (spec.md:253-315), `_reduce` fenced out.
+#
+# Divergences from the spec fixture, on purpose (DEC-D2 / DEC-D4):
+#   * `ai.rag` is the ROOT of THIS tree (parent: null) — the umbrella `ai` node is
+#     not in the slice, so pointing at it would fail referential integrity.
+#   * `children:` is NOT listed — it is derived from `parent` pointers (single source
+#     of truth; avoids a children/parent-disagree bug class).
+#   * each data criterion carries an explicit `artifact:` (path lifted OUT of params)
+#     so the Gate-1 artifact assertion (exists/non-empty/jail/fresh, phase 2) is uniform
+#     and check-agnostic.
+#   * `_reduce` is dropped this round → parent done_when is the structural all_children_done.
+
+- id: ai.rag
+  parent: null
+  kind: work
+  status: decomposed
+  done_when:
+    - { check: all_children_done }
+
+- id: ai.rag.corpus            # leaf 1: produce a document corpus
+  parent: ai.rag
+  kind: work
+  status: pending
+  depends_on: []
+  max_attempts: 3
+  done_when:
+    - { check: row_count_gte, params: { n: 200 },       artifact: corpus.jsonl }
+    - { check: grep_absent,   params: { pattern: "^\\s*$" }, artifact: corpus.jsonl }
+
+- id: ai.rag.index             # leaf 2: build an index over the corpus
+  parent: ai.rag
+  kind: work
+  status: pending
+  depends_on: [ai.rag.corpus]
+  max_attempts: 3
+  done_when:
+    - { check: file_exists,         artifact: index.faiss }
+    - { check: json_field_in_range, params: { ptr: /ntotal, min: 200, max: 100000 }, artifact: index_meta.json }
+
+- id: ai.rag.queries           # leaf 3: build a labeled eval query set
+  parent: ai.rag
+  kind: work
+  status: pending
+  depends_on: [ai.rag.corpus]
+  max_attempts: 3
+  done_when:
+    - { check: row_count_gte, params: { n: 50 }, artifact: queries.jsonl }
+
+- id: ai.rag.eval              # leaf 4: run retrieval, compute recall@5
+  parent: ai.rag
+  kind: work
+  status: pending
+  depends_on: [ai.rag.index, ai.rag.queries]
+  max_attempts: 3
+  done_when:
+    - { check: file_exists,         artifact: recall.json }
+    - { check: json_field_in_range, params: { ptr: /recall_at_5, min: 0.80, max: 1.0 }, artifact: recall.json }
+    - { check: grep_absent,         params: { pattern: "Traceback|ERROR" }, artifact: run.log }
