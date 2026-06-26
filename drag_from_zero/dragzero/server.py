@@ -23,16 +23,23 @@ import json
 import os
 import re
 import struct
+import tempfile
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from queue import Empty, Queue
 from threading import Lock, Thread
 from urllib.parse import parse_qs, urlparse
 
+from .adapters.tools_fs import FsSandbox, default_tool_catalog
 from .contracts import TaskStatus
 from .events import EventType
+from .llm import FakeLLM
 from .read_model import reduce
+from .topology import Topology, TopologyError
 from .verifier import build_done_when, mu, run_checks
+from .wiring import build_runtime
+
+_EXAMPLE_TOPOLOGY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "examples", "topology.json")
 
 _WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
@@ -210,12 +217,14 @@ class Run:
     """
 
     def __init__(self, id: str, title: str, task: str, builder, pace: float = 0.0,
-                 done_when: dict | None = None, root_done_when: list | None = None) -> None:
+                 done_when: dict | None = None, root_done_when: list | None = None,
+                 llm_provider=None) -> None:
         self.id = id
         self.title = title
         self.task = task
         self.builder = builder
         self.pace = pace
+        self._llm_provider = llm_provider  # mint a fresh LLM per joined agent (P3); never shared
         self.done_when = done_when or {}  # projection spec: {node_id|"__root__"|agent_id: [criterion,...]}
         self.root_done_when = root_done_when  # Gap 2: the root task's own gate → orchestrator runs gated
         self._activated_at = None         # gate freshness floor; stamped at start()
@@ -338,12 +347,41 @@ class Run:
 # --------------------------------------------------------------------------- #
 # app + HTTP/WS handler
 # --------------------------------------------------------------------------- #
+def _default_responder(ctx):
+    """Generic FakeLLM script for ad-hoc authored runs: planner delegates to coder,
+    coder writes one file then closes. Deterministic, drives any agent topology to done."""
+    role, obs = ctx["role"], ctx["observations"]
+    if role == "planner":
+        return {"plan": {"steps": [], "next": None},
+                "decision": {"mode": "delegate", "target": "coder", "subtask": "do the work"}}
+    if role == "coder":
+        if not obs:
+            return {"action": {"type": "tool", "tool": "write_file", "args": {"path": "out.txt", "content": "done"}}}
+        return {"plan": {"steps": [], "next": None}, "decision": {"mode": "solo"}}
+    return {"plan": {"steps": [], "next": None}, "decision": {"mode": "solo"}}
+
+
 class App:
-    def __init__(self, run: Run, static_dir: str, index_file: str) -> None:
+    def __init__(self, run: Run, static_dir: str, index_file: str,
+                 llm_provider=None, tool_catalog: dict | None = None) -> None:
         self.runs = {run.id: run}
         self.default_run = run
         self.static_dir = os.path.abspath(static_dir)
         self.index_file = index_file
+        # substrate-agnostic run factory: an LLM *factory* (minted per run, never shared) + a tool catalog.
+        self.llm_provider = llm_provider or (lambda: FakeLLM(_default_responder))
+        self.tool_catalog = tool_catalog if tool_catalog is not None else default_tool_catalog()
+        self.topologies: dict[str, dict] = {}
+        self._topo_seq = 0
+        self._run_seq = 1  # default run conventionally occupies run-1
+        self._seed_example()
+
+    def _seed_example(self) -> None:
+        try:
+            with open(_EXAMPLE_TOPOLOGY) as f:
+                self.topologies["example"] = json.load(f)
+        except OSError:
+            pass  # missing example seed is non-fatal — the store just starts empty
 
     def get_run(self, rid: str) -> Run:
         run = self.runs.get(rid)
@@ -354,6 +392,47 @@ class App:
     def session(self) -> dict:
         r = self.default_run
         return {"id": r.id, "status": r.status, "title": r.title, "graph": r.graph()}
+
+    # --- topology store ---
+    def list_topologies(self) -> list:
+        return [{"id": tid} for tid in self.topologies]
+
+    def get_topology(self, tid: str) -> dict:
+        if tid not in self.topologies:
+            raise KeyError(tid)
+        return self.topologies[tid]
+
+    def add_topology(self, body: dict) -> str:
+        """Validate then store the raw posted dict (exact round-trip, incl. node ui meta)."""
+        errors = Topology.from_dict(body).validate(raise_on_error=False)
+        if errors:
+            raise TopologyError("; ".join(errors))
+        self._topo_seq += 1
+        tid = f"topo-{self._topo_seq}"
+        self.topologies[tid] = body
+        return tid
+
+    # --- run factory (from a posted topology) ---
+    def create_run(self, topology_dict: dict, task: str, done_when: dict | None = None) -> str:
+        """Build a fresh runnable Run from a topology dict. Each run mints its own LLM via the
+        factory (never shared) and its own sandbox. TopologyError/ValueError propagate -> 422."""
+        topology = Topology.from_dict(topology_dict)
+        provider, catalog = self.llm_provider, self.tool_catalog
+
+        def build():
+            sandbox = FsSandbox(tempfile.mkdtemp(prefix="dz_run_"))
+            rt = build_runtime(topology, provider(), tool_catalog=catalog, sandbox=sandbox)
+            return rt.orchestrator, rt.entry, sandbox
+
+        self._run_seq += 1
+        rid = f"run-{self._run_seq}"
+        while rid in self.runs:
+            self._run_seq += 1
+            rid = f"run-{self._run_seq}"
+        run = Run(rid, title=task[:60] or "authored run", task=task, builder=build,
+                  done_when=done_when or {}, llm_provider=provider)  # Run() builds eagerly → validate raises here
+        self.runs[rid] = run
+        return rid
 
 
 _CTYPES = {".html": "text/html", ".js": "application/javascript", ".json": "application/json",
@@ -408,6 +487,11 @@ class _Handler(BaseHTTPRequestHandler):
     def _api_get(self, path, u) -> None:
         if path == "/api/session":
             return self._json(self.app.session())
+        if path == "/api/topology":
+            return self._json(self.app.list_topologies())
+        m = re.match(r"^/api/topology/([^/]+)$", path)
+        if m:
+            return self._json(self.app.get_topology(m.group(1)))
         m = re.match(r"^/api/runs/([^/]+)$", path)
         if m:
             run = self.app.get_run(m.group(1))
@@ -424,9 +508,38 @@ class _Handler(BaseHTTPRequestHandler):
             return self._ws(self.app.get_run(m.group(1)))
         return self._json({"detail": "not found"}, 404)
 
+    def _read_json_body(self) -> dict:
+        length = int(self.headers.get("Content-Length") or 0)
+        return json.loads(self.rfile.read(length)) if length else {}
+
+    def _create_run(self, body) -> None:
+        task = body.get("task", "")
+        if "topology_id" in body:
+            try:
+                topo = self.app.get_topology(body["topology_id"])
+            except KeyError:
+                return self._json({"errors": [f"unknown topology_id {body['topology_id']!r}"]}, 422)
+        elif "topology" in body:
+            topo = body["topology"]
+        else:
+            return self._json({"errors": ["missing 'topology' or 'topology_id'"]}, 422)
+        try:
+            rid = self.app.create_run(topo, task, done_when=body.get("done_when"))
+        except (TopologyError, ValueError) as exc:
+            return self._json({"errors": str(exc).split("; ")}, 422)
+        return self._json({"id": rid})
+
     def do_POST(self) -> None:
         try:
             path = urlparse(self.path).path
+            if path == "/api/topology":
+                try:
+                    tid = self.app.add_topology(self._read_json_body())
+                except (TopologyError, ValueError) as exc:
+                    return self._json({"errors": str(exc).split("; ")}, 422)
+                return self._json({"id": tid})
+            if path == "/api/runs":
+                return self._create_run(self._read_json_body())
             m = re.match(r"^/api/runs/([^/]+)/reset$", path)
             if m:
                 self.app.get_run(m.group(1)).reset()
@@ -491,8 +604,10 @@ class _Handler(BaseHTTPRequestHandler):
             run.unsubscribe(q)
 
 
-def make_server(run: Run, static_dir: str, host: str = "127.0.0.1", port: int = 8000) -> ThreadingHTTPServer:
+def make_server(run: Run, static_dir: str, host: str = "127.0.0.1", port: int = 8000,
+                llm_provider=None, tool_catalog: dict | None = None) -> ThreadingHTTPServer:
     httpd = ThreadingHTTPServer((host, port), _Handler)
     httpd.daemon_threads = True
-    httpd.app = App(run, static_dir, "Agent IDE.dc.html")  # type: ignore[attr-defined]
+    httpd.app = App(run, static_dir, "Agent IDE.dc.html",  # type: ignore[attr-defined]
+                    llm_provider=llm_provider, tool_catalog=tool_catalog)
     return httpd
