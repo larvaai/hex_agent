@@ -143,6 +143,22 @@ def topo_sort(children: list[dict]) -> list[dict]:
     return ordered if len(ordered) == len(children) else list(children)
 
 
+def coverage_inputs(parent: Node, children: list[dict]) -> list[dict]:
+    """For each substantive parent criterion, the covering child output to compose: a list of
+    {from, artifact, as} mapping a child's artifact onto the parent criterion's artifact name.
+    Assumes coverage already held (accept passed), so every criterion has a cover."""
+    inputs: list[dict] = []
+    for pcrit in parent.done_when:
+        if pcrit.check in ARTIFACTLESS_CHECKS:
+            continue
+        for c in children:
+            match = next((cc for cc in (c.get("done_when") or []) if _implies(cc, pcrit)), None)
+            if match is not None:
+                inputs.append({"from": c.get("id"), "artifact": match.get("artifact"), "as": pcrit.artifact})
+                break
+    return inputs
+
+
 def accept_decomposition(parent: Node, children: list[dict]) -> Accept | Reject:
     V: list[str] = []
     n = len(children)

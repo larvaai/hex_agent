@@ -18,12 +18,13 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from .accept import accept_decomposition
+from .accept import accept_decomposition, coverage_inputs
 from .budget import AttemptBudget, ParseBudget, RootBudget
 from .gates import UnsafeArtifactPath, run_checks
 from .journal import Journal
 from .json_repair import JsonGateError
-from .node import Node
+from .node import ARTIFACTLESS_CHECKS, DoneWhen, Node
+from .reduce import run_reduce
 from .store import DEFAULT_DECOMPOSER_VERSION, DecompCache, decomp_id, decomp_sig
 from .worker import assemble_4cell
 from .workspace import node_dir, write_artifact
@@ -152,15 +153,61 @@ def _decompose(tree, node_id: str, worker, budget: RootBudget, journal: Journal,
         decomp_history.append(sig)
         verdict = accept_decomposition(node, raw)
         if verdict.ok:
-            cache.commit(tree, node_id, list(verdict.children), did)  # two-phase commit
+            workers = list(verdict.children)
+            reduce_child = _build_reduce_child(node, workers)
+            children = workers + ([reduce_child] if reduce_child else [])
+            if reduce_child:
+                # the parent's substantive criteria now live on the reduce child (which composes
+                # the workers' outputs); the parent's own gate becomes structural all_children_done
+                tree.nodes[node_id] = replace(tree.nodes[node_id], done_when=(DoneWhen("all_children_done"),))
+            cache.commit(tree, node_id, children, did)  # two-phase commit
             journal.append(node_id, {"event": "decomposed", "node": node_id,
-                                     "children": [c["id"] for c in verdict.children], "decomp_id": did})
+                                     "children": [c["id"] for c in children], "decomp_id": did})
             return Outcome(node_id, "decomposed", "")
         rejections += 1
         last_reason = verdict.reason
         journal.append(node_id, {"event": "decompose_rejected", "node": node_id, "reasons": list(verdict.reasons)})
         if rejections >= 2:  # one charged re-decompose; a second rejection → BLOCKED
             return _block(tree, node_id, verdict.code, journal)
+
+
+def _build_reduce_child(parent: Node, workers: list[dict]) -> dict | None:
+    """Synthesize a reduce node that composes the workers' outputs into the parent's deliverable.
+    Returns None when the parent has no substantive criteria (a purely structural parent needs no
+    reduce — its children ARE the answer)."""
+    substantive = [c for c in parent.done_when if c.check not in ARTIFACTLESS_CHECKS]
+    if not substantive:
+        return None
+    return {
+        "id": f"{parent.id}._reduce",
+        "kind": "reduce",
+        "reduce_op": "merge_json",
+        "depends_on": [w["id"] for w in workers],
+        "inputs": coverage_inputs(parent, workers),
+        "done_when": [c.as_dict() for c in substantive],  # re-checked in the reduce's own dir
+    }
+
+
+def solve_reduce(tree, node_id: str, budget: RootBudget, journal: Journal, workspace_root, root: str) -> Outcome:
+    """Run a reduce node by CODE (no LLM): gather sibling outputs → compose → Gate-1."""
+    node = tree.nodes[node_id]
+    tree.nodes[node_id] = replace(node, status="active", activated_at=time.time())  # stamp before write → fresh
+    budget.record_step()
+    if budget.step_exceeded():
+        return _block(tree, node_id, "BUDGET", journal)
+    try:
+        run_reduce(tree.nodes[node_id], workspace_root, root)
+    except Exception as exc:  # a broken reduce is a wiring bug, not a re-decompose trigger
+        journal.append(node_id, {"event": "reduce_error", "node": node_id, "error": str(exc)})
+        return _block(tree, node_id, "COMPOSE_FAIL", journal)
+    gate = run_checks(tree.nodes[node_id], node_dir(workspace_root, root, node_id))
+    journal.append(node_id, {"event": "reduce", "node": node_id, "op": node.reduce_op,
+                             "verdict": gate.node_verdict,
+                             "reasons": [r.reason for r in gate.results if not r.ok]})
+    if gate.ok:
+        tree.set_status(node_id, "done")
+        return Outcome(node_id, "done", "")
+    return _block(tree, node_id, "COMPOSE_FAIL", journal)  # composed but the aggregate fails its gate
 
 
 # ── all_children_done closure + DEC-D4 compose re-assertion ───────────────────
@@ -212,7 +259,10 @@ def solve(tree, worker, *, root: str, workspace_root, budget: RootBudget | None 
             outcomes.append(blocked)
             break
 
-        outcome = solve_leaf(tree, nid, worker, budget, journal, workspace_root, root, parse_max)
+        if node.kind == "reduce":  # composed by code, never the worker
+            outcome = solve_reduce(tree, nid, budget, journal, workspace_root, root)
+        else:
+            outcome = solve_leaf(tree, nid, worker, budget, journal, workspace_root, root, parse_max)
         outcomes.append(outcome)
 
         if outcome.status == "done":

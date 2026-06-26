@@ -1,0 +1,59 @@
+# The spec's RAG eval harness WITH the reduce node (spec.md:253-315), now un-fenced.
+#
+# The 4 leaves produce partial artifacts; ai.rag._reduce (pure code, no 35B) composes the eval's
+# recall.json into the parent deliverable rag_eval_report.json, whose metric gate it then re-checks.
+# Runs end-to-end with the deterministic satisfy worker:
+#   python -m decompose_agent decompose_agent/tests/fixtures/rag_tree_reduce.yaml --root ai.rag
+
+- id: ai.rag
+  parent: null
+  kind: work
+  status: decomposed
+  done_when:
+    - { check: all_children_done }
+
+- id: ai.rag.corpus
+  parent: ai.rag
+  kind: work
+  status: pending
+  depends_on: []
+  done_when:
+    - { check: row_count_gte, params: { n: 200 }, artifact: corpus.jsonl }
+    - { check: grep_absent,   params: { pattern: "^\\s*$" }, artifact: corpus.jsonl }
+
+- id: ai.rag.index
+  parent: ai.rag
+  kind: work
+  status: pending
+  depends_on: [ai.rag.corpus]
+  done_when:
+    - { check: file_exists,         artifact: index.faiss }
+    - { check: json_field_in_range, params: { ptr: /ntotal, min: 200, max: 100000 }, artifact: index_meta.json }
+
+- id: ai.rag.queries
+  parent: ai.rag
+  kind: work
+  status: pending
+  depends_on: [ai.rag.corpus]
+  done_when:
+    - { check: row_count_gte, params: { n: 50 }, artifact: queries.jsonl }
+
+- id: ai.rag.eval
+  parent: ai.rag
+  kind: work
+  status: pending
+  depends_on: [ai.rag.index, ai.rag.queries]
+  done_when:
+    - { check: file_exists,         artifact: recall.json }
+    - { check: json_field_in_range, params: { ptr: /recall_at_5, min: 0.80, max: 1.0 }, artifact: recall.json }
+
+- id: ai.rag._reduce              # synthetic compose — pure code, no 35B
+  parent: ai.rag
+  kind: reduce
+  reduce_op: merge_json
+  status: pending
+  depends_on: [ai.rag.corpus, ai.rag.index, ai.rag.queries, ai.rag.eval]
+  inputs:
+    - { from: ai.rag.eval, artifact: recall.json, as: rag_eval_report.json }
+  done_when:
+    - { check: json_field_in_range, params: { ptr: /recall_at_5, min: 0.80, max: 1.0 }, artifact: rag_eval_report.json }

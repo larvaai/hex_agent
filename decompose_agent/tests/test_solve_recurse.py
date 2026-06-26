@@ -111,10 +111,12 @@ def test_F1_decomposed_parent_with_zero_children_is_not_done(tmp_path):
     assert tree.nodes["P"].status != "done"  # all([]) is True in Python — must NOT vacuous-done
 
 
-def test_D12_compose_fail_when_children_done_but_parent_metric_absent(tmp_path):
+def test_metric_parent_completes_via_auto_reduce(tmp_path):
+    # the headline fix: a substantive-metric parent decomposes, and an auto-inserted reduce node
+    # composes the workers' outputs into the parent's deliverable → parent DONE (no COMPOSE_FAIL).
     tree = _load(tmp_path, METRIC_PARENT)
-    kids = [{"id": "P.c0", "done_when": [_metric("/m", 0.9, 1.0, "c0.json")]},   # covers /m, dwc=1
-            {"id": "P.c1", "done_when": [_metric("/n", 0.1, 0.9, "c1.json")]}]   # covers /n, dwc=1
+    kids = [{"id": "P.c0", "done_when": [_metric("/m", 0.9, 1.0, "c0.json")]},   # covers /m
+            {"id": "P.c1", "done_when": [_metric("/n", 0.1, 0.9, "c1.json")]}]   # covers /n
     sw = W.ScriptedWorker(
         scripts={"P": [W.write_action({})],
                  "P.c0": [W.write_action({"c0.json": '{"m": 0.95}'})],
@@ -122,7 +124,47 @@ def test_D12_compose_fail_when_children_done_but_parent_metric_absent(tmp_path):
         decompose_scripts={"P": [kids]},
     )
     res = solve(tree, sw, root="P", workspace_root=tmp_path)
-    # children done (in their own dirs), but recall.json never materializes in P's dir → COMPOSE_FAIL
+    assert res.blocked is None
+    assert "P._reduce" in tree.children_of("P") and tree.nodes["P._reduce"].kind == "reduce"
     assert all(tree.nodes[k].status == "done" for k in tree.children_of("P"))
-    assert tree.nodes["P"].status == "blocked"
+    assert tree.nodes["P"].status == "done"
+
+
+HANDBAKED_REDUCE = (
+    "- {id: P, parent: null, kind: work, status: decomposed, done_when: [{check: all_children_done}]}\n"
+    "- {id: P.a, parent: P, kind: work, status: pending, depends_on: [], done_when: [{check: file_exists, artifact: a.json}]}\n"
+    "- {id: P.b, parent: P, kind: work, status: pending, depends_on: [], done_when: [{check: file_exists, artifact: b.json}]}\n"
+    "- {id: P.r, parent: P, kind: reduce, status: pending, reduce_op: merge_json, depends_on: [P.a, P.b],\n"
+    "   inputs: [{from: P.a, artifact: a.json, as: report.json}, {from: P.b, artifact: b.json, as: report.json}],\n"
+    "   done_when: [{check: json_field_exists, params: {ptr: /x}, artifact: report.json},\n"
+    "              {check: json_field_exists, params: {ptr: /y}, artifact: report.json}]}\n"
+)
+
+
+def test_handbaked_reduce_tree_completes(tmp_path):
+    tree = _load(tmp_path, HANDBAKED_REDUCE)
+    sw = W.ScriptedWorker(scripts={"P.a": [W.write_action({"a.json": '{"x": 1}'})],
+                                   "P.b": [W.write_action({"b.json": '{"y": 2}'})]})
+    res = solve(tree, sw, root="P", workspace_root=tmp_path)
+    assert res.blocked is None
+    assert tree.nodes["P.r"].status == "done" and tree.nodes["P"].status == "done"
+
+
+COMPOSE_FAIL_TREE = (
+    "- {id: P, parent: null, kind: work, status: decomposed, done_when: [{check: all_children_done}]}\n"
+    "- {id: P.a, parent: P, kind: work, status: pending, depends_on: [], done_when: [{check: file_exists, artifact: a.json}]}\n"
+    "- {id: P.r, parent: P, kind: reduce, status: pending, reduce_op: merge_json, depends_on: [P.a],\n"
+    "   inputs: [{from: P.a, artifact: a.json, as: out.json}],\n"
+    "   done_when: [{check: json_field_in_range, params: {ptr: /score, min: 0.8, max: 1.0}, artifact: out.json}]}\n"
+)
+
+
+def test_compose_fail_when_reduce_aggregate_misses_gate(tmp_path):
+    # COMPOSE_FAIL is still reachable: the reduce runs but its aggregate fails the metric (wiring bug).
+    tree = _load(tmp_path, COMPOSE_FAIL_TREE)
+    sw = W.ScriptedWorker(scripts={"P.a": [W.write_action({"a.json": '{"score": 0.5}'})]})
+    res = solve(tree, sw, root="P", workspace_root=tmp_path)
+    assert tree.nodes["P.a"].status == "done"
+    assert tree.nodes["P.r"].status == "blocked"
     assert res.blocked.reason == "COMPOSE_FAIL"
+    assert tree.nodes["P"].status == "blocked"  # propagated up

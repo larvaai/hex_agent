@@ -24,7 +24,8 @@ _CRITERION_KEYS = frozenset({"check", "params", "artifact"})
 ARTIFACTLESS_CHECKS = frozenset({"all_children_done"})
 
 VALID_STATUSES = frozenset({"pending", "active", "decomposed", "done", "blocked"})
-VALID_KINDS = frozenset({"work"})  # `reduce` is fenced out this round
+VALID_KINDS = frozenset({"work", "reduce"})  # reduce = synthetic pure-code compose node
+REDUCE_OPS = frozenset({"merge_json", "pick", "manifest", "concat"})
 
 
 def assert_safe_relpath(path: str) -> str:
@@ -110,6 +111,8 @@ class Node:
     order: int = 0
     activated_at: float | None = None
     notes: str = ""
+    reduce_op: str | None = None          # only for kind=="reduce"
+    inputs: tuple[dict[str, Any], ...] = ()  # [{from, artifact, as?}] — sibling outputs to compose
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not self.id.strip():
@@ -126,6 +129,10 @@ class Node:
             raise ValueError("Node.max_attempts (K) must be >= 1")
         if self.attempts < 0:
             raise ValueError("Node.attempts must be >= 0")
+        if self.kind == "reduce" and self.reduce_op not in REDUCE_OPS:
+            raise ValueError(f"reduce node {self.id!r} needs reduce_op ∈ {sorted(REDUCE_OPS)}, got {self.reduce_op!r}")
+        if not isinstance(self.inputs, tuple):
+            raise ValueError("Node.inputs must be a tuple")
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Node:
@@ -141,6 +148,8 @@ class Node:
             max_attempts=int(d.get("max_attempts", 3)),
             attempts=int(d.get("attempts", 0)),
             notes=d.get("notes", ""),
+            reduce_op=d.get("reduce_op"),
+            inputs=tuple(d.get("inputs") or ()),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -155,4 +164,8 @@ class Node:
         }
         if self.notes:
             out["notes"] = self.notes
+        if self.kind == "reduce":
+            out["reduce_op"] = self.reduce_op
+        if self.inputs:
+            out["inputs"] = [dict(i) for i in self.inputs]
         return out
