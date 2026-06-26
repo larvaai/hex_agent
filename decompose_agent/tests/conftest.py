@@ -6,6 +6,12 @@ import pathlib
 import pytest
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "integration: real local-35B; skipped when LLM_BASE_URL is unreachable"
+    )
+
+
 @pytest.fixture
 def fixtures_dir() -> pathlib.Path:
     return pathlib.Path(__file__).parent / "fixtures"
