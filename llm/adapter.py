@@ -50,6 +50,15 @@ def _is_transient(exc: Exception) -> bool:
     return "timeout" in name or "connection" in name
 
 
+def _is_connection_error(exc: Exception) -> bool:
+    """The request never reached an HTTP status — the endpoint is unreachable (server down, wrong
+    host:port), not a request the server rejected. Drives the actionable hint in the failure message
+    (the #1 local-LLM failure is 'model loaded in the UI but the API server was never started')."""
+    if isinstance(getattr(exc, "status_code", None), int) or isinstance(getattr(exc, "status", None), int):
+        return False
+    return "connection" in type(exc).__name__.lower()
+
+
 def _is_response_format_error(exc: Exception) -> bool:
     """True when the server rejected ``response_format={"type":"json_object"}``.
 
@@ -93,8 +102,18 @@ def call_llm(messages, *, model=None, temperature=0.2, json_mode=True, client=No
                 continue
             break
 
+    # Build an ACTIONABLE failure message: openai's APIConnectionError stringifies to a bare
+    # "Connection error." that hides both the cause and the endpoint, so the user cannot tell a
+    # dead server from a bad request. Surface the underlying cause and, for an unreachable endpoint,
+    # name the URL + hint the server may be down.
+    detail = str(last_exc)
+    cause = last_exc.__cause__ if last_exc is not None else None
+    if cause and str(cause) and str(cause) not in detail:
+        detail = f"{detail} ({cause})"
+    if last_exc is not None and _is_connection_error(last_exc):
+        detail = f"{detail} — cannot reach the LLM at {cfg['base_url']}; is the server running?"
     return json.dumps(
         {"action": "final", "finish_reason": "error",
-         "message": f"LLM request failed after {attempt + 1} attempt(s): {last_exc}"},
+         "message": f"LLM request failed after {attempt + 1} attempt(s): {detail}"},
         ensure_ascii=False,
     )
