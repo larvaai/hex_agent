@@ -21,7 +21,14 @@ from control.command_registry import (
     load_command_registry,
     parse_command_registry,
 )
-from control.commands import ISSUER_TYPES, IssuedBy, RuntimeCommand, parse_command
+from control.commands import (
+    ACCEPT_STATUSES,
+    ISSUER_TYPES,
+    CommandAck,
+    IssuedBy,
+    RuntimeCommand,
+    parse_command,
+)
 from control.emitter import BusEventSink, EventEmitter, bus_emitter
 from control.errors import ControlContractError
 from control.event_registry import (
@@ -43,6 +50,7 @@ from control.events import (
 from control.permission import EFFECTIVE_FROM, Permission
 from control.ports import EventSinkPort
 from control.redaction import REDACTED, SECRET_KEYS, Redactor
+from control.snapshot import AGENT_STATUSES, AgentView, TaskLoopSnapshot, build_snapshot
 
 __all__ = [
     # errors
@@ -63,6 +71,8 @@ __all__ = [
     "parse_event_registry",
     # command
     "RuntimeCommand",
+    "CommandAck",
+    "ACCEPT_STATUSES",
     "IssuedBy",
     "parse_command",
     "ISSUER_TYPES",
@@ -84,6 +94,11 @@ __all__ = [
     "Redactor",
     "SECRET_KEYS",
     "REDACTED",
+    # snapshot read-model (S21.9)
+    "TaskLoopSnapshot",
+    "AgentView",
+    "build_snapshot",
+    "AGENT_STATUSES",
     # emitter + ports (B1)
     "EventEmitter",
     "BusEventSink",

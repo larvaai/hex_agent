@@ -19,6 +19,8 @@ from core.schemas import (
 )
 from core.session import SessionIdentity
 from core.state import StateStore
+from control import CommandAck
+from control.snapshot import AgentView, TaskLoopSnapshot
 from supervisor.state import (
     AcceptanceCheck,
     AgentTurn,
@@ -165,6 +167,33 @@ def test_all_schema_as_dict_methods_return_detached_containers():
     assert progress.as_dict()["artifact"] == artifact.as_dict()
     assert result.as_dict()["artifacts"] == [artifact.as_dict()]
     assert feature.as_dict()["capabilities"] == ["x"]
+
+
+def test_command_ack_roundtrip_lossless():
+    for ack in (
+        CommandAck(command_id="c1", status="received", seq=7),
+        CommandAck(command_id="c2", status="rejected", rejection_reason="unknown command_type"),
+    ):
+        assert CommandAck.from_dict(ack.as_dict()).as_dict() == ack.as_dict()
+
+
+def test_task_loop_snapshot_roundtrip_preserves_agents_and_nested_type():
+    snap = TaskLoopSnapshot(
+        session_id="s1",
+        status="in_discussion",
+        round_no=2,
+        orchestrator={"last_decision": "continue", "reason": "route to B"},
+        agents=(
+            AgentView(agent_id="A", role="planner", status="done", last_output_summary="ok"),
+            AgentView(agent_id="B", status="running", context_packet={"briefing": "x"}),
+        ),
+        pending_agent_calls=({"agent_id": "B", "objective": "build", "target_kind": "agent"},),
+        tool_calls=({"tool": "search", "status": "ok", "risk_level": None},),
+        acceptance_status=({"id": "ac1", "text": "works", "status": "pending"},),
+    )
+    restored = TaskLoopSnapshot.from_dict(snap.as_dict())
+    assert restored.as_dict() == snap.as_dict()
+    assert isinstance(restored.agents[0], AgentView)
 
 
 def test_taskloop_state_roundtrip_preserves_every_field_and_nested_type():
