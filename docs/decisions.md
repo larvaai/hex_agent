@@ -77,3 +77,29 @@ affects: "control/snapshot.py,control/commands.py,supervisor/state.py,ui/control
 ## DEC-6 — E21 build UI-first trên fake backend: fake = HTTP/SSE server Python reuse control/ dataclass (seam by-construction, đổi backend = đổi URL); stack React+Vite+TS (React Flow + tanstack-virtual); lát 1 = full T1 (Graph/Timeline/Inspector/Approval) + prompt box & Send; tạo TaskLoopSnapshot + CommandAck dataclass TRƯỚC khi viết UI; UI mới sống song song console cũ (không sửa ui/server.py)
 
 Đảo thứ tự so với discovery brief (spine-backend-first) nhưng KHÔNG xây trên facade: fake chạy Redactor().apply() + .as_dict() thật nên secret không rò và 'drop-in khi đấu nối' là bảo đảm bằng cấu trúc, không bằng kỷ luật. 2/5 shape (TaskLoopSnapshot, CommandAck) chưa có dataclass → phải tạo trước (dataclass-only, không wire) nếu không seam còn lỗ by-discipline. React vì reader junior cần ecosystem/ví dụ. Done = demo fixtures + contract-seam test (UI chỉ đọc ui_payload, không đọc payload raw).
+
+---
+id: DEC-7
+status: active
+date: 2026-06-26
+actor: "user:uspro"
+ts: "2026-06-25T20:06:12.664866+00:00"
+affects: "supervisor/evidence.py,supervisor/graph.py,supervisor/loop.py"
+---
+
+## DEC-7 — S21.33 evidence-type gate: derived-from-kind + >=1-valid quantifier + trust-worker
+
+evidence_type derived tu artifact.kind (khong luu tren AcceptanceCheck -> 0 migration); NON_EVIDENCE_KINDS={session_plan,context_packet,ac_report}; kind rong->None; kind-la-worker->artifact (trust-worker, threat model = O mis-cite scaffolding); judge_acceptance passed = all-exist + >=1-valid-type (spec S21.33, KHONG all-valid, red-team FM-HIGH); ac_report id=ac_report-{session_id}. Chon H2 re-scope thay command-based vi command_bridge/pending_commands khong ton tai tren branch feat/docs-diataxis-restructure.
+
+---
+id: DEC-8
+status: active
+date: 2026-06-26
+actor: "user:uspro"
+ts: "2026-06-25T21:09:30.228891+00:00"
+affects: "control/authz.py,control/commands.py,control/permission.py,docs/explanation/authz-vs-attribution.md"
+---
+
+## DEC-8 — attribution≠authz: issued_by/Actor là ghi nhận, không phải quyền; permission-edit (UpdateAgentPermission→can_modify_permissions) cần human RuntimeCheckpoint kể cả dưới trust-O
+
+Harness tuyên bố actor≠authz vì là tool hợp tác; hex_agent xây authz THẬT nên port sự phân biệt và ĐẢO kết luận: authz quyết bởi requires_permission+checkpoint, không phải claim của issuer. requires_permission mới khai báo (runtime_command_types.yaml) chưa thực thi; command_bridge vắng trên branch (DEC-7). Phase 1 chỉ doctrine+predicate thuần (control/authz.py), enforcement hoãn cho epic command-application.

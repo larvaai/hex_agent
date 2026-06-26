@@ -1,0 +1,1254 @@
+{
+  "synthesis": {
+    "gap_summary": "hex_agent is architecturally AHEAD of my_agents on the hard parts: a frozen-lifecycle microkernel with a single tool chokepoint (core/kernel.py execute_tool), middleware pipeline, ToolPort/DelegationPort protocols, SafeToolPort+ToolPolicy gating, RoleSpec/Skill/Lens composition, SQLite-checkpointed dynamic supervisor (Agent-O), and the E21 control-plane CONTRACTS. So the kernel/registry/schemas/roles-loader/orchestration framework are all already_in_hex=full — do NOT port them.\n\nWhat hex genuinely LACKS, verified by reading source:\n1. discipline/json_gate.py _repair (lines 24-50) does ONLY trailing-comma removal + bracket-balancing. It has none of my_agents' repair_rules.py pipeline (python-literal True/False/None, single-quote coercion, unquoted-key fix, control-char escaping, largest-JSON-region extraction). parse_action (line 91-96) only checks for an 'action' field — no candidate ladder, no ast.literal_eval fallback, no structured near-context errors. This is the single highest-value, lowest-risk, purely-offline gap.\n2. supervisor/evidence.py classifies evidence by `kind` but does ZERO content-addressing — no sha256, no bytes, no ArtifactRef. my_agents' artifact_protocol.py (ArtifactRef sha256/bytes/producer + compact_metadata briefing) is a clean offline upgrade for the Blackboard.\n3. roles/library/lenses/ has only 2 lenses (correctness, requirements). my_agents ships ~40 hand-written LensSpecs across 9 departments — pure YAML-convertible data.\n4. toolbox/filesystem.py has only FsRead/FsWrite/FsList — no str_replace/insert/write_lines count-guarded editing primitives.\n5. No code_index (AST symbol/reference index) and no lint_test (py_compile/ruff/test) validation tools — both pure-stdlib, offline, and feed finish_gate evidence. Confirmed absent.\n6. No app-level ledger with a QUERYABLE surface (append/tail/search/get/stats). observability/event_log is a per-run event STREAM, a different concern.\n7. observability/inspect.py only supports --kind; missing --status/--tool/--text filters, summarize_event() human formatter, and metrics columns.\n8. No core/runtime_paths.py: `Path(__file__).resolve().parent.parent` is duplicated across core/bootstrap.py, observability/event_log.py, safety/sandbox.py, ui/server.py (confirmed 4 files).\n9. control/commands.py is purely typed contracts — no free-text->RuntimeCommand NLU parser, no runtime-invariant denylist. The E21 in-run injection path is unwired.\n10. safety/policy.py already has classify_terminal + GIT_MUTATIONS deny + AGENT_ALLOW_GIT_MUTATIONS — so my_agents' \"hard tool policy\" is ALREADY THERE; only a positive command-allowlist (run-test whitelist) is a real enrichment.",
+    "ranked_ports": [
+      {
+        "rank": 1,
+        "name": "Deterministic JSON repair-rule pipeline (repair_rules.py) + candidate ladder + literal_eval fallback",
+        "value": "high",
+        "complexity": "low",
+        "offline_testable": true,
+        "target_module": "discipline/json_gate.py (extend _repair into a composable rule chain; add build_candidates + literal_eval fallback in _load_object)",
+        "depends_on": "none (pure stdlib re/ast/json)",
+        "recommendation": "port_now",
+        "why": "Verified gap: hex _repair (json_gate.py:24-50) only strips trailing commas + balances brackets. my_agents /tmp/my_agents_ref/output_gate/repair_rules.py adds strip_bom, fence-strip, largest-region extraction, python-literal->JSON, single-quote coercion, unquoted-key quoting, control-char escaping — all pure str->str state machines, ideal tests_audit fodder. Each rule becomes one entry in hex's chain; zero new deps; massively improves local-model output salvage. Highest value-to-risk in the whole set."
+      },
+      {
+        "rank": 2,
+        "name": "ArtifactProtocol: content-addressed ArtifactRef (sha256/bytes/producer) + compact_metadata briefing",
+        "value": "high",
+        "complexity": "low",
+        "offline_testable": true,
+        "target_module": "supervisor/evidence.py + supervisor/state.py (Blackboard add_artifact gains sha256/bytes; new ArtifactRef dataclass)",
+        "depends_on": "core/runtime_paths.py (rank 4) for artifact dir resolution; otherwise stdlib hashlib/json",
+        "recommendation": "port_now",
+        "why": "Verified gap: supervisor/evidence.py classifies by `kind` but does NO hashing/content-addressing. my_agents /tmp/my_agents_ref/agents/artifact_protocol.py gives ArtifactRef(path,kind,producer,sha256,bytes) + compact_metadata that briefs long strings / truncates long lists — directly upgrades the Blackboard and enables the 'store long analysis by ref, pass only path+hash in the envelope' pattern the Broker store-slice wants. Pure stdlib, offline, fits the existing evidence seam cleanly."
+      },
+      {
+        "rank": 3,
+        "name": "Concrete lens catalog (~40 LensSpecs across 9 departments) -> hex lens YAML",
+        "value": "high",
+        "complexity": "low",
+        "offline_testable": true,
+        "target_module": "roles/library/lenses/*.yaml (new architect/code/research/review/planner/test/business_analyst/final/ledger lens files)",
+        "depends_on": "none (pure data; validated by LensRegistry.load_dir + lint)",
+        "recommendation": "port_now",
+        "why": "Verified gap: roles/library/lenses/ has only correctness.yaml + requirements.yaml. my_agents /tmp/my_agents_ref/agents/lenses/ has ~40 hand-written LensSpec (purpose + per-lens allowed/forbidden tools + output_schema). Pure data, trivially convertible to hex's LensSpec YAML (roles/lenses.py:43-61), testable via load_dir + lint() for unknown tools. Fills the thinnest content gap in hex with the richest reusable my_agents asset."
+      },
+      {
+        "rank": 4,
+        "name": "core/runtime_paths.py — single PROJECT_DIR + var-layout resolver + ensure_runtime_dirs()",
+        "value": "high",
+        "complexity": "low",
+        "offline_testable": true,
+        "target_module": "core/runtime_paths.py (new); refactor core/bootstrap.py, observability/event_log.py, safety/sandbox.py, ui/server.py to import it",
+        "depends_on": "none (stdlib pathlib/os; optional python-dotenv degrades gracefully)",
+        "recommendation": "port_now",
+        "why": "Verified gap: `Path(__file__).resolve().parent.parent` is duplicated in 4 files (grep-confirmed: core/bootstrap.py, observability/event_log.py, safety/sandbox.py, ui/server.py), each re-reading AGENT_RUNS_DIR ad hoc with no single owner of var/ layout. Centralizing removes duplication and gives one extension point for new dirs (artifact store from rank 2, ledger from rank 6). Foundational — several other ports want it. Low risk, high leverage."
+      },
+      {
+        "rank": 5,
+        "name": "file_editor primitives: str_replace (count-guarded), insert-before-line, write_lines",
+        "value": "high",
+        "complexity": "low",
+        "offline_testable": true,
+        "target_module": "toolbox/filesystem.py (new FsStrReplace/FsInsert/FsWriteLines executors) registered in toolbox/feature.py behind SafeToolPort",
+        "depends_on": "none (stdlib, behind existing SafeToolPort path-jail)",
+        "recommendation": "port_now",
+        "why": "Verified gap: toolbox/filesystem.py has only FsRead/FsWrite/FsList. my_agents /tmp/my_agents_ref/mcp_servers/file_editor_server.py has count-guarded str_replace (refuse on expected_replacements mismatch), insert-before-line, and write_lines (JSON list -> avoids fragile multiline strings). These are genuinely useful editing primitives that reduce whole-file-rewrite churn. Register as native tools behind the existing SafeToolPort+ToolPolicy chokepoint — clean architectural fit, fully offline (temp-dir tests)."
+      },
+      {
+        "rank": 6,
+        "name": "code_index tool — AST symbol/reference/dependency-graph index (read-only)",
+        "value": "high",
+        "complexity": "low",
+        "offline_testable": true,
+        "target_module": "new toolbox capability (toolbox/code_index.py + register in toolbox/feature.py), kind=read/idempotent/low",
+        "depends_on": "none (stdlib ast/re; behind SafeToolPort)",
+        "recommendation": "port_now",
+        "why": "Verified absent in hex (grep: no ast.parse/find_symbol/code_index in toolbox or rag). my_agents /tmp/my_agents_ref/mcp_servers/code_index_server.py gives code_index/find_symbol/find_references/dependency_graph via stdlib ast (Python) + regex (JS/TS), fully offline, bounded by max_files. Pure read-only capability, registers behind ToolPort as kind=read, pairs with rag/ for code-aware retrieval. No external service needed."
+      },
+      {
+        "rank": 7,
+        "name": "lint_test tool — py_compile / ruff / pytest / smoke-suite validation",
+        "value": "high",
+        "complexity": "medium",
+        "offline_testable": true,
+        "target_module": "new toolbox capability (toolbox/lint_test.py + register in toolbox/feature.py), kind=effect/idempotent-false; feeds discipline/finish_gate evidence",
+        "depends_on": "core/runtime_paths.py (PYTHONPATH/cwd resolution); safety/policy for command gating",
+        "recommendation": "port_now",
+        "why": "Verified absent in hex. my_agents /tmp/my_agents_ref/mcp_servers/lint_test_server.py: lint_compile (py_compile over tree), ruff_check/format_check (graceful dependency_failure if ruff absent), test_python_file, test_smoke_suite. This is the 'preferred validation path' producing structured evidence for finish_gate (rank 2 ArtifactRef can hash the result). Offline (ruff optional/degrades). Medium because PYTHONPATH/cwd wiring + finish_gate evidence integration needs care, but no live LLM/network."
+      },
+      {
+        "rank": 8,
+        "name": "observability/inspect.py filter enrichment (--status/--tool/--text + summarize_event + metrics columns)",
+        "value": "medium",
+        "complexity": "low",
+        "offline_testable": true,
+        "target_module": "observability/inspect.py (extend event filters + add summarize_event formatter + list metrics columns)",
+        "depends_on": "none (operates on existing event_log JSONL schema)",
+        "recommendation": "port_now",
+        "why": "Verified gap: inspect.py only parses --kind (no --status/--tool/--text), no human summarize_event line, no steps/tool_calls/tool_failures columns in list. my_agents /tmp/my_agents_ref/inspect_runs.py + tools/event_reader.py have all of these. Self-contained, maps onto hex's existing event schema, high daily dev value, fully offline. Small, safe, complements the ui/ console."
+      },
+      {
+        "rank": 9,
+        "name": "Queryable ledger: observability/ledger.py store + ledger_append/tail/search/get/stats tools",
+        "value": "medium",
+        "complexity": "medium",
+        "offline_testable": true,
+        "target_module": "observability/ledger.py (port JsonlLedger+LedgerEntry) + toolbox tools behind ToolPort; reuse safety/ path-jail",
+        "depends_on": "core/runtime_paths.py for ledger path; safety/sandbox for jail",
+        "recommendation": "port_later",
+        "why": "Verified gap: no app ledger (grep confirmed). event_log is a per-run event STREAM; the my_agents ledger is a cross-run SEMANTIC log with a query surface (search/stats/get) — genuinely new. /tmp/my_agents_ref/core/ledger.py (store, ~40 lines) + /tmp/my_agents_ref/mcp_servers/ledger_server.py (query tools). Offline. Deferred to tier2 only because the AFK bundle is already full and its value is lower than the editing/validation/discipline cluster; it has no blocker."
+      },
+      {
+        "rank": 10,
+        "name": "IntentRouter + RouteDecision (deterministic LLM-free request classifier + execution plan)",
+        "value": "medium",
+        "complexity": "low",
+        "offline_testable": true,
+        "target_module": "supervisor/router.py (new) producing the team/plan input above compose_team",
+        "depends_on": "none (stdlib re/dataclasses/enum), but needs design alignment with supervisor SessionPlan",
+        "recommendation": "port_later",
+        "why": "Verified gap: hex has no request classifier above the TaskLoop. /tmp/my_agents_ref/orchestration/intent_router.py (16KB, pure stdlib, bilingual EN+VI, 12 intents, emits steps[] plan) is self-contained and offline. Deferred because it needs a design decision on how RouteDecision maps onto hex's existing compose_team/SessionPlan (it overlaps O's LLM-driven team composition); a thoughtless bolt-on would duplicate o_decide. Worth doing, but with design first — not an unattended build."
+      },
+      {
+        "rank": 11,
+        "name": "Live user-directive NLU parser + in-run inbox/injection controller + invariant denylist",
+        "value": "medium",
+        "complexity": "medium",
+        "offline_testable": true,
+        "target_module": "control/commands.py (free-text->RuntimeCommand front-end) + control/permission.py (invariant denylist) + supervisor loop in-run inbox poll",
+        "depends_on": "E21 control plane (commands/permission/emitter exist); registry-driven command kinds",
+        "recommendation": "port_later",
+        "why": "Verified: control/commands.py is purely typed contracts — no free-text NLU, no invariant denylist. my_agents /tmp/my_agents_ref/agents/user_agent.py (parse_user_directive, EN+VI, pure) + UserDirectiveController fill the E21 executable gap. Deferred because wiring in-run injection (mark-stale, prompt-block injection, force-final) into the supervisor TaskLoop is a live-runtime change touching the orchestration loop, and the NLU parser must emit hex's registry-driven command kinds (not the hardcoded marker map) — a design pass is needed. High strategic value but not a clean isolated AFK item."
+      },
+      {
+        "rank": 12,
+        "name": "Per-tool declarative schema registry (arg validation + auto tool-prompt generation)",
+        "value": "medium",
+        "complexity": "medium",
+        "offline_testable": true,
+        "target_module": "core/registry ToolDescriptor (add per-arg input schema) + discipline/json_gate (pre-dispatch validation) + skills prompt assembly",
+        "depends_on": "must source schemas from hex's CapabilityRegistry, NOT port my_agents tool tables verbatim",
+        "recommendation": "port_later",
+        "why": "my_agents /tmp/my_agents_ref/features/mcp_tools/schemas.py (36KB) has typed per-arg specs + build_tool_protocol_prompt. hex's registry stores kind/idempotent/risk but no per-arg input schema or auto tool-prompt. Real gap, but the schema source must be re-rooted on hex's registry rather than copied (the my_agents tables are MCP-tool-specific), and it cross-cuts registry+gate+prompt assembly. Needs design; tier2."
+      },
+      {
+        "rank": 13,
+        "name": "run-test safe-command whitelist promoted to a real safety/policy rule",
+        "value": "medium",
+        "complexity": "medium",
+        "offline_testable": true,
+        "target_module": "safety/policy.py (positive allowlist for terminal_run) + skills/library/run_test.md",
+        "depends_on": "safety/policy.classify_terminal (already exists)",
+        "recommendation": "port_later",
+        "why": "safety/policy.py already has classify_terminal + GIT_MUTATIONS deny (verified). The new value is a POSITIVE allowlist (py_compile/pytest/npm test|lint|typecheck/git status|diff) enforced in policy, not just prompt text. Deferred because once lint_test (rank 7) lands as a structured tool, much of run-test's need is met by a dedicated capability rather than a raw-terminal whitelist; revisit after rank 7."
+      },
+      {
+        "rank": 14,
+        "name": "business_prompt_lab offline JSON-discipline grader + golden fixtures (cases/prompt-ladder/system_prompt.md)",
+        "value": "medium",
+        "complexity": "medium",
+        "offline_testable": true,
+        "target_module": "tests_audit/ eval-gate + tests/fixtures/ (golden prompt + cases); scoring core maps to discipline/json_gate checks",
+        "depends_on": "none for the pure scoring core; live LLM only for generation (skip that path)",
+        "recommendation": "port_later",
+        "why": "hex has no app-level prompt library or graded-output harness. /tmp/my_agents_ref/business_prompt_lab/run.py's parse+evaluate_output scoring core is pure/offline and could become a tests_audit eval gate; cases/*.json + p01-p04 + system_prompt.md are golden fixtures. Valuable but additive and needs shaping into hex's two-suite test convention; tier2."
+      },
+      {
+        "rank": 15,
+        "name": "Behavior-level capability suite + run_dev_checks (quick/full) + Python doctor",
+        "value": "medium",
+        "complexity": "medium",
+        "offline_testable": true,
+        "target_module": "new run_capability_suite.py + run_dev_checks.py + scripts/doctor (Python) at repo root over supervisor/roles/safety seams",
+        "depends_on": "must rebind to core/bootstrap, observability.event_log, supervisor; runtime_paths (rank 4)",
+        "recommendation": "port_later",
+        "why": "hex has run_smoke.py (plumbing) + CI but no behavior-level self-test of supervisor/roles/safety, no local quick/full gate, no env doctor. /tmp/my_agents_ref/run_capability_suite.py + run_dev_checks.py + scripts/mac_doctor.sh. The subprocess+marker-gating pattern is reusable but every script imports my_agents' package tree and must be re-pointed at hex seams — a non-trivial rebind. Dev-experience value is real but lower than runtime capability; tier2."
+      },
+      {
+        "rank": 16,
+        "name": "Behavioral guardrail skills (debug-traceback, project-plan, git-review)",
+        "value": "low",
+        "complexity": "low",
+        "offline_testable": true,
+        "target_module": "skills/library/*.md (new debug_traceback.md, project_plan.md, git_review.md)",
+        "depends_on": "none (SkillRegistry.load_dir + lint)",
+        "recommendation": "port_later",
+        "why": "hex has only code_review.md + file_edit.md. These 3 fill content gaps and become ENFORCEABLE in hex (read-only via empty/forbidden tool allowlists) vs advisory in my_agents. But they are pure prompt content, low value individually, and need rewriting into hex's Allowed/Forbidden/Steps/Report sections. Cheap to add alongside the lens catalog later; not worth AFK priority."
+      },
+      {
+        "rank": 17,
+        "name": "Deterministic SafetyDepartment sub-agents (prompt-injection scan, tool-scope table)",
+        "value": "low",
+        "complexity": "low",
+        "offline_testable": true,
+        "target_module": "safety/policy.py (prompt-injection substring scan) + control/redaction (secret-scan-on-write)",
+        "depends_on": "none (pure stdlib)",
+        "recommendation": "skip",
+        "why": "my_agents /tmp/my_agents_ref/agents/safety/ PromptInjectionAgent (substring scan) + ToolScopeAgent largely duplicate hex's existing SafeToolPort+ToolPolicy+role allowlists. The only mildly-novel bits (injection substring scan, obsidian secret-scan-on-write guard) are weak (substring matching is bypassable) and low value. Fold the secret-scan idea into control/redaction opportunistically; otherwise skip."
+      },
+      {
+        "rank": 18,
+        "name": "MCP transport bridge (call_mcp_tool + MCPToolPort + stdio launcher + result normalizer + server config)",
+        "value": "high",
+        "complexity": "high",
+        "offline_testable": false,
+        "target_module": "new mcp_bridge feature (feature.py + MCPToolPort adapter) behind SafeToolPort; config-driven server table",
+        "depends_on": "mcp lib (StdioServerParameters/stdio_client/ClientSession); live subprocess servers",
+        "recommendation": "port_later",
+        "why": "MCP is a documented PROPOSAL in hex (README.md:61, docs/reference/mcp-tools.md), not implemented. The bridge is a clean ONE-PORT fit (MCPToolPort wrapping call_mcp_tool, registered like any feature). But it needs the mcp lib + live stdio subprocesses, so it is NOT offline-testable end-to-end (only the _dump_result normalizer is unit-testable with fakes), making it unfit for an unattended offline build. High value, tier2, design-first (session pooling vs per-call subprocess; reuse SafeToolPort jail instead of duplicating client-side path normalization)."
+      },
+      {
+        "rank": 19,
+        "name": "BaseAgent / role_config / role_agents / skill_loader / openai.yaml format",
+        "value": "low",
+        "complexity": "low",
+        "offline_testable": true,
+        "target_module": "roles/ + skills/ (already covered)",
+        "depends_on": "n/a",
+        "recommendation": "skip",
+        "why": "already_in_hex=full. hex roles/spec.py does the skill+role allowlist union (union explicit+core+skill allowed, minus forbidden, forbidden-wins) and enforces separation-of-duties structurally (Agent.__init__ rejects no-validation-no-handoff; guard_finish blocks self-cert) — strictly better than my_agents' ad-hoc per-agent guards. hex's SkillRegistry has proper frontmatter, triggers, contract-vs-full disclosure, union_tools, lint. Porting would be regression. Skip."
+      },
+      {
+        "rank": 20,
+        "name": "rag server / pdf_text_extraction / document / obsidian / playwright / docker / search / fetch servers; LangGraph orchestrator; fixed department pipelines; capabilities.py facade; semantic ports; null objects; knowledge stub agents",
+        "value": "low",
+        "complexity": "high",
+        "offline_testable": false,
+        "target_module": "n/a (redundant, online-only, or superseded)",
+        "depends_on": "n/a",
+        "recommendation": "skip",
+        "why": "Bucket of skips. rag is already_in_hex=full (richer Qdrant+memory). pdf/document/obsidian overlap fs tools (keep nothing but the secret-scan idea). search/fetch/playwright/docker need live network/browser/daemon — not offline. The LangGraph orchestrator + fixed Company/CodeTest pipelines are the messy monolithic ancestors of hex's clean supervisor+discipline seams (hex is ahead). capabilities.py get_default_kernel() module-singleton actively CONFLICTS with hex's frozen-kernel + per-session ToolCallContext. Semantic ports/null objects route through hex's generic ToolPort already. Knowledge agents are hardcoded keyword stubs, inferior to rag/. All skip."
+      }
+    ],
+    "tier1_afk": "BUILD-NOW BUNDLE (ranks 1-8): a coherent, fully-offline, architecturally-clean upgrade to hex's output-discipline, evidence, and capability layers. Every item lands behind an existing seam (no bolt-ons), needs zero live LLM/network, and is unit-testable in tests/ + tests_audit/. They are independent enough to ship incrementally but cluster around three themes hex genuinely lacks: (A) robust JSON salvage, (B) content-addressed evidence + richer lenses, (C) read-only code intelligence + validation tools + better editing/inspection.\n\nRationale & suggested order:\n1. core/runtime_paths.py FIRST (rank 4) — it is foundational: ranks 2, 7, 9 want a single var-layout owner, and it removes confirmed 4-file PROJECT_DIR duplication. Smallest blast radius, unblocks the rest. (Build it first even though it ranked 4 on value.)\n2. JSON repair-rule pipeline (rank 1) — highest value-to-risk; pure str->str rules straight into discipline/json_gate.py with exhaustive tests_audit/ cases (feed broken JSON, assert repaired). hex's current _repair becomes one entry in the chain.\n3. ArtifactProtocol sha256/ArtifactRef + compact_metadata (rank 2) into supervisor/evidence.py + state.py — content-addressing the Blackboard; depends on runtime_paths for the artifact dir.\n4. file_editor primitives str_replace/insert/write_lines (rank 5) into toolbox/filesystem.py behind SafeToolPort — independent, temp-dir tests.\n5. code_index AST tool (rank 6) — new read-only toolbox capability, pure stdlib ast/re, bounded by max_files.\n6. lint_test tool (rank 7) — new validation capability feeding finish_gate; ruff optional/degrades; wire PYTHONPATH via runtime_paths.\n7. Lens catalog (rank 3) — ~40 YAML lens files; pure data, validated by LensRegistry.load_dir + lint.\n8. inspect.py filter enrichment (rank 8) — --status/--tool/--text + summarize_event + metrics columns; dev-experience polish on the existing event schema.\n\nEach gets matching tests under tests/ (offline unit) and a roundtrip/property test in tests_audit/ for any new persisted contract (ArtifactRef serialization, lens YAML integrity, repaired-JSON properties). Rerun tools/gen_map.py after adding modules. This bundle is genuinely shippable unattended because nothing here touches the live orchestration loop or needs an LLM/network — it is exactly hex's offline-deterministic test culture.",
+    "tier2_roadmap": "Valuable but deferred — each needs a design decision, live deps, or touches the runtime loop (unfit for unattended offline build):\n\n- Queryable ledger (rank 9): observability/ledger.py store + append/tail/search/get/stats tools. Offline and clean, but lower priority than the tier1 discipline/evidence cluster and the AFK bundle is already full. No blocker — promote to a follow-up offline build right after tier1. /tmp/my_agents_ref/core/ledger.py + mcp_servers/ledger_server.py.\n\n- IntentRouter + RouteDecision (rank 10): pure-stdlib offline classifier, BUT overlaps hex's LLM-driven compose_team/o_decide. Needs a design pass on how RouteDecision feeds SessionPlan without duplicating O's team composition. /tmp/my_agents_ref/orchestration/intent_router.py.\n\n- Live HITL: directive NLU parser + in-run inbox/injection + invariant denylist (rank 11): fills the E21 executable gap, but wiring mark-stale / prompt-block-injection / force-final into the supervisor TaskLoop is a live-runtime change, and the parser must emit hex's registry-driven command kinds. Design-first. /tmp/my_agents_ref/agents/user_agent.py.\n\n- Per-tool declarative schema registry + auto tool-prompt (rank 12): real gap (hex registry has no per-arg input schema), but must re-root schemas on hex's CapabilityRegistry rather than copy my_agents' MCP tables; cross-cuts registry+gate+prompt. /tmp/my_agents_ref/features/mcp_tools/schemas.py.\n\n- run-test command allowlist promoted to safety/policy (rank 13): revisit AFTER lint_test (rank 7) lands — a dedicated validation tool reduces the need for a raw-terminal whitelist.\n\n- business_prompt_lab offline grader + golden fixtures (rank 14): pure scoring core is offline and could become a tests_audit eval gate; needs shaping into hex's test conventions. /tmp/my_agents_ref/business_prompt_lab/run.py.\n\n- Capability suite + dev_checks + Python doctor (rank 15): high dev-experience value, but every script must be rebound from my_agents' package tree to hex's core.bootstrap/observability/supervisor seams — a non-trivial rebind, not copy-paste.\n\n- Behavioral guardrail skills debug-traceback/project-plan/git-review (rank 16): cheap content, become enforceable in hex; bundle them alongside the next docs/skills pass.\n\n- MCP transport bridge (rank 18): high value, clean one-port fit, BUT needs the mcp lib + live stdio subprocesses — only the result normalizer is offline-unit-testable, so it cannot be validated end-to-end in an offline AFK run. Design the session-pooling-vs-per-call question and reuse SafeToolPort's jail (don't duplicate client-side path normalization) before building. /tmp/my_agents_ref/features/mcp_tools/.",
+    "tier3_skip": "Skip — already in hex, redundant, conflicting, or poor offline fit:\n\n- BaseAgent / role_config / role_agents / get_agent / skill_loader / openai.yaml (rank 19): already_in_hex=full and hex is strictly better — roles/spec.py does the skill↔role allowlist union with forbidden-wins, enforces separation-of-duties structurally (Agent.__init__ rejects no-validation-no-handoff; guard_finish blocks self-certification), and SkillRegistry has frontmatter/triggers/contract-vs-full/union_tools/lint. Porting would regress.\n\n- Hard tool policy / git-mutation env opt-in: already present — safety/policy.py has classify_terminal + GIT_MUTATIONS deny + AGENT_ALLOW_GIT_MUTATIONS (verified). Nothing to port; the my_agents version is the ancestor.\n\n- Workspace path-jail normalization: already full — safety/sandbox.py jails at the SafeToolPort boundary; my_agents' client-side path normalization is redundant double-jailing.\n\n- rag server: already_in_hex=full (hex has a richer Qdrant + memory-backend RAG with event-emitting tools).\n\n- pdf_text_extraction / document / obsidian servers: overlap fs tools; pdf is a duplicate of document. Keep only the secret-scan-on-write idea opportunistically in control/redaction.\n\n- search / fetch / playwright / docker servers: need live network / browser binary / docker daemon — not offline-testable, niche for this rebuild.\n\n- LangGraph role-graph orchestrator (1824 lines), Company V05 / CodeTest fixed department pipelines, SoftwareFactory shell, GlobalSupervisor, CodeTestOrchestrator: the messy monolithic ancestors of hex's clean supervisor (Agent-O dynamic loop + SQLite checkpoint/resume) + discipline seams. hex is architecturally AHEAD; my_agents' LangGraph compile() has NO checkpointer. Two micro-tactics (repair-mode patch-only enforcement, required/missing-file tracking) are the only nuggets — fold them into discipline/ opportunistically, don't port the orchestrators.\n\n- core/capabilities.py facade (call_tool / get_default_kernel): the module-level singleton actively CONFLICTS with hex's frozen-kernel + per-session ToolCallContext / allowed_capabilities model. An anti-pattern here.\n\n- Typed semantic ports (Browser/Code/Issue/Test/Search/Memory Protocols) + null search/memory objects: route through hex's generic ToolPort + toolbox/rag already; NullToolPort covers the tool seam. Marginal.\n\n- core/ledger.py JsonlLedger primitive (as a kernel record sink): the STORE is reused by the tier2 queryable-ledger port, but the bare append-only primitive on its own overlaps event_log; value is in the query surface, not the primitive.\n\n- Knowledge specialist agents (general_knowledge / philosophy): hardcoded keyword-branch stubs, strictly inferior to hex's rag/ — no real knowledge/memory mechanism to harvest.\n\n- v0.5 department agents (architect/research/review/planner/BA) + FinalSynthesisAgent + LedgerAgent: mostly hardcoded deterministic stub dicts (scaffold, not logic); their value is captured by hex's RoleSpec + lens model + supervisor finish path. Skip the agents; the lens DATA they carry is already harvested in tier1 rank 3.\n\n- agent_room no-code orchestration: already_in_hex=full (hex supervisor+delegation+roles exceed it); only the NO_CODE_POLICY/CODE_SIGNAL_PATTERNS output-leak regex is novel and marginal.\n\n- run_all_cases.py acceptance harness + 60 markdown cases + bootstrap_mac.sh/Brewfile/Makefile: the end-to-end harness needs live LLM+MCP (not offline); bootstrap/Brewfile largely superseded by pyproject `pip install -e .[dev,audit]`. The expect_contains/expect_not_contains sentinel ASSERTION MODEL is a reusable idea but the runner itself is out of scope; Makefile is a marginal discoverability win, not a capability.",
+    "build_order": [
+      "core/runtime_paths.py",
+      "json_repair_rule_pipeline (discipline/json_gate.py)",
+      "artifact_protocol sha256/ArtifactRef (supervisor/evidence.py + state.py)",
+      "file_editor primitives str_replace/insert/write_lines (toolbox/filesystem.py)",
+      "code_index AST tool (toolbox/code_index.py)",
+      "lint_test validation tool (toolbox/lint_test.py)",
+      "lens catalog (roles/library/lenses/*.yaml)",
+      "inspect.py filter enrichment (observability/inspect.py)"
+    ]
+  },
+  "areaCatalogs": [
+    {
+      "area": "MCP tool layer (client/adapter mechanism + per-server tools) in my_agents",
+      "features": [
+        {
+          "name": "MCP client/adapter wiring (call_mcp_tool + MCPToolAdapter + feature.install)",
+          "location": "/tmp/my_agents_ref/features/mcp_tools/client.py (call_mcp_tool, _resolve_tool, _call_mcp_tool, _dump_result), /tmp/my_agents_ref/features/mcp_tools/adapter.py, /tmp/my_agents_ref/features/mcp_tools/feature.py, /tmp/my_agents_ref/features/mcp_tools/config.py",
+          "summary": "The core seam: an MCPToolAdapter implements an execute(ToolRequest)->dict port, delegating to call_mcp_tool() which resolves an alias/server.tool name, validates args against a schema, runs a hard policy check, then spins up a stdio MCP subprocess per call (asyncio.run + stdio_client + ClientSession), and normalizes the result into a flat {ok, server, tool, ...} dict. feature.install() enumerates MCP_TOOL_NAMES + aliases and bulk-registers them as kernel capabilities, also wiring itself as a fallback executor for unregistered tool names.",
+          "capability_value": "high",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "core ToolPort seam + CapabilityRegistry.register_tool/set_fallback_tool_executor; a new feature module 'mcp_bridge' registering one MCPToolPort(name) per remote tool",
+          "already_in_hex": "partial",
+          "dependencies": "mcp (StdioServerParameters, stdio_client, ClientSession), asyncio; core.schemas.ToolRequest/CapabilityResult, core.kernel registry. hex_agent already has the ToolPort/registry seam and a CapabilityResult-equivalent — what is missing is the MCP-transport adapter itself."
+        },
+        {
+          "name": "Tool name resolution: aliases + server.tool canonicalization + pattern expansion",
+          "location": "/tmp/my_agents_ref/features/mcp_tools/client.py (_resolve_tool, canonicalize_tool_name, expand_tool_patterns, _all_canonical_tool_names), /tmp/my_agents_ref/features/mcp_tools/config.py (MCP_TOOL_NAMES, TOOL_ALIASES)",
+          "summary": "Maps short aliases (e.g. write_file, find_symbol) and bare tool names to canonical server.tool form, with an arg-rename map per alias. expand_tool_patterns() turns role allowlists like 'filesystem.*' or '*' into concrete canonical tool sets. Ambiguous bare names raise. This is the glue between role permission lists and the actual tool registry.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "roles/ RoleSpec tool allowlist expansion + CapabilityRegistry name lookup; complements hex_agent skills/roles permission boundary",
+          "already_in_hex": "partial",
+          "dependencies": "Pure-Python (dicts in config.py). hex_agent roles/ already does allowlists; the '.*' / alias expansion helper is the portable nugget."
+        },
+        {
+          "name": "MCP result normalizer (_dump_result + _try_parse_json_text)",
+          "location": "/tmp/my_agents_ref/features/mcp_tools/client.py (_dump_content_block, _dump_result, _try_parse_json_text)",
+          "summary": "Normalizes heterogeneous MCP CallToolResult objects (content blocks, structuredContent, isError) into a flat dict that always carries ok/server/tool. Merges an inner server-provided ok with the transport isError, and falls back to JSON-parsing the text block when no structuredContent exists. This is the contract that makes every tool result uniform for the JSON gate.",
+          "capability_value": "high",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "observability/event_log + discipline/json_gate result contract; lives inside the MCPToolPort adapter",
+          "already_in_hex": "none",
+          "dependencies": "mcp result objects (model_dump). Logic is otherwise pure and unit-testable with fakes."
+        },
+        {
+          "name": "Hard tool policy (git mutation block, env opt-in)",
+          "location": "/tmp/my_agents_ref/features/mcp_tools/policy.py (check_tool_policy, MUTATING_GIT_TOOLS), enforced in client.call_mcp_tool",
+          "summary": "A hard boundary independent of prompt text: blocks mutating git tools (add/commit/reset/checkout/create_branch) unless AGENT_ALLOW_GIT_MUTATIONS=1. Returns a structured {policy_blocked, policy_code, error} result instead of raising. Small but it is the security-boundary pattern for the whole MCP layer.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "safety/policy.py ToolPolicy + safety SafeToolPort chokepoint (hex_agent already wraps every tool in SafeToolPort)",
+          "already_in_hex": "partial",
+          "dependencies": "os.getenv only. hex_agent's safety/policy.py + SafeToolPort already is the chokepoint; this adds per-tool deny rules + env opt-in semantics on top."
+        },
+        {
+          "name": "Per-tool schema registry (arg validation, type check, output/metadata, prompt generation)",
+          "location": "/tmp/my_agents_ref/features/mcp_tools/schemas.py (TOOL_SCHEMAS, ArgSpec/ToolSchema, validate_tool_args, get_tool_metadata, build_tool_protocol_prompt)",
+          "summary": "A 36KB declarative registry: every important tool has typed arg specs (required/extra-arg rejection/JSON type check), an output shape, error names, and risk/category/read_only/changes_file metadata. validate_tool_args runs pre-dispatch; build_tool_protocol_prompt + build_tool_prompt render the schema and per-role examples directly into the system prompt. This is the strongest reusable asset in the area.",
+          "capability_value": "high",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "core/registry CapabilityRegistry tool descriptors + discipline/json_gate (pre-dispatch validation) + skills prompt assembly",
+          "already_in_hex": "partial",
+          "dependencies": "Pure-Python dataclasses; zero runtime deps. hex_agent registry already stores kind/idempotent/risk descriptors but lacks per-arg input schemas + auto-generated tool prompts — that gap is the value here."
+        },
+        {
+          "name": "MCP server launch config (stdio params: python -m / npx, env-key passthrough, PYTHONPATH/UTF-8)",
+          "location": "/tmp/my_agents_ref/features/mcp_tools/config.py (MCP_SERVERS, _python_module_config, _npx_config, _python_env, _server_params in client.py)",
+          "summary": "Declarative table of 18 servers (local python -m modules + external npx servers: filesystem, git, context7) with selective env-key passthrough (only named keys forwarded), Windows cmd /c shimming for npx, and forced UTF-8/PYTHONPATH. Defines exactly how external + internal MCP servers are spawned over stdio.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "config/bootstrap for an mcp_bridge feature; maps onto hex_agent's feature install settings + core.bootstrap",
+          "already_in_hex": "none",
+          "dependencies": "mcp StdioServerParameters at call time; config itself is pure. Needs the mcp client lib to actually launch."
+        },
+        {
+          "name": "Workspace path-jail normalization for filesystem/git tool args",
+          "location": "/tmp/my_agents_ref/features/mcp_tools/client.py (_resolve_workspace_path, _normalize_filesystem_args, _normalize_git_args)",
+          "summary": "Before dispatch, rewrites path/source/destination/paths args to absolute workspace-resolved paths and raises if outside the workspace; injects default repo_path for git and default list dir. A second path-jail layer on the client side, complementing each server's own jail.",
+          "capability_value": "low",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "safety/sandbox.py path-jail (hex_agent already has this)",
+          "already_in_hex": "full",
+          "dependencies": "pathlib only. hex_agent's safety/sandbox.py already enforces path-jail at the tool boundary, so this is largely redundant."
+        },
+        {
+          "name": "file_editor server — auditable view/create/write_lines/str_replace/insert",
+          "location": "/tmp/my_agents_ref/mcp_servers/file_editor_server.py",
+          "summary": "Workspace-jailed editor with five tools: line-numbered view (paged), create (overwrite-guarded), write_lines (JSON list of lines to avoid fragile multiline strings), str_replace guarded by an expected_replacements count mismatch refusal, and insert-before-line. Every result carries auditable/changed metadata. The write_lines and count-guarded str_replace patterns are genuinely useful editing primitives.",
+          "capability_value": "high",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "toolbox/filesystem.py (extends FsWrite with str_replace/insert/write_lines variants), behind SafeToolPort",
+          "already_in_hex": "partial",
+          "dependencies": "mcp FastMCP + core.runtime_paths only; logic is pure stdlib. hex_agent has fs_read/write/list but no str_replace/insert/count-guard editor."
+        },
+        {
+          "name": "terminal server — argv-only runner with risk classifier",
+          "location": "/tmp/my_agents_ref/mcp_servers/terminal_server.py (_classify, _summarize, terminal_run)",
+          "summary": "Runs only argv lists (no shell), classifies each command into low/medium/high/blocked with reasons: blocks shell executables, destructive rm/del, shell tokens (&& | ; > <), and git mutations; high-risk commands need AGENT_ALLOW_HIGH_RISK_TERMINAL=1. Returns summary + security_risk metadata. cwd is jailed to project/workspace.",
+          "capability_value": "high",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "toolbox/terminal.py + safety/policy.py (hex_agent already has a sandboxed Terminal tool marked risk=high)",
+          "already_in_hex": "partial",
+          "dependencies": "subprocess/stdlib only. hex_agent already has Terminal behind SafeToolPort; the per-command risk classifier (allowlist + token deny + summary) is the portable enrichment."
+        },
+        {
+          "name": "code_index server — AST symbol/reference/dependency-graph index",
+          "location": "/tmp/my_agents_ref/mcp_servers/code_index_server.py",
+          "summary": "Read-only project code understanding without an external service: Python via ast (classes/functions/methods/imports with line ranges), JS/TS via regex; tools code_index, code_find_symbol (partial name), code_find_references (line grep), code_dependency_graph (import graph). Excludes heavy dirs, bounded by max_files/max_results.",
+          "capability_value": "high",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "new toolbox capability (read-only) behind ToolPort; pairs with rag/ for code-aware retrieval",
+          "already_in_hex": "none",
+          "dependencies": "stdlib ast/re only, fully offline. No equivalent in hex_agent."
+        },
+        {
+          "name": "lint_test server — structured compile/ruff/test/smoke-suite validation",
+          "location": "/tmp/my_agents_ref/mcp_servers/lint_test_server.py",
+          "summary": "Allowlisted validation without arbitrary shell: lint_compile (py_compile over tree), lint_ruff_check, lint_ruff_format_check (graceful dependency_failure if ruff absent), test_python_file, and test_smoke_suite (project default validation set). Excludes heavy dirs, forces PYTHONPATH/UTF-8. The 'preferred validation path' after code edits.",
+          "capability_value": "high",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "new toolbox validation capability behind ToolPort; feeds discipline/finish_gate as evidence",
+          "already_in_hex": "none",
+          "dependencies": "py_compile/subprocess stdlib + optional ruff (degrades gracefully). Offline-testable. No equivalent in hex_agent toolbox."
+        },
+        {
+          "name": "issue server — local SQLite issue/bug/risk tracker",
+          "location": "/tmp/my_agents_ref/mcp_servers/issue_server.py",
+          "summary": "Workspace-jailed SQLite tracker (issues + comments tables) with create/update/add_comment/list/get/search/stats, enforced kind/status enums, priority clamp, labels/related_files JSON columns. Intended for multi-agent handoffs, review findings, risks, follow-ups.",
+          "capability_value": "medium",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "delegation/store or supervisor/state as a durable cross-agent work-item store; or a standalone toolbox capability",
+          "already_in_hex": "none",
+          "dependencies": "sqlite3 stdlib only, offline. hex_agent has SQLite checkpoint but no issue/work-item tracker."
+        },
+        {
+          "name": "ledger server — append-only JSONL run memory",
+          "location": "/tmp/my_agents_ref/mcp_servers/ledger_server.py",
+          "summary": "Append-only JSONL ledger under workspace: ledger_append (typed entry with uuid+timestamp+tags+data), tail, search (text/type/tag), get, stats. Durable decisions/audit/run-memory across sessions.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "observability/event_log (hex_agent already has an event log) or rag/memory backend; overlaps with existing audit trail",
+          "already_in_hex": "partial",
+          "dependencies": "json/uuid stdlib, offline. hex_agent observability/event_log already provides an append-only audit stream; ledger adds tagged decision entries + search on top."
+        },
+        {
+          "name": "rag server — Qdrant ingest/search with fastembed",
+          "location": "/tmp/my_agents_ref/mcp_servers/rag_server.py",
+          "summary": "MCP wrapper over Qdrant: rag_health (dependency probe), rag_ingest (chunk .md/.txt/.py, embed via fastembed multilingual-e5, stable point ids, delete-by-source re-ingest), rag_search (cosine top_k with score_threshold filter, query_points/search compat). Workspace-jailed, e5 passage:/query: prefixes.",
+          "capability_value": "medium",
+          "port_complexity": "medium",
+          "offline_testable": false,
+          "hex_fit": "rag/ (hex_agent already has Qdrant + memory backend RAG)",
+          "already_in_hex": "full",
+          "dependencies": "qdrant_client + fastembed + live Qdrant. hex_agent already has a richer rag/ module; this is the MCP-exposed variant of the same idea."
+        },
+        {
+          "name": "search server — multi-provider web search (Brave/Tavily/DuckDuckGo fallback)",
+          "location": "/tmp/my_agents_ref/mcp_servers/search_server.py",
+          "summary": "web_search + search_health with provider ordering: prefers Brave then Tavily (API-key driven), falls back to a no-key DuckDuckGo-lite HTML scraper (custom HTMLParser). Normalizes to title/url/snippet, flags best_effort for the fallback path.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": false,
+          "hex_fit": "new network toolbox capability behind ToolPort (network-tagged, gated)",
+          "already_in_hex": "none",
+          "dependencies": "urllib stdlib + optional BRAVE/TAVILY keys; requires live network. DuckDuckGo fallback means no key needed but still online."
+        },
+        {
+          "name": "fetch server — URL fetch with readable-text HTML extraction",
+          "location": "/tmp/my_agents_ref/mcp_servers/fetch_server.py",
+          "summary": "fetch_url: validates http/https, fetches with bounded size, decodes via content-type charset, strips script/style/svg and extracts readable text + <title> via a custom HTMLParser. Returns final_url/status/title/text/truncated. No JS execution.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": false,
+          "hex_fit": "new network toolbox capability behind ToolPort (pairs with search)",
+          "already_in_hex": "none",
+          "dependencies": "urllib + html.parser stdlib; needs live network (HTML-extraction logic itself is offline-unit-testable with a fixture)."
+        },
+        {
+          "name": "document server — extract/write/append/outline workspace docs",
+          "location": "/tmp/my_agents_ref/mcp_servers/document_server.py",
+          "summary": "Workspace-jailed doc tools: document_extract_text (txt/md/py/csv/json/html, optional pdf via pypdf / docx via python-docx), document_write_markdown (.md/.txt only, titled), document_append_section, document_outline (markdown headings). Useful report-writing primitives.",
+          "capability_value": "low",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "toolbox/filesystem.py extensions; overlaps fs_write + a report writer",
+          "already_in_hex": "partial",
+          "dependencies": "stdlib + optional pypdf/python-docx (graceful). Text/markdown paths offline-testable. Mostly overlaps hex_agent fs tools."
+        },
+        {
+          "name": "pdf_text_extraction server — read-only PDF/text extractor",
+          "location": "/tmp/my_agents_ref/mcp_servers/pdf_text_extraction_server.py",
+          "summary": "Single extract_text tool: pdf via pypdf, plus txt/md/py/csv/json/html, workspace-jailed, bounded chars. Narrower read-only subset of the document server (essentially duplicated extraction logic).",
+          "capability_value": "low",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "subsumed by the document-extract capability above; not worth a separate port",
+          "already_in_hex": "partial",
+          "dependencies": "optional pypdf for PDF; text formats are stdlib/offline. Redundant with document_server."
+        },
+        {
+          "name": "playwright server — JS-rendered page text + screenshot",
+          "location": "/tmp/my_agents_ref/mcp_servers/playwright_server.py",
+          "summary": "playwright_health, playwright_get_text (headless chromium, selector inner_text, domcontentloaded+networkidle), playwright_screenshot (workspace-jailed png/jpg, full_page). For local UI / JS-rendered verification when fetch is not enough.",
+          "capability_value": "low",
+          "port_complexity": "medium",
+          "offline_testable": false,
+          "hex_fit": "new network/browser toolbox capability behind ToolPort (heavy dep, gated)",
+          "already_in_hex": "none",
+          "dependencies": "playwright package + chromium binary; cannot test meaningfully without browser install. Niche for this rebuild."
+        },
+        {
+          "name": "docker server — gated compose ps/logs/up/stop",
+          "location": "/tmp/my_agents_ref/mcp_servers/docker_server.py",
+          "summary": "Read-only docker_health/docker_ps/docker_compose_ps/docker_compose_logs plus mutation-gated docker_compose_up/stop (DOCKER_MCP_ALLOW_MUTATION=1). Service-name regex validation; destructive prune/rm deliberately not exposed. Mostly for managing the Qdrant compose dependency.",
+          "capability_value": "low",
+          "port_complexity": "low",
+          "offline_testable": false,
+          "hex_fit": "ops-only toolbox capability; low priority for the agent rebuild",
+          "already_in_hex": "none",
+          "dependencies": "docker CLI + daemon required; not offline-testable. Low value for hex_agent core."
+        },
+        {
+          "name": "obsidian server — local markdown vault with secret-scan",
+          "location": "/tmp/my_agents_ref/mcp_servers/obsidian_server.py",
+          "summary": "Vault-jailed markdown notes: list/read/write/append/search/create_daily_note, with SECRET_PATTERNS regex scanning to refuse storing API keys/tokens. Largely overlaps the document/filesystem servers; the secret-scan-on-write guard is the one distinctive bit.",
+          "capability_value": "low",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "subsumed by document/fs capabilities; the secret-scan guard maps onto safety/policy or control/redaction",
+          "already_in_hex": "partial",
+          "dependencies": "stdlib only, offline. Note-store overlaps fs tools; secret-scan pattern is the reusable nugget and aligns with hex_agent control/redaction."
+        }
+      ],
+      "notes": "How my_agents wires MCP into its capability layer (the key question): the agent only emits JSON tool actions; the JsonGate -> core.capabilities.call_tool -> AgentKernel routes to a single MCPToolAdapter (features/mcp_tools/adapter.py) that implements an execute(ToolRequest)->dict port — structurally identical to hex_agent's ToolPort. The adapter calls features/mcp_tools/client.call_mcp_tool, which is the whole engine: (1) _resolve_tool maps alias/bare/server.tool names to canonical (server, tool, args), (2) validate_tool_args checks the declarative schema in schemas.py, (3) check_tool_policy applies hard deny rules, (4) _call_mcp_tool launches the server over stdio (asyncio.run + stdio_client + ClientSession, one subprocess per call), (5) _dump_result normalizes to a flat {ok, server, tool, ...} dict. feature.install() bulk-registers every MCP_TOOL_NAMES entry + TOOL_ALIASES as kernel capabilities and sets the adapter as a fallback executor. config.py declares 18 servers (15 local python -m + filesystem/git/context7 via npx) with selective env-key passthrough.\n\nMapping onto hex_agent: this is a clean ONE-PORT bridge. hex_agent already has the harder pieces — ToolPort protocol (core/ports.py), CapabilityRegistry.register_tool with kind/idempotent/risk descriptors, SafeToolPort path-jail/policy chokepoint (safety/), CapabilityResult, and richer RAG. So the MCP transport is 'partial' in hex: the seam exists, only an MCPToolPort adapter + stdio launcher + result normalizer + schema/alias registry need porting. Concretely: add a feature module that, per remote MCP tool, registers an MCPToolPort(name) wrapping call_mcp_tool, behind the existing SafeToolPort, with tool descriptors derived from schemas.py metadata (risk/read_only/changes_file -> hex's kind/idempotent/risk). Two design deltas worth noting: (a) my_agents spawns a fresh stdio subprocess PER CALL (simple, no session reuse) — hex_agent may want a pooled/persistent ClientSession for latency; (b) my_agents duplicates path-jail on both client and server side, whereas hex_agent already jails at SafeToolPort, so the client-side normalization is redundant.\n\nHighest-value, offline, no-equivalent ports (recommend first): code_index (AST index, pure stdlib), lint_test (validation evidence for finish_gate, stdlib+optional ruff), file_editor str_replace/write_lines/insert primitives (count-guarded edits), and the schemas.py declarative per-arg validation + auto tool-prompt generation (fills a real gap in hex's registry). Medium: issue tracker (SQLite work-items for delegation handoffs), ledger (overlaps event_log), terminal risk-classifier (enriches existing Terminal), search/fetch (network-gated). Lower/redundant: rag (hex already richer = full), pdf_text_extraction (duplicate of document), obsidian/document (overlap fs; keep only the secret-scan guard -> control/redaction), docker/playwright (heavy deps, not offline-testable, niche). The hard policy + git-mutation env opt-in is a small pattern that should fold into hex's existing safety/policy ToolPolicy rather than be ported wholesale."
+    },
+    {
+      "area": "Orchestration variety (my_agents/orchestration/ + root orchestrator.py)",
+      "features": [
+        {
+          "name": "IntentRouter + RouteDecision schema (deterministic intent classifier)",
+          "location": "/tmp/my_agents_ref/orchestration/intent_router.py (also __init__.py exports classify_intent)",
+          "summary": "A pure, LLM-free keyword/regex classifier that maps a user request to one of 12 IntentTypes (GENERAL_KNOWLEDGE, CODE/REPO/DEBUG_TASK, PRODUCT_BUILD_TASK, AGENT_CREATION, RESEARCH_REQUIRED, WRITING/PLANNING/NEUROSCIENCE/PHILOSOPHY/MIXED). Emits a frozen RouteDecision dataclass with confidence, needs_repo/code/web/memory flags, target_department, execution_mode (single/sequential/parallel) and an ordered steps[] execution plan. Has bilingual (EN+VI) term tables, file-reference detection, and a MIXED_TASK builder that fans into multiple department steps.",
+          "capability_value": "high",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "New seam in front of supervisor.compose_team / a routing port feeding SessionPlan; could live as core/ or supervisor/router.py producing the team/plan input",
+          "already_in_hex": "none",
+          "dependencies": "Self-contained: only stdlib (re, dataclasses, enum). No agent or LLM deps."
+        },
+        {
+          "name": "GlobalSupervisor (department-dispatch over an execution plan)",
+          "location": "/tmp/my_agents_ref/orchestration/global_supervisor.py (+ run_global_supervisor entrypoint)",
+          "summary": "Top-level deterministic supervisor: classifies via IntentRouter, optionally runs a Safety department gate, then dispatches to knowledge/research/coding/software_factory/planning/writing/agent_factory departments per the RouteDecision.steps execution plan, collects department_outputs/validation_evidence/citations/limits, and hands everything to a FinalSynthesisAgent that owns the single user-facing answer. Coding is delegated (not run) unless run_coding=True. Several departments are placeholders.",
+          "capability_value": "medium",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "A higher-level router/dispatch layer above supervisor/loop.py TaskLoop; the 'departments produce outputs, one synthesis agent owns the answer' rule maps onto judge/finish + a final-synthesis step",
+          "already_in_hex": "none",
+          "dependencies": "Imports FinalSynthesisAgent, knowledge agents, ResearchDepartment, SafetyDepartment, IntentRouter; lazy-imports SoftwareFactory/Company orchestrators. Conceptually portable but pulls several agent modules."
+        },
+        {
+          "name": "CompanyOrchestratorV05 (fixed 9-stage department pipeline w/ Code/Test repair loop)",
+          "location": "/tmp/my_agents_ref/orchestration/company_orchestrator.py",
+          "summary": "Hard-coded sequential chain Research->BusinessAnalyst->Planner->Architect->Code->Test->Review->Ledger->Final. Each department returns a uniform {synthesis, route:{next_agent}} envelope; the orchestrator routes purely on route.next_agent (never infers from prose). Bounded Code<->Test repair cycles (max_cycles), explicit blocked_* statuses at every gate, and a success requires the final stage to return next_agent=done with decision=success. run_real() delegates to the LangGraph runtime instead.",
+          "capability_value": "medium",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "Contrast pattern to supervisor's dynamic o_decide: this is a static role pipeline. Maps onto a DelegationPolicy/SessionPlan with a fixed agent order + gate-on-route-envelope; repair loop ~ judge_acceptance retry",
+          "already_in_hex": "partial",
+          "dependencies": "Imports 9 concrete agent runtimes (research/business_analyst/planner/architect/code/test/review/ledger/final) + department_v05 helpers. The orchestrator logic is portable; the agents are not in scope here."
+        },
+        {
+          "name": "CodeTestOrchestrator (minimal 2-department repair loop)",
+          "location": "/tmp/my_agents_ref/orchestration/code_test_orchestrator.py",
+          "summary": "The smallest orchestrator: bounded Code<->Test cycle (max_cycles). Code routes to test_agent or planner; Test routes to review (pass), code (fail/repair), or planner (blocked). On fail it appends the QA execution evidence to the next task prompt as repair context. Returns explicit terminal statuses (ready_for_review / blocked_needs_planning / blocked_after_code / max_cycles_reached).",
+          "capability_value": "low",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "A degenerate 2-role TaskLoop; the repair-context-injection (feed failure evidence back into next prompt) is the reusable idea, maps to run_round + judge retry feeding evidence into the next briefing",
+          "already_in_hex": "partial",
+          "dependencies": "Imports CodeAgent, TestAgent. Loop is trivially portable; agents out of scope."
+        },
+        {
+          "name": "SoftwareFactoryOrchestrator (artifact-first spec pipeline + project doc export)",
+          "location": "/tmp/my_agents_ref/orchestration/software_factory_orchestrator.py",
+          "summary": "Product-to-code planning pipeline (~21 stages: Vision->BRD->PRD->Epics->AC->validators->Domain->BusinessLogic->Technical->Pattern->ImplementationSpec->CodeHandoff->Docs). Key idea: long analysis is written to versioned artifact files under factory_runs/<run_id>/ while the agent protocol JSON stays tiny and carries only path+sha256 refs (control-channel vs analysis-channel split). Iterates FACTORY_AGENTS, stops on first not-ok, writes a hashed summary artifact, computes a next_recommended_command to hand the implementation_spec to the real coding pipeline, and can export/mirror artifacts (manifest.json + README) into a project's docs/ dir.",
+          "capability_value": "high",
+          "port_complexity": "high",
+          "offline_testable": true,
+          "hex_fit": "The artifact-ref-by-path/hash envelope and run-scoped artifact dir map onto hex's observability/event_log + a content-addressed artifact store feeding the Broker's store-slice grounding; the 'JSON too small for analysis -> store by ref' rule is a strong pattern for the supervisor Blackboard",
+          "already_in_hex": "partial",
+          "dependencies": "Imports agents.artifact_protocol (make_run_id, write_json_artifact, ensure_artifact_dir), agents.software_factory_agents (FACTORY_AGENTS, StageResult), core.runtime_paths. The orchestrator shell is portable but depends heavily on the artifact_protocol + ~21 factory agents."
+        },
+        {
+          "name": "LangGraph role-graph runtime (real LLM coding pipeline)",
+          "location": "/tmp/my_agents_ref/orchestration/langgraph_orchestrator.py (1824 lines)",
+          "summary": "The production LLM/tool runtime. Builds a LangGraph StateGraph over the 9 PIPELINE roles + a shared 'tool' node, with conditional edges all routing through route_next (END when final_message set, 'tool' for tool calls, else next role; force 'final' when step_count>=max_steps). Carries a rich AgentState. Implements: per-role and per-subtask budgets (ROLE_BUDGETS/SUBTASK_BUDGETS), JSON-gate retries with role-specific repair messages (STRICT_JSON_ROLES), required-file extraction + missing_files tracking, repair-mode detection (last_failure -> patch-only, blocks whole-file rewrites via _should_block_whole_file_repair), forced-test/validation actions, finish gate requiring passing validation + cli_demo evidence, tool-result condensing, repeated-tool-call suppression, and EventLogger telemetry. NOTE: graph.compile() with NO checkpointer (no resume).",
+          "capability_value": "high",
+          "port_complexity": "high",
+          "offline_testable": false,
+          "hex_fit": "Direct analog to hex supervisor/graph.py + discipline/. hex already has the LangGraph+SQLite-checkpoint, json_gate, budget, condense, finish_gate, event_log as clean seams — this is the messy monolithic ancestor. Reusable specifics: repair-mode patch-only enforcement, required/missing-file tracking, per-subtask budget keys, forced-validation actions",
+          "already_in_hex": "partial",
+          "dependencies": "langgraph, agents.role_agents.get_agent, core.capabilities.call_tool, core.schemas, output_gate (JsonGate), tools.event_log. Heavy; needs live LLM+tools to run meaningfully. hex_agent already supersedes the framework parts."
+        },
+        {
+          "name": "Hand-rolled orchestrator loop + live HITL UserDirectiveController",
+          "location": "/tmp/my_agents_ref/orchestrator.py (root, 766 lines)",
+          "summary": "Pre-LangGraph single-loop runtime: for step in range(max_steps) -> tool_agent(messages) -> parse JSON action -> run tool -> append observation. Tracks a large metrics dict and enforces parse-error caps, repeated/failed-tool-call caps, finish-gate blockers, observation condensing, and pending-code-validation. Distinctive feature: a UserDirectiveController that polls a control dir / inbox.jsonl (or interactive stdin) for LIVE user directives mid-run, can mark an in-flight agent output 'stale', inject directive prompt blocks, and supports force-final ('stop optional work, answer now'). Emits StateEvents for every directive applied/accepted/rejected.",
+          "capability_value": "medium",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "The live-directive / force-final / mark-stale mechanism maps directly onto hex control/ (E21 realtime control plane — commands/permission) feeding the supervisor loop; the rest (loop+gates+metrics) is superseded by supervisor/loop.py + discipline/",
+          "already_in_hex": "partial",
+          "dependencies": "EventLogger, UserDirectiveController, tool_agent, output_gate, finish gate. The HITL controller is the novel part vs hex's E21; the loop itself is superseded."
+        },
+        {
+          "name": "AgentState TypedDict (coding-pipeline blackboard) + GlobalAgentState (proposed)",
+          "location": "/tmp/my_agents_ref/orchestration/agent_state.py (concrete) + docs/17 'Proposed Global State' (design only)",
+          "summary": "The shared state for the LangGraph coding pipeline: a total=False TypedDict with task/messages, routing (next_agent/last_agent/step_count/max_steps), parsed_action, role_outputs, tool fields, and rich repair/validation bookkeeping (required_files, missing_files, last_failure, repair_attempts, files_modified, tests_run, review_result, plus repeated_tool_calls/json_retries/role_visits/subtask_visits counters). Doc 17 additionally proposes a code-optional GlobalAgentState (repo_context/research_context/safety_report optional) for non-code tasks.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "Direct counterpart to supervisor/state.py TaskLoopState (Blackboard). hex's state is dataclass-based, richer (AgentTurn/AcceptanceCheck, encode/decode for SQLite). The missing_files/repair_attempts/subtask_visits counters are the reusable fields to consider adding",
+          "already_in_hex": "partial",
+          "dependencies": "Only typing + orchestration.agent_state.AgentName Literal. Pure schema, trivially inspectable; concrete TypedDict is largely subsumed by hex TaskLoopState."
+        }
+      ],
+      "notes": "Big-picture: my_agents/orchestration shows FIVE orchestration styles layered over the same agents — (1) a deterministic intent router + GlobalSupervisor department-dispatch, (2) fixed sequential department pipelines (Company V05, CodeTest), (3) an artifact-first spec pipeline (SoftwareFactory V07), (4) the real LangGraph role-graph runtime, and (5) the legacy hand-rolled loop. Routing everywhere is by an explicit route.next_agent envelope (never prose). docs/17 is a phased roadmap (phases 1-7 'done' as a deterministic wrapper) for evolving a coding-first system into a department-routed general multi-agent system, with hard safety rules (knowledge/research depts cannot write repo files; file writes require a coding/factory route; external content untrusted).\n\nCompared to hex_agent/supervisor: hex is architecturally AHEAD on the *dynamic* path — its Agent-O TaskLoop (compose_team -> o_decide(LLM) -> run_round -> judge_acceptance) does LLM-driven team composition + per-round orchestration on a dataclass Blackboard, with Broker grounding, delegation policy/registry, SQLite checkpoint+resume, and the E21 event emitter — none of which my_agents has (its LangGraph compile() has NO checkpointer). hex also already owns the clean seams (discipline/json_gate, budget, condense, finish_gate; observability/event_log) that langgraph_orchestrator.py mashes into one 1824-line file.\n\nWhat hex genuinely LACKS (highest-value ports, in order): (1) the IntentRouter / RouteDecision front-door — hex has no request classifier or execution-plan builder above the TaskLoop; low-complexity, fully offline-testable, self-contained. (2) The SoftwareFactory artifact-channel pattern: store long analysis as content-addressed (path+sha256) artifacts and pass only refs in the protocol envelope — a strong fit for the Broker store-slice + a hex artifact store. (3) The live-HITL UserDirectiveController (force-final / mark-stale / mid-run directive injection) which complements hex's E21 control plane. The fixed department pipelines (Company/CodeTest) are mostly superseded by hex's dynamic orchestrator, but two concrete tactics inside langgraph_orchestrator.py are worth lifting into discipline/: repair-mode 'patch-only, block whole-file rewrite' enforcement, and required/missing-file tracking with per-subtask budget keys. Note offline-testability is excellent across the deterministic layers (router, both pipelines, software-factory shell, global supervisor) precisely because my_agents defaults every department to deterministic lenses with --use-llm opt-in; only langgraph_orchestrator.py truly needs a live LLM."
+    },
+    {
+      "area": "Output gate + repair loop (my_agents/output_gate/ vs hex_agent/discipline/)",
+      "features": [
+        {
+          "name": "Deterministic repair-rule pipeline (light_json_repair)",
+          "location": "/tmp/my_agents_ref/output_gate/repair_rules.py",
+          "summary": "A composable set of string-level repair functions chained by light_json_repair(): strip_bom, strip_markdown_fence, extract_largest_json_region (balanced-bracket scanner picking the largest valid object/array), remove_trailing_commas, replace_python_literals (True/False/None -> JSON, string-aware), quote_unquoted_keys, escape_raw_content_field (re-JSON-encodes a raw content value when followed by known sibling keys), escape_control_chars_in_strings (raw newlines/tabs inside strings), convert_single_quoted_values (Python single-quoted JSON tokens -> double, via ast.literal_eval, string-aware), and balance_trailing_delimiters. Each rule is a pure str->str function operating outside-of-strings using a hand-written escape/in-string state machine.",
+          "capability_value": "high",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "discipline/json_gate.py (the _repair function)",
+          "already_in_hex": "partial",
+          "dependencies": "None — pure stdlib (re, ast, json). Fully self-contained; trivial to port verbatim. hex's _repair only does trailing-comma removal + bracket balancing; it lacks python-literal, unquoted-key, single-quote, control-char, and region-extraction rules."
+        },
+        {
+          "name": "Candidate-ladder JSON parsing (build_candidates + try_parse_json)",
+          "location": "/tmp/my_agents_ref/output_gate/json_gate.py",
+          "summary": "build_candidates() produces an ordered, de-duplicated list of progressively-more-repaired variants [base, fenced, light_repair(no-extract), region, light_repair(region)] and the gate tries each in order. try_parse_json() attempts json.loads then ast.literal_eval fallback, capturing structured decode errors (line/col/pos/near-context). repaired_by_code is tracked so callers know whether the model output was salvaged vs clean.",
+          "capability_value": "high",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "discipline/json_gate.py (parse_json_object / _load_object)",
+          "already_in_hex": "partial",
+          "dependencies": "Depends only on repair_rules (stdlib). hex's parse_json_object does a 2-variant try then a regex brace-scan; the ladder + literal_eval fallback + structured near-context errors are richer and portable as-is."
+        },
+        {
+          "name": "Multi-stage gate (schema -> tool-resolve -> tool-args -> dry-run) returning structured GateResult",
+          "location": "/tmp/my_agents_ref/output_gate/json_gate.py",
+          "summary": "json_gate() runs a full validation pipeline beyond parsing: validate_agent_action_schema (action must be tool|final, required fields, final-message coalescing from summary/plan/result/review), resolve_tool_action (alias + server.tool resolution, ambiguity detection), validate_tool_args_for_action (per-tool ToolSchema: required/unknown/wrong-type issues), and dry_run_safety_check. Each stage returns a frozen GateResult(ok, data, stage, error, repaired_by_code, candidate) with machine-readable error_type codes — designed to be fed back to a repair agent.",
+          "capability_value": "high",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "core ToolPort/CapabilityRegistry + discipline/json_gate + safety/policy (cross-cutting; the schema-validation stage is the natural new seam)",
+          "already_in_hex": "partial",
+          "dependencies": "Imports features.mcp_tools.{config,policy,schemas} (TOOL_SCHEMAS, TOOL_ALIASES, check_tool_policy, WORKSPACE_DIR). hex already has CapabilityRegistry + ToolPort + safety/policy, so the structured-error/staged-GateResult PATTERN is valuable but the schema source must be re-pointed at hex's registry rather than ported directly. hex currently only checks for a missing 'action' field (no tool-args/type validation in the gate)."
+        },
+        {
+          "name": "Action/arg alias normalization (apply_action_aliases + apply_safe_arg_aliases)",
+          "location": "/tmp/my_agents_ref/output_gate/json_gate.py",
+          "summary": "Repairs near-miss model outputs into canonical actions: infers action:tool from loose {path,lines}/{path,content} objects, maps tool_name->tool and arguments/parameters/input->args, and a per-tool rename table maps common arg synonyms (filepath/file_path/file->path, data/text/body->content, command_args->argv, etc.) so schema-valid-but-wrong-key outputs pass. Tracks whether aliasing changed the object (repaired_by_code).",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "discipline/json_gate (schema-repair) feeding core CapabilityRegistry tool resolution",
+          "already_in_hex": "none",
+          "dependencies": "Alias tables reference concrete tool names (filesystem.*, file_editor.*, terminal.terminal_run). Logic is pure-dict and stdlib; only the alias tables are tool-specific and would need remapping to hex's toolbox tool ids."
+        },
+        {
+          "name": "Dry-run safety check inside the gate (path-jail + content-size + terminal denylist)",
+          "location": "/tmp/my_agents_ref/output_gate/json_gate.py",
+          "summary": "dry_run_safety_check validates a tool action before execution: policy check, validate_safe_relative_path (rejects absolute, Windows drive, .. escape, outside-workspace for path/source/destination/cwd/repo_path/paths[]), content-size cap (1MB on content/text/body), and a terminal argv denylist (rm -rf /, mkfs, shutdown, curl/wget, fork-bomb, etc.). Produces typed error codes (PATH_ESCAPE_NOT_ALLOWED, CONTENT_TOO_LARGE, DANGEROUS_COMMAND...).",
+          "capability_value": "medium",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "safety/sandbox.py (path-jail) + safety/policy + middleware (pre-execution guard)",
+          "already_in_hex": "partial",
+          "dependencies": "Needs WORKSPACE_DIR and check_tool_policy. hex already has a path-jail sandbox + policy, so the path/terminal logic is largely redundant; the value here is doing the safety check at GATE time (pre-dispatch, with repairable typed errors) rather than at sandbox-execution time. The terminal substring denylist is weak (substring match) and not worth porting over hex's existing sandbox."
+        },
+        {
+          "name": "Deterministic-first repair loop with optional LLM repair-agent fallback (repair_until_valid)",
+          "location": "/tmp/my_agents_ref/output_gate/repair_loop.py",
+          "summary": "repair_until_valid(raw, repair_agent=None, max_agent_repairs=0) runs the gate; on success returns data+repaired_by_code+attempt+history; on failure, only if a repair_agent callable is supplied AND budget remains, it builds a stage-aware repair prompt (build_repair_prompt) and re-invokes the agent, recording a truncated history of each attempt's stage/error/candidate. Pure-code path needs no agent; the LLM is the last resort. build_repair_prompt/build_json_gate_retry_message produce contract-reminder prompts keyed off the failed stage.",
+          "capability_value": "high",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "graph/nodes.py + supervisor/graph.py decision loop (the re-prompt budget path); discipline as the repair-prompt builder",
+          "already_in_hex": "partial",
+          "dependencies": "Imports only output_gate.json_gate. The loop scaffold itself is stdlib + a Callable, fully offline-testable with a stub repair_agent. hex's equivalent is inline in graph/nodes.py: a single re-prompt via build_retry_message gated by a parse-error budget, with NO deterministic repair-rule ladder and NO agent-repair sub-loop abstraction. The 'deterministic-first, agent-as-fallback, history-tracked' structure is the main thing worth porting."
+        }
+      ],
+      "notes": "Honest comparison: hex_agent's discipline/json_gate.py is intentionally minimal — fence-strip, one regex-based _repair (trailing commas + bracket balance), a 2-variant load plus a brace-scan fallback, and a single 'action'-field schema check. The repair *budget/re-prompt* lives in graph/nodes.py (record_parse_error + build_retry_message, one retry per turn). So hex covers the BASIC parse-and-reprompt case but has none of my_agents' rule engine.\\n\\nWhat is genuinely missing in hex and worth porting (all offline-testable, all stdlib at the rule level):\\n1. The repair_rules.py rule pipeline — every rule is a pure str->str function with deterministic string-state machines; ideal unit-test fodder (feed broken JSON, assert repaired output). This is the single highest-value, lowest-risk port. hex's _repair would become one entry in this chain.\\n2. The candidate-ladder + literal_eval fallback + structured near-context decode errors.\\n3. The deterministic-first repair_loop pattern (history-tracked, agent only as last resort) to replace the ad-hoc single-retry in graph/nodes.py.\\n4. The alias-normalization rules (action/arg synonym maps) — cheap and high recall on local-model output.\\n\\nWhat NOT to port wholesale: the schema/tool-resolve/dry-run stages are tightly coupled to features.mcp_tools.{schemas,policy,config} and hex already has CapabilityRegistry + ToolPort + safety/sandbox + policy that supersede them. Adopt the staged-GateResult *pattern* and the typed error_type vocabulary, but source the schemas from hex's registry, not from the my_agents tool tables. The terminal substring denylist is the weakest piece (substring matching is bypassable) and is redundant against hex's existing sandbox.\\n\\nOffline-testability summary: the repair rules, candidate ladder, alias normalization, schema/tool-args validation, path/content/terminal safety checks, and the repair loop (with a stub repair_agent) are ALL testable with no network/LLM — they are pure functions over strings/dicts. The ONLY part requiring a live model is the optional repair_agent fallback, which is dependency-injected and trivially stubbable.\\n\\nReference file paths: /tmp/my_agents_ref/output_gate/{repair_rules.py,json_gate.py,repair_loop.py,__init__.py}; my_agents schema/policy deps at /tmp/my_agents_ref/features/mcp_tools/{schemas.py,policy.py,config.py}. hex targets: /Users/uspro/Desktop/Namson/hex_agent/discipline/json_gate.py and /Users/uspro/Desktop/Namson/hex_agent/graph/nodes.py (lines 63-82 hold the current single-retry repair budget)."
+    },
+    {
+      "area": "Process Dashboard UI + User-Agent control (my_agents run_process_ui.py + agents/user_agent.py) vs hex_agent ui/ (observability console) + control/ (E21 realtime control plane)",
+      "features": [
+        {
+          "name": "Subprocess run lifecycle manager (start/stop/inspect)",
+          "location": "/tmp/my_agents_ref/run_process_ui.py (ProcessManager class L309-398, ManagedProcess dataclass L272-306, build_command L113-126)",
+          "summary": "Spawns agent runs as external OS subprocesses (python main.py / main_langgraph.py) with per-run env (AGENT_RUN_ID, control dir), captures stdout to a rolling deque + log file via a reader thread, and supports terminate->kill stop with timeout escalation. Tracks running/finished status and returncode per run.",
+          "capability_value": "high",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "ui/server.py RunController (RunJob lifecycle) — extend to support a subprocess-backed runner alongside the in-process ThreadPoolExecutor one",
+          "already_in_hex": "partial",
+          "dependencies": "stdlib only (subprocess, threading, http.server); my_agents core.runtime_paths, tools.event_reader.load_runs. hex_agent RunController currently runs agent IN-PROCESS (run_agent on a thread pool) with NO stop/terminate and NO returncode — the subprocess model + stop are absent."
+        },
+        {
+          "name": "HTTP process-control endpoints (start / stop / inspect / events)",
+          "location": "/tmp/my_agents_ref/run_process_ui.py (ProcessDashboardHandler.do_GET L461-511, do_POST L513-551, _run_payload L553-578)",
+          "summary": "Stdlib HTTP API: GET /api/health, /api/runs, /api/runs/<id>, /api/runs/<id>/events; POST /api/runs (start), /api/runs/<id>/stop, /api/runs/<id>/directives. Serves a static dashboard and merges managed-process snapshots with on-disk run history.",
+          "capability_value": "high",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "ui/server.py AgentUIHandler do_GET/do_POST — add /stop and /directives (a.k.a. command-submit) routes",
+          "already_in_hex": "partial",
+          "dependencies": "stdlib http.server. hex_agent has /api/bootstrap,/runs,/snapshot,/tree,/file,/stream(SSE) + POST /api/runs(start) only. hex_agent is AHEAD on read/observability (SSE stream, file tree, snapshot diffing) but LACKS POST stop and directive/command submission endpoints."
+        },
+        {
+          "name": "Run-state derivation (per-agent rollup, timeline, status counts)",
+          "location": "/tmp/my_agents_ref/run_process_ui.py (derive_run_state L154-269, summarize_event L129-151)",
+          "summary": "Folds events.jsonl into a dashboard model: per-agent event/action/tool/error counts, current agent/step/status, last action/tool/error, status-count histogram, 200-event timeline with human summaries, and merged metrics. Pure function over event lists.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "observability/ event_log + ui/server.py run_snapshot — a presentation-layer aggregator over the canonical event stream",
+          "already_in_hex": "partial",
+          "dependencies": "Pure-python over event dicts. hex_agent has run_snapshot for SSE and observability/inspect, but this specific per-agent rollup + timeline-summary shaping (multi-agent attribution from node/agent fields) is not replicated; hex_agent events are canonical envelopes so field mapping differs."
+        },
+        {
+          "name": "Live user-directive parser (NLU intent -> structured ops)",
+          "location": "/tmp/my_agents_ref/agents/user_agent.py (parse_user_directive L162-255, UserDirective dataclass L49-67, marker tables L69-159)",
+          "summary": "Deterministic keyword/marker parser (EN+VI, accent-folded) turning free-text live commands into typed directives with intent + operation list: force_final, retry_step, remove/add_agent, request_tool/skill, answer_style, plus blocked_request for protected invariants (cannot disable trace, no hidden CoT). Pure, offline.",
+          "capability_value": "high",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "control/commands.py — a natural-language front-end that emits RuntimeCommand(s); complements the existing typed command contracts",
+          "already_in_hex": "none",
+          "dependencies": "stdlib only (re, unicodedata). hex_agent control/ models commands as already-typed RuntimeCommand/CommandAck with registry-driven kinds and a permission/redaction gate — there is NO free-text->command NLU layer and no invariant-block list (protected markers). This is a distinct, portable capability."
+        },
+        {
+          "name": "Multi-source directive inbox controller (file/JSONL/stdin polling)",
+          "location": "/tmp/my_agents_ref/agents/user_agent.py (UserDirectiveController L258-435: poll L396-403, _poll_jsonl_inbox L353-377, _poll_text_files L379-394, _stdin_loop L308-318, render_prompt_block L421-435)",
+          "summary": "Control-plane inbox that ingests live directives from three sources — control_dir/inbox.jsonl (offset-tracked tail), control_dir/inbox/*.txt files, and interactive stdin — dedupes, persists accepted/rejected/all to JSONL, emits UserDirectiveEvent, and renders a high-priority USER AGENT LIVE DIRECTIVES prompt block for the next agent call. has_force_final flow signal.",
+          "capability_value": "high",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "control/emitter.py + control/ports.py + orchestrator/supervisor TaskLoop — the ingestion+persistence+prompt-injection seam that delivers commands into a running run",
+          "already_in_hex": "partial",
+          "dependencies": "stdlib (queue, threading). hex_agent control/ has emitter + permission + checkpoint contracts but the IN-RUN injection path (poll inbox before/after agent call, mark in-flight output stale, inject prompt block, persist accepted/rejected ledgers) is not implemented end-to-end. File-inbox transport is a low-dep alternative to a socket gateway."
+        },
+        {
+          "name": "Runtime-invariant guard on live commands (protected markers)",
+          "location": "/tmp/my_agents_ref/agents/user_agent.py (PROTECTED_MARKERS L69-80, HIDDEN_COT_MARKERS L82-88, reject/degrade logic L178-195) + docs/19 authority-order L30-47",
+          "summary": "Authority-ordered policy: a live directive cannot disable trace logging, delete logs, or expose hidden chain-of-thought; such requests are rejected (blocked_request) or accepted_with_degradation. Encodes an explicit precedence: runtime invariants > latest user directive > original prompt > plan > role > agent suggestion.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "control/permission.py + control/redaction.py — extend the command permission gate with a non-overridable-invariant denylist and authority-order precedence",
+          "already_in_hex": "partial",
+          "dependencies": "Pure-python markers. hex_agent has permission.py + redaction.py for commands/events, but the specific 'these intents are always denied / degraded' invariant list and the documented authority-order precedence are not present; this is a small, valuable policy addition."
+        },
+        {
+          "name": "Prompt-file run launcher with per-run control dir wiring",
+          "location": "/tmp/my_agents_ref/run_process_ui.py (start_run L314-364, build_command L113-126, env wiring L330-340)",
+          "summary": "Persists the submitted prompt to var/process_ui/prompts/<run_id>.md, creates var/agent_runs/<run_id>/control/, and launches main.py with --user-control-dir + --max-steps + env (ORCH_USER_CONTROL_DIR, LANGGRAPH_MAX_STEPS), so each UI-started run has an isolated directive inbox.",
+          "capability_value": "low",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "ui/server.py RunController.start + orchestrator/ run dir conventions",
+          "already_in_hex": "partial",
+          "dependencies": "Coupled to my_agents main.py CLI flags and runtime_paths. hex_agent.start already creates run_id + EventLogger run dir, but does NOT provision a per-run control/inbox dir or pass max-steps/control-dir to a runner. Mostly a thin convention layer; value is the per-run inbox isolation pattern."
+        }
+      ],
+      "notes": "Honest already_in_hex picture: hex_agent is clearly AHEAD on the read/observability half — its ui/server.py has SSE /api/stream with sha256-diffed snapshots, /api/tree + /api/file browsing, bootstrap, and a typed E21 control plane (RuntimeCommand/CommandAck contracts, command_registry, emitter, permission, redaction, snapshot, checkpoint) that my_agents lacks entirely. my_agents is AHEAD on the write/control half: (1) actual process lifecycle control — start AND stop/terminate of runs (hex_agent can only start, and only in-process on a thread pool, with no cancel), and (2) live user-directive injection into a running run, which hex_agent's control/ specifies as contracts but does not wire end-to-end (no NLU free-text parser, no in-run inbox poll, no stale-output marking, no prompt-block injection). The single highest-value ports are the directive NLU parser (user_agent.parse_user_directive — pure, offline, EN+VI) feeding control/commands.RuntimeCommand, and the in-run inbox+injection controller feeding the supervisor TaskLoop; both fill the executable gap in E21. Architectural caveat: my_agents uses a SUBPROCESS model (Popen of main.py, OS terminate/kill, stdout pipe) whereas hex_agent runs in-process (run_agent on ThreadPoolExecutor) — porting stop requires either adopting subprocess isolation or adding a cooperative cancel token to the in-process runner; the latter fits hex_agent's design better. Everything here is offline_testable: parser is pure, inbox/HTTP/process-manager tests use temp dirs + a trivial echo subprocess, no live LLM/network needed. Command vocabulary in hex_agent is registry-driven (YAML/registry), so a ported NLU parser should emit registry kinds rather than the hardcoded marker->op map. Relevant hex_agent files: /Users/uspro/Desktop/Namson/hex_agent/ui/server.py (RunController L205-263, do_POST L482-516, _stream SSE L517-552), /Users/uspro/Desktop/Namson/hex_agent/control/commands.py, /Users/uspro/Desktop/Namson/hex_agent/control/permission.py, /Users/uspro/Desktop/Namson/hex_agent/control/emitter.py, /Users/uspro/Desktop/Namson/hex_agent/control/command_registry.py."
+    },
+    {
+      "area": "Agents, roles, lenses, knowledge (my_agents/agents/)",
+      "features": [
+        {
+          "name": "BaseAgent (role-scoped prompt builder + tool-allowlist guard)",
+          "location": "/tmp/my_agents_ref/agents/base_agent.py",
+          "summary": "Frozen dataclass that builds a role-specific system prompt (role header + lenses + shared tool/skill prompt), calls the LLM once, and post-guards the output: parses the JSON action and, if action==tool with a tool outside the canonical allowlist, replaces the response with a permission-block envelope (handoff required). Also exposes describe() for introspection.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "roles/agent.py (Agent) + roles/spec.py (RoleSpec.allowed_tools)",
+          "already_in_hex": "full",
+          "dependencies": "llm.call_llm, output_gate.parse_json_action, features.mcp_tools.client (canonicalize/expand tool patterns), tools.prompt_loader/skill_loader, agents.lenses.base_lens"
+        },
+        {
+          "name": "Aggressive JSON-action repair parser (_parse_json_object)",
+          "location": "/tmp/my_agents_ref/agents/base_agent.py (lines 102-231)",
+          "summary": "Multi-strategy salvager for malformed LLM JSON: strips code fences, trailing-comma fixup, balances unclosed braces/brackets, escapes raw control chars and an unescaped 'content' field, converts single-quoted values via ast.literal_eval, and finally brute-forces raw_decode from each '{'. Used so the allowlist guard can still find a tool name in broken output.",
+          "capability_value": "medium",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "discipline/json_gate.py",
+          "already_in_hex": "partial",
+          "dependencies": "json, re, ast (stdlib only); pairs with output_gate.parse_json_action"
+        },
+        {
+          "name": "YAML-driven role config loader (RoleConfig + load_role_agents)",
+          "location": "/tmp/my_agents_ref/agents/role_config.py",
+          "summary": "Loads config/agents.yaml (roles list + aliases + roles_dir) and per-role <key>.yaml files into RoleConfig, validating required fields and types, resolving lenses by group-name or by individual lens-name, and building BaseAgent instances. Carries route_permissions and test_ownership through.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "roles/spec.py (load_role_file/parse_role) + roles/registry.py (AgentRegistry.load_dir)",
+          "already_in_hex": "full",
+          "dependencies": "yaml, core.runtime_paths.PROJECT_DIR, agents.lenses (lens groups), agents.base_agent"
+        },
+        {
+          "name": "Role registry + alias resolution (get_agent / list_agents)",
+          "location": "/tmp/my_agents_ref/agents/role_agents.py",
+          "summary": "Module-level dict of built agents plus an alias map; get_agent resolves aliases then raises a helpful KeyError listing known roles. list_agents/list_agent_configs return introspection dicts.",
+          "capability_value": "low",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "roles/registry.py (AgentRegistry.get/names/build_agent)",
+          "already_in_hex": "full",
+          "dependencies": "agents.base_agent, agents.role_config"
+        },
+        {
+          "name": "LensSpec + department lens-prompt rendering (cognitive review viewpoints)",
+          "location": "/tmp/my_agents_ref/agents/lenses/base_lens.py",
+          "summary": "LensSpec dataclass (name, department, purpose, allowed/forbidden tools, output_schema) with to_prompt_block()/describe(); render_department_lens_prompt() composes a department model + operating rules + lens blocks. run_prompt_lens() runs one lens as an LLM sub-call returning a structured LensResult; extract_json_object salvages its JSON.",
+          "capability_value": "high",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "roles/lenses.py (LensSpec.render, LensRegistry)",
+          "already_in_hex": "partial",
+          "dependencies": "json, re; llm.call_llm (only for run_prompt_lens)"
+        },
+        {
+          "name": "Concrete lens catalog (architect/code/research/review/planner/test/BA/final/ledger)",
+          "location": "/tmp/my_agents_ref/agents/lenses/ (architect_lenses.py, code_lenses.py, etc. — 9 groups)",
+          "summary": "~40 hand-written LensSpec instances grouped by department, each with a narrow purpose, per-lens allowed/forbidden tool scopes, and a concrete output_schema (e.g. architect: system_architect/data_architect/api_contract/security_architect/scalability; code: implementation/integration/defensive_coding/refactor_discipline/developer_experience). Strong reusable content even though hex's LensRegistry loads from YAML.",
+          "capability_value": "high",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "roles/library/lenses/*.yaml (currently only correctness.yaml + requirements.yaml exist)",
+          "already_in_hex": "partial",
+          "dependencies": "agents.lenses.base_lens.LensSpec only (pure data)"
+        },
+        {
+          "name": "department_v05 deterministic-lens runtime + result/ledger helpers",
+          "location": "/tmp/my_agents_ref/agents/department_v05.py",
+          "summary": "Shared runtime for the v0.5 department agents: run_lenses() runs each lens via LLM when use_llm else falls back to a per-lens deterministic stub dict; plus result_payload(), append_ledger() (writes to ledger tool), compact_history(), changed_files_from_code_result/test_commands_from_test_result/execution_ok evidence extractors, and safe_tool_call wrapper.",
+          "capability_value": "medium",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "supervisor/loop.py + supervisor/evidence.py (evidence extraction) and roles/lenses.py",
+          "already_in_hex": "partial",
+          "dependencies": "agents.lenses.base_lens, core.capabilities.call_tool, a 'ledger' tool"
+        },
+        {
+          "name": "Department role agents (Architect/Research/Review/Planner/BusinessAnalyst)",
+          "location": "/tmp/my_agents_ref/agents/{architect_agent,research_agent,review_agent,planner_agent,business_analyst_agent}.py",
+          "summary": "Thin v0.5 department runtimes that supply deterministic per-lens stub outputs, run lenses via department_v05.run_lenses, synthesize a decision + route.next_agent, and (review) gate on test/QA evidence (execution_ok). Mostly hardcoded scaffold content rather than general logic; value is the lens-synthesis-route shape.",
+          "capability_value": "low",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "roles/library/*.yaml role specs + supervisor TaskLoop synthesis",
+          "already_in_hex": "partial",
+          "dependencies": "agents.department_v05, agents.lenses; review/code/test also core.capabilities.call_tool"
+        },
+        {
+          "name": "CodeAgent + TestAgent executor allowlists (lens→execute split)",
+          "location": "/tmp/my_agents_ref/agents/code_agent.py, /tmp/my_agents_ref/agents/test_agent.py",
+          "summary": "Two-phase department agents: run advisory lenses, then a separate executor phase restricted to a hardcoded ALLOWED tool set (code: file_editor write/create; test: python.run_python, lint_test.*, read_file, git_diff, code_index). CodeAgent parses a target .py path/sentinel out of the task; TestAgent derives test commands from the prior code_result and records execution evidence.",
+          "capability_value": "medium",
+          "port_complexity": "medium",
+          "offline_testable": false,
+          "hex_fit": "core ToolPort + roles allowlist + supervisor/contracts execution evidence",
+          "already_in_hex": "partial",
+          "dependencies": "core.capabilities.call_tool, core.schemas.capability_get, agents.lenses; real tools for execution"
+        },
+        {
+          "name": "SafetyDepartment + sub-agents (permission/risk/prompt-injection/tool-scope)",
+          "location": "/tmp/my_agents_ref/agents/safety/ (department.py, permission_agent.py, risk_agent.py, prompt_injection_agent.py, tool_scope_agent.py)",
+          "summary": "Deterministic pre-execution safety gate: PermissionAgent (mode approvals for coding/network), RiskAgent (low/medium risk from needs_repo/code/web/intent), PromptInjectionAgent (substring scan for injection phrases), ToolScopeAgent (per-department can_write/run/network scope table). Department aggregates to pass/blocked with notes.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "safety/policy.py + safety/sandbox.py + control/ (permission/redaction)",
+          "already_in_hex": "partial",
+          "dependencies": "stdlib dataclasses only (no LLM, no network) — fully deterministic"
+        },
+        {
+          "name": "FinalSynthesisAgent (single owner of user-facing answer)",
+          "location": "/tmp/my_agents_ref/agents/final_synthesis_agent.py",
+          "summary": "Deterministic composer that turns structured per-department outputs into one final answer string: picks first substantive draft across departments, appends validation evidence, citations, software-factory artifact paths/next-command, safety status, deduped limits, and intent-specific caveats (e.g. 'no validation command was run').",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "supervisor/loop.py finish path / discipline/finish_gate.py",
+          "already_in_hex": "partial",
+          "dependencies": "stdlib only (pure function over dicts)"
+        },
+        {
+          "name": "ArtifactProtocol (ArtifactRef/StageResult, content-addressed artifacts)",
+          "location": "/tmp/my_agents_ref/agents/artifact_protocol.py",
+          "summary": "File-based artifact protocol: make_run_id, ensure_artifact_dir, write_text/json_artifact returning ArtifactRef (path, kind, producer, title, summary, bytes, sha256), StageResult (agent/department/decision/route/artifact_refs/missing_inputs) with compact_metadata that briefs long strings and truncates long lists/dicts. stage_blocked() builds a standard missing-inputs result.",
+          "capability_value": "high",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "supervisor/evidence.py + supervisor/state.py (Blackboard artifacts) + observability/event_log",
+          "already_in_hex": "partial",
+          "dependencies": "hashlib, json, core.runtime_paths.WORKSPACE_DIR (stdlib + path constant)"
+        },
+        {
+          "name": "Knowledge specialist agents (GeneralKnowledge + Philosophy)",
+          "location": "/tmp/my_agents_ref/agents/knowledge/general_knowledge_agent/agent.py, /tmp/my_agents_ref/agents/knowledge/philosophy_agent/agent.py",
+          "summary": "Read-only deterministic 'phase-2' knowledge agents that return a structured answer_draft + confidence + needs_research + sources + limits + tool_permissions. Answers are hardcoded keyword branches (amygdala/dopamine/rag; agency-vs-autonomy/free-will) with a generic fallback — placeholder content, not a real knowledge/memory store.",
+          "capability_value": "low",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "rag/ (Qdrant+memory backend) for real knowledge; roles/library for a role spec",
+          "already_in_hex": "partial",
+          "dependencies": "stdlib dataclasses only; no RAG/network despite being 'knowledge' agents"
+        }
+      ],
+      "notes": "Honest comparison: hex_agent is clearly MORE advanced than my_agents in this area. hex's roles/ (RoleSpec + Agent + LensRegistry + AgentRegistry) already does everything BaseAgent/role_config/role_agents do, and does it better: (1) the skill+role allowlist derivation (union explicit_tools + skills' allowed_tools + core_tools, minus skill forbidden, forbidden-wins) lives in one place (roles/spec.py) with a documented cycle-break, whereas my_agents bolts allowlists onto each agent ad hoc; (2) hex enforces separation-of-duties structurally — Agent.__init__ rejects a role that doesn't own validation and names no handoff target, and guard_finish blocks self-certification — my_agents only carries test_ownership as opaque passthrough data; (3) hex splits guard_tool_call/guard_finish as pure functions for the loop, vs my_agents' run()-coupled regex post-guard. So BaseAgent/role_config/role_agents/get_agent are already_in_hex=full and NOT worth porting.\n\nWhat is genuinely worth harvesting (porting candidates, in priority order):\n1. The concrete LENS CATALOG (~40 specs across 9 departments, each with purpose + per-lens tool scopes + output_schema) — hex's roles/library/lenses has only correctness.yaml + requirements.yaml. This is pure data, trivially convertible to hex's lens YAML, and is the single highest-value, lowest-risk port in this area. hex_fit: roles/library/lenses/*.yaml.\n2. ArtifactProtocol (artifact_protocol.py) — content-addressed ArtifactRef (sha256/bytes/producer/kind) + StageResult + brief/compact-metadata truncation. hex's supervisor/evidence.py classifies evidence kinds but I saw no content-addressing/hashing of artifacts; the sha256+brief_text compaction is a clean, offline, dependency-light upgrade for supervisor/state.py Blackboard artifacts and observability. hex_fit: supervisor/evidence.py + state.py.\n3. The deterministic SafetyDepartment sub-agents (permission/risk/prompt-injection/tool-scope) — all pure, offline, no-LLM. PromptInjectionAgent's substring scan and ToolScopeAgent's per-department capability table map naturally onto safety/policy.py and control/ permission+redaction. Low value individually but cheap and offline-testable.\n4. The aggressive JSON-action repair parser in base_agent._parse_json_object — only if hex's discipline/json_gate.py lacks brace-balancing/control-char-escaping/single-quote-coercion salvage (it has json_gate but I did not confirm it does multi-strategy repair). Worth a look as a hardening upgrade.\n\nNOT worth porting: the v0.5 department agents (architect/research/review/planner/BA) are mostly hardcoded deterministic stub dicts — scaffold, not logic; their value is already captured by hex's RoleSpec + lens model. The knowledge/ agents are placeholder keyword-branch stubs and are strictly inferior to hex's existing rag/ (Qdrant + memory) — there is no real knowledge/memory mechanism here to harvest. FinalSynthesisAgent is a reasonable deterministic finish-composer but overlaps hex's discipline/finish_gate + supervisor finish path.\n\nCaveat on offline_testable: I marked code_agent/test_agent false because a meaningful test exercises the executor phase (real file_editor/python/lint tools); their lens phase alone is offline. Everything else in this area is genuinely offline (deterministic dicts or stdlib-only), since the bulk of my_agents' agent logic is hardcoded stubs rather than live LLM calls."
+    },
+    {
+      "area": "Skills",
+      "features": [
+        {
+          "name": "code-edit skill",
+          "location": "/tmp/my_agents_ref/skills/code-edit/SKILL.md, /tmp/my_agents_ref/skills/code-edit/agents/openai.yaml",
+          "summary": "Behavioral skill: make the smallest scoped code change after reading the target file; preserve style; avoid broad refactors/formatting churn; report files changed. Pure prompt guidance, no code.",
+          "capability_value": "low",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "skills/ SkillRegistry + skills/library/*.md (SKILL.md format)",
+          "already_in_hex": "full",
+          "dependencies": "tools/skill_loader.py parser; agents/tool_agent.py build_skills_prompt; yaml. Effectively duplicates hex_agent skills/library/file_edit.md."
+        },
+        {
+          "name": "debug-traceback skill",
+          "location": "/tmp/my_agents_ref/skills/debug-traceback/SKILL.md",
+          "summary": "Behavioral skill: read a traceback bottom-to-top, locate file/line of final exception, apply smallest local fix, rerun validation, iterate on new traceback. Output = root cause, file/line, fix, test command. Pure guidance.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "skills/ SkillRegistry — new skills/library/debug_traceback.md",
+          "already_in_hex": "none",
+          "dependencies": "skill_loader parser only. No hex_agent equivalent skill; the workflow text is the only asset and must be reshaped into Allowed/Forbidden/Steps/Report sections."
+        },
+        {
+          "name": "git-review skill",
+          "location": "/tmp/my_agents_ref/skills/git-review/SKILL.md",
+          "summary": "Behavioral skill: run git status + git diff (+ --staged), summarize changed files by purpose, flag risky changes, suggest one commit message, and explicitly STOP before any add/commit/push/reset/checkout/stash. Read-only review guardrail.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "skills/ SkillRegistry — new skills/library/git_review.md; Forbidden(tools) maps the no-mutation guardrail; uses toolbox/terminal",
+          "already_in_hex": "partial",
+          "dependencies": "skill_loader; relies on a terminal/git tool. hex_agent has skills/library/code_review.md (code review) but no git-status/diff read-only review skill; the no-commit guardrail is the transferable value."
+        },
+        {
+          "name": "project-plan skill",
+          "location": "/tmp/my_agents_ref/skills/project-plan/SKILL.md",
+          "summary": "Behavioral skill: read-only planning — restate goal, identify files to inspect, split into ordered steps, list risks/edge cases/blocking questions, and never write/edit/move/delete. Read-only-mode guardrail for the whole task.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "skills/ SkillRegistry — new skills/library/project_plan.md with empty/read-only Allowed(tools) + broad Forbidden(tools)",
+          "already_in_hex": "none",
+          "dependencies": "skill_loader. No hex_agent equivalent; the read-only allowlist (fs_read/fs_list only, no fs_write/terminal) is what makes it enforceable in hex's tool-gated model."
+        },
+        {
+          "name": "run-test skill (command whitelist)",
+          "location": "/tmp/my_agents_ref/skills/run-test/SKILL.md, /tmp/my_agents_ref/skills/run-test/agents/openai.yaml",
+          "summary": "Behavioral skill with an explicit safe-command WHITELIST (py_compile, pytest, npm test/lint/typecheck, git status/diff): run narrowest command one at a time, read stdout/stderr/exit code, classify failure (pass/test-fail/syntax/lint/env/not-allowed), decide fix-or-stop. The whitelist is the key reusable asset.",
+          "capability_value": "high",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "skills/ new skills/library/run_test.md; whitelist enforcement belongs in safety/policy + middleware (terminal_run gating), not just prompt text",
+          "already_in_hex": "partial",
+          "dependencies": "skill_loader (prompt only — whitelist is NOT enforced in code in my_agents). hex_agent has safety/sandbox + policy + toolbox/terminal; porting well means encoding the command whitelist as a real policy rule, raising complexity to medium."
+        },
+        {
+          "name": "agents/openai.yaml interface sidecar + skill_loader format",
+          "location": "/tmp/my_agents_ref/skills/*/agents/openai.yaml, /tmp/my_agents_ref/tools/skill_loader.py",
+          "summary": "Per-skill sidecar YAML (interface.display_name/short_description/default_prompt) plus a flat loader that injects the ENTIRE skill body verbatim into the prompt — no progressive disclosure, no tool-allowlist parsing, frontmatter parsed by naive line-split (name/description only).",
+          "capability_value": "low",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "skills/spec.py parse_skill + skills/registry.py render(contract|full)/union_tools/lint",
+          "already_in_hex": "full",
+          "dependencies": "yaml, core.runtime_paths. hex_agent's registry is strictly more advanced (proper YAML frontmatter, triggers, tool allow/forbid parsing, contract-vs-full progressive disclosure, union_tools for role derivation, lint). The openai.yaml display-metadata idea (UI labels) is the only non-duplicated wrinkle and is marginal."
+        }
+      ],
+      "notes": "All 5 my_agents skills are pure behavioral/prompt-guidance data (no executable code) and ARE portable into hex_agent's SKILL.md format — but as content, not as-is. They use a thinner format (name+description+freeform body+openai.yaml sidecar) parsed by a naive loader that dumps the whole body into the prompt with no progressive disclosure. hex_agent's skills/ is strictly more advanced: structured frontmatter (name/description/triggers), explicit Allowed/Forbidden(tools), Steps/Report, contract-vs-full rendering, union_tools (feeds E09 role allowlists), and lint. Porting = rewriting each skill body into hex's structured sections and declaring tools.\n\nNet recommendation: code-edit and the loader/openai.yaml format are already fully covered (skip). The 3 read-only/guardrail skills (debug-traceback, project-plan, git-review) and run-test are worth porting as ~30-line library/*.md files — they fill content gaps hex_agent does not yet have (only code_review.md + file_edit.md exist). The single most valuable transfer is run-test's safe-command whitelist (py_compile/pytest/npm test|lint|typecheck/git status|diff): in my_agents it is unenforced prompt text, but hex_agent can promote it to a real safety/policy rule gating terminal_run — that is the one item where porting adds engineering value beyond copy-paste. project-plan and git-review become genuinely enforceable in hex (vs advisory in my_agents) because hex gates tools, so their read-only intent can be expressed as Forbidden(tools)/empty-write allowlists. Offline-testable across the board: parsing and tool-allowlist linting need no network/LLM."
+    },
+    {
+      "area": "Ledger",
+      "features": [
+        {
+          "name": "JsonlLedger (kernel append-only ledger)",
+          "location": "/tmp/my_agents_ref/core/ledger.py",
+          "summary": "Tiny kernel-level append-only ledger. LedgerEntry is a frozen dataclass (entry_type, title, data, tags, entry_id, timestamp); as_dict() auto-fills uuid4 id + time.time() timestamp. JsonlLedger.append() mkdir -p the parent and writes one JSON line per entry to a configurable path. Records arbitrary structured records (decisions/observations/audit notes) durably as line-delimited JSON.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "observability/ — a new ledger.py module beside event_log.py (or a small core/ledger.py port). Distinct from EventBus-driven event_log; this is a directly-called record sink.",
+          "already_in_hex": "partial",
+          "dependencies": "stdlib only (json, time, uuid, dataclasses, pathlib). No network/LLM."
+        },
+        {
+          "name": "Ledger MCP server (append/tail/search/get/stats + workspace path-jail)",
+          "location": "/tmp/my_agents_ref/mcp_servers/ledger_server.py",
+          "summary": "FastMCP stdio server exposing a queryable project ledger over JSONL: ledger_append (validates non-empty entry_type/title, utc isoformat timestamp, uuid id, tags+data), ledger_tail (last N, clamped 1..200), ledger_search (filter by text substring/entry_type/tag), ledger_get (by id), ledger_stats (count + by_type histogram). _ensure_ledger_path() jails the file inside WORKSPACE_DIR (rejects paths outside via is_relative_to), env override LEDGER_PATH. All tools return {ok, tool, ...} envelopes and swallow exceptions into error fields. This is the real reusable capability — a durable, queryable cross-run audit/decision log.",
+          "capability_value": "high",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "toolbox/ (register append/tail/search/get/stats as tools behind ToolPort) backed by an observability/ledger.py store; path-jail reuses safety/ sandbox instead of the inline is_relative_to check. MCP framing is dropped — wire as native ToolPort tools.",
+          "already_in_hex": "none",
+          "dependencies": "mcp.server.fastmcp (FastMCP), core.runtime_paths (WORKSPACE_DIR/PROJECT_DIR); core logic is stdlib. Port should drop FastMCP and reuse hex safety/ jail + toolbox/ registration; the read/append/search logic itself is offline."
+        },
+        {
+          "name": "LedgerAgent + append_ledger synthesis-to-ledger bridge",
+          "location": "/tmp/my_agents_ref/agents/ledger_agent.py, /tmp/my_agents_ref/agents/department_v05.py (append_ledger, lines 98-123)",
+          "summary": "v0.5 'Ledger/Audit/Operations' role agent in the company pipeline (architect->planner->...->review->ledger->final). Runs deterministic lenses (historian, task_state, decision_record, auditor, incident_tracker), synthesizes a 'ready_for_final' decision, then calls append_ledger() which maps an agent synthesis into a ledger.ledger_append tool call (entry_type='agent_run', tags=['v0.5', agent], data={agent,version,task,decision,summary}). Demonstrates the pattern of recording each agent run as an audit-trail ledger entry before finalizing.",
+          "capability_value": "low",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "roles/ (a ledger/audit RoleSpec) + supervisor/ orchestration; the append_ledger bridge maps onto an observability/ledger sink. Mostly redundant with hex roles/+supervisor/+observability already present.",
+          "already_in_hex": "partial",
+          "dependencies": "agents.department_v05 (VERSION, append_ledger, compact_history, run_lenses, result_payload, safe_tool_call), agents.lenses.LEDGER_LENSES. Deterministic mode is offline (use_llm=False default); only the agent-orchestration scaffolding, not a standalone capability."
+        }
+      ],
+      "notes": "hex_agent has NO domain ledger. The only \"ledger\" hits in hex_agent are inside the vendored harness/ (unrelated SDLC tooling), not in core_agent app code. observability/event_log.py is a DIFFERENT concern: it is an EventBus-driven, per-run, machine event STREAM (sequence+kind+topic, written to var/agent_runs/<run_id>/events.jsonl, with metrics counters and summary.json/index.jsonl). The my_agents ledger is a directly-called, cross-run, SEMANTIC domain log (decisions/observations/TODOs/audit notes) with a query surface (tail/search/get/stats) and workspace-scoped durability — so already_in_hex is \"partial\" at best (shares only the append-only-JSONL mechanic). Recommended port: add observability/ledger.py (port JsonlLedger + LedgerEntry, ~40 lines, trivial) as the store, expose ledger_append/tail/search/get/stats as native toolbox/ tools behind ToolPort (drop FastMCP framing), and reuse safety/ path-jail instead of the inline is_relative_to check. Highest value is the QUERYABLE surface (search/stats/get) — that is the genuinely new capability event_log lacks. The LedgerAgent itself is low value (redundant with hex roles/+supervisor/), but its append_ledger bridge shows the intended \"record each agent run as an audit entry\" wiring. Everything here is offline-testable: pure stdlib JSONL I/O, no live network/LLM needed for meaningful tests (deterministic lens mode included)."
+    },
+    {
+      "area": "Self-test tooling, doctor, capability suite (dev-experience / verification layer)",
+      "features": [
+        {
+          "name": "Capability suite (agent self-test)",
+          "location": "/tmp/my_agents_ref/run_capability_suite.py",
+          "summary": "A single entrypoint that asserts agent *abilities* end-to-end offline: intent router decisions, global-supervisor routing+safety-block, knowledge/research/safety/final-synthesis department contracts, MCP tool registration + pdf_text_extraction, then shells out to 9 component smoke scripts and gates each by stdout marker. Prints PROJECT_CAPABILITY_SUITE_OK; cleans its sandboxed work dir in a finally block.",
+          "capability_value": "high",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "A new top-level run_capability_suite.py over observability/inspect + core.bootstrap + supervisor; harness/ could wrap it as a /hs gate",
+          "already_in_hex": "partial",
+          "dependencies": "Couples to my_agents' agents/orchestration/features packages (router, global_supervisor, departments, MCP config). hex_agent has run_smoke.py (kernel plumbing only) but no behavior-level self-test of supervisor/roles/safety; the subprocess+marker harness pattern and per-check contract style port cleanly."
+        },
+        {
+          "name": "Dev-checks runner (quick/full profiles)",
+          "location": "/tmp/my_agents_ref/run_dev_checks.py",
+          "summary": "argparse-driven orchestrator with --quick (default) and --full modes. Runs compileall over source dirs+entrypoints, then a fixed list of unittest-discover + smoke scripts (full adds MCP chain + capability suite). Times each check, prints a PASS/FAIL summary table with returncodes, exits 1 on any failure, prints DEV_CHECKS_OK. Sets deterministic env (PYTHONUTF8, ORCH_MAX_STEPS).",
+          "capability_value": "high",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "New run_dev_checks.py at repo root; complements pyproject + .github/workflows/ci.yml as a local one-shot 'is the tree green' gate",
+          "already_in_hex": "partial",
+          "dependencies": "hex_agent already runs ruff+pytest(tests/+tests_audit/) in CI but has NO single local fast/full dev gate or compileall+timed-summary runner. The runner shape (dataclass CheckResult, _run timer, summary table, quick/full split) is generic and trivial to retarget at pytest profiles + run_smoke.py."
+        },
+        {
+          "name": "mac_doctor.sh (environment doctor)",
+          "location": "/tmp/my_agents_ref/scripts/mac_doctor.sh",
+          "summary": "Bash diagnostic: checks OS/arch, required CLIs (git/node/npx/curl), optional docker (warns, doesn't fail), locates .venv python or falls back to python3, imports a fixed list of runtime deps (openai/mcp/dotenv/yaml/qdrant_client/fastembed/pypdf/docx/playwright/langgraph) reporting which are missing, verifies .env, ensures var/ runtime dirs, runs compileall. OK/WARN/FAIL prefixes; non-zero exit on blocking issues.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "New scripts/doctor.sh (or core/runtime_paths-style ensure_runtime_dirs + a Python doctor); pairs with core/bootstrap and config/",
+          "already_in_hex": "none",
+          "dependencies": "No env/dependency preflight exists in hex_agent. Dep list and docker/qdrant warnings are my_agents-specific and must be re-derived from hex_agent's pyproject extras (openai, qdrant, langgraph). A Python port is more portable than bash for this repo."
+        },
+        {
+          "name": "bootstrap_mac.sh (one-shot setup)",
+          "location": "/tmp/my_agents_ref/scripts/bootstrap_mac.sh",
+          "summary": "Idempotent macOS bootstrap: brew bundle (check-then-install), create+activate .venv, pip install requirements, playwright install chromium, mkdir runtime dirs, copy .env.example->.env, then run dev-checks --quick as a smoke. Ends with next-step guidance.",
+          "capability_value": "low",
+          "port_complexity": "low",
+          "offline_testable": false,
+          "hex_fit": "scripts/bootstrap.sh; overlaps with pyproject editable install",
+          "already_in_hex": "none",
+          "dependencies": "Network (brew/pip/playwright). Largely superseded by hex_agent's pyproject `pip install -e .[dev,audit]`; mostly a convenience wrapper. Low value to port beyond the runtime-dir mkdir + .env copy steps."
+        },
+        {
+          "name": "Makefile (dev-experience targets)",
+          "location": "/tmp/my_agents_ref/Makefile",
+          "summary": "Phony targets wrapping the workflow: bootstrap, install (venv+pip+playwright+dirs+.env), doctor, quick, full, dev, qdrant-up/down/health, lm-health (curls LLM /models), clean (rm caches). A discoverable command surface over the scripts above.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "Repo-root Makefile fronting run_smoke.py / run_dev_checks.py / docker-compose.rag.yml / inspect CLI",
+          "already_in_hex": "none",
+          "dependencies": "hex_agent has docker-compose.rag.yml but no Makefile/task runner; targets must be re-pointed (qdrant compose file name, no LM-Studio assumption — hex uses OpenAI-compatible adapter). Cheap, high-discoverability win."
+        },
+        {
+          "name": "Brewfile (system dep manifest)",
+          "location": "/tmp/my_agents_ref/Brewfile",
+          "summary": "Declarative Homebrew manifest: python@3.11, node, git, ripgrep, jq; casks docker-desktop and lm-studio.",
+          "capability_value": "low",
+          "port_complexity": "low",
+          "offline_testable": false,
+          "hex_fit": "Optional repo-root Brewfile for onboarding",
+          "already_in_hex": "none",
+          "dependencies": "lm-studio cask is my_agents-specific (hex_agent targets a generic OpenAI-compatible endpoint, so likely drop it). Marginal value; only useful alongside a ported Makefile/bootstrap."
+        },
+        {
+          "name": "inspect_runs CLI + event_reader (filtered run inspector)",
+          "location": "/tmp/my_agents_ref/inspect_runs.py, /tmp/my_agents_ref/tools/event_reader.py",
+          "summary": "argparse CLI with subcommands list/summary/events. `list` prints per-run metrics (status, steps, tool_calls, tool_failures, finished_at). `events` supports multi-axis filtering: --kind/--status/--tool/--text plus --json/--limit, with summarize_event() human lines. Backed by event_reader (load_runs, resolve_run_id 'latest', filter_events, summarize_event) with tolerant JSONL parsing.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "Directly enriches observability/inspect.py (and feeds ui/ console)",
+          "already_in_hex": "partial",
+          "dependencies": "hex_agent observability/inspect.py already does list/summary/events with --kind and --topic and 'latest' resolution. Missing deltas worth porting: --status/--tool/--text event filters, a human summarize_event() formatter, and the metrics columns (steps/tool_calls/tool_failures) in `list`. Self-contained; maps onto existing event_log schema."
+        }
+      ],
+      "notes": "hex_agent is intentionally leaner here. It HAS: run_smoke.py (deterministic kernel-level smoke -> CORE_AGENT_SMOKE_OK), observability/inspect.py (list/summary/events with --kind/--topic, 'latest'), pyproject.toml extras, and a real GitHub CI (ruff + pytest tests/ + tests_audit/, plus a rag-integration job). It LACKS the developer-experience and self-verification layer my_agents grew: (1) a behavior-level capability suite that proves agent *abilities* (routing/supervisor/safety/contracts) rather than just plumbing — this is the single highest-value port and should be re-expressed against hex_agent's supervisor/roles/safety seams as a marker-gated, offline, sandboxed runner; (2) a local quick/full dev-checks gate with compileall + timed PASS/FAIL summary (low effort, high daily value — wire to pytest profiles + run_smoke.py); (3) an env/dependency doctor (none in hex; recommend a Python port over bash, deriving the dep list from pyproject extras); (4) Makefile + bootstrap + Brewfile onboarding ergonomics (cheap, drop lm-studio/LM-Studio specifics). Port priority: capability_suite > dev_checks > doctor > inspect filter-enrichment > Makefile > bootstrap/Brewfile. Caution: every my_agents script imports its own package tree (agents/orchestration/features/tools.event_reader) and assumes var/ runtime dirs + ORCH_MAX_STEPS + LEDGER/ISSUE_DB env; ports must be rebound to hex_agent's core.bootstrap, observability.event_log.runs_dir, supervisor, and config layout. The subprocess+stdout-marker gating pattern (_run_script with expect_contains/expect_not_contains) and the sandboxed-then-cleanup work-dir discipline are the genuinely reusable design ideas independent of the specific agents."
+    },
+    {
+      "area": "Core/kernel/features architectural diff (my_agents core/ + features/ vs hex_agent core/)",
+      "features": [
+        {
+          "name": "runtime_paths: centralized PROJECT_DIR + var-dir resolver + ensure_runtime_dirs()",
+          "location": "/tmp/my_agents_ref/core/runtime_paths.py",
+          "summary": "Single module that resolves PROJECT_DIR once, loads .env (load_dotenv, override=False), exposes VAR_DIR/WORKSPACE_DIR/AGENT_RUNS_DIR/TEST_RUNS_DIR/QDRANT_STORAGE_DIR via _path_env() (env override -> project-relative default -> resolve()), and ensure_runtime_dirs() to pre-create them. One place owns the var/ layout.",
+          "capability_value": "high",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "core/ (new core/runtime_paths.py); consumed by safety/sandbox.py, observability/event_log.py, orchestrator+supervisor/checkpoint.py, rag, ui/server.py",
+          "already_in_hex": "none",
+          "dependencies": "optional python-dotenv (degrades gracefully if absent); stdlib pathlib/os"
+        },
+        {
+          "name": "Kernel error taxonomy (KernelError hierarchy)",
+          "location": "/tmp/my_agents_ref/core/errors.py",
+          "summary": "Typed exception tree: KernelError base + KernelConfigurationError, CapabilityNotFoundError, FeatureDisabledError, PortContractError. Lets callers/middleware distinguish config vs capability vs contract failures instead of bare RuntimeError/ValueError.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "core/ (new core/errors.py); raised by core/bootstrap.py, features/loader.py, registry; caught at kernel boundary",
+          "already_in_hex": "none",
+          "dependencies": "none (stdlib)"
+        },
+        {
+          "name": "Typed semantic ports (Browser/CodeEdit/Issue/Test/Search/Memory Protocols)",
+          "location": "/tmp/my_agents_ref/core/ports/browser_port.py, code_port.py, issue_port.py, test_port.py, search_port.py, memory_port.py",
+          "summary": "Domain-specific port Protocols (get_text/screenshot; view/replace/insert; create/list; run; search; retrieve/store) alongside the generic ToolPort, giving statically-typed seams for non-tool capabilities. hex_agent only has the generic ToolPort + delegation ports in core/ports.py.",
+          "capability_value": "low",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "core/ports.py (add Protocols); but hex_agent largely routes these through the generic ToolPort + toolbox/rag, so value is marginal",
+          "already_in_hex": "partial",
+          "dependencies": "none (typing.Protocol)"
+        },
+        {
+          "name": "Named null-feature objects beyond ToolPort (NullSearch/NullMemory)",
+          "location": "/tmp/my_agents_ref/features/nulls.py",
+          "summary": "Null Object implementations for Search and Memory features returning ok=True empty results with a 'not installed' message, so callers degrade gracefully when an optional feature is absent. hex_agent has NullToolPort in core/registry.py but no null objects for higher-level optional features (e.g. rag/memory).",
+          "capability_value": "low",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "rag/ (null memory/search backend) and core/registry NullToolPort already covers the tool seam",
+          "already_in_hex": "partial",
+          "dependencies": "none"
+        },
+        {
+          "name": "JsonlLedger append-only kernel record primitive",
+          "location": "/tmp/my_agents_ref/core/ledger.py",
+          "summary": "Tiny frozen LedgerEntry (entry_type/title/data/tags/id/timestamp) + JsonlLedger.append() that JSON-lines to a path, auto-creating the parent dir and filling id/timestamp. A generic durable-record primitive distinct from the event stream.",
+          "capability_value": "low",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "observability/ — overlaps with hex_agent's richer event_log JSONL run-dir writer; mostly redundant",
+          "already_in_hex": "partial",
+          "dependencies": "none (stdlib json/time/uuid/pathlib)"
+        },
+        {
+          "name": "configured_feature_tests() — declarative test discovery from feature config/descriptors",
+          "location": "/tmp/my_agents_ref/features/loader.py",
+          "summary": "Walks enabled features in config and collects their test modules (explicit settings['tests'] or DESCRIPTOR.tests on the module), returning a deduped sorted list so a feature ships its own verification surface. hex_agent's loader installs features but has no test-discovery hook, and its FeatureDescriptor dropped the 'tests'/'category'/'removable'/'dependencies' fields my_agents' descriptor carries.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "features/loader.py + core/schemas.py FeatureDescriptor (re-add tests/dependencies/category/removable fields)",
+          "already_in_hex": "none",
+          "dependencies": "importlib (stdlib)"
+        },
+        {
+          "name": "capabilities.py thin functional facade (call_tool / describe_capabilities)",
+          "location": "/tmp/my_agents_ref/core/capabilities.py",
+          "summary": "Two free functions over a default-or-passed kernel: call_tool(name, args, kernel=None) and describe_capabilities(kernel=None), giving callers a one-line entrypoint without threading a kernel handle. hex_agent callers go through KernelSession/kernel.execute_tool directly.",
+          "capability_value": "low",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "core/ convenience facade; but hex_agent's session-scoped model (ToolCallContext, allowed_capabilities) makes a kernel-global call_tool an anti-pattern",
+          "already_in_hex": "partial",
+          "dependencies": "core.bootstrap.get_default_kernel (module-level singleton — conflicts with hex_agent's frozen-kernel/session design)"
+        }
+      ],
+      "notes": "Honest verdict: hex_agent's core is strictly more advanced than my_agents' across the kernel/registry/schemas/ports themselves — do NOT port those. hex_agent already has: frozen-lifecycle kernel + registry (freeze()), a real middleware pipeline around the single execute_tool chokepoint (my_agents has none), ToolCallContext lineage + allowed_capabilities scope enforcement, ToolDescriptor risk/idempotent/kind retry metadata, deep-copied args, deep-frozen config, typed Delegation ports, and the identical CapabilityResult envelope + NullToolPort + config-driven feature loader. my_agents' kernel/registry/schemas/state/bootstrap/loader are essentially earlier ancestors of hex_agent's.\\n\\nThe ONE genuinely high-value, cleanly-missing idea is runtime_paths.py: hex_agent currently re-derives `PROJECT_DIR = Path(__file__).resolve().parent.parent` in FOUR files (core/bootstrap.py, observability/event_log.py, safety/sandbox.py, ui/server.py) and re-reads AGENT_WORKSPACE_DIR / AGENT_RUNS_DIR ad hoc, with no single owner of the var/ layout and no ensure_runtime_dirs(). Centralizing this removes duplication and gives one extension point for new runtime dirs (test_runs, qdrant_storage). Recommend porting runtime_paths first.\\n\\nSecond tier (medium): a small core/errors.py taxonomy (hex_agent has only control/errors.py ControlContractError) and re-adding the dropped FeatureDescriptor fields (tests/dependencies/category/removable) + configured_feature_tests() so features carry their own verification + dependency metadata — useful for the harness's test gating.\\n\\nEverything else (typed semantic ports, null search/memory, JsonlLedger, capabilities.py facade) is low value or already covered: the semantic ports route through hex_agent's generic ToolPort/toolbox/rag; JsonlLedger overlaps observability/event_log; and capabilities.py's get_default_kernel() module-singleton actively conflicts with hex_agent's frozen-kernel + per-session ToolCallContext model — do not port it."
+    },
+    {
+      "area": "Prompt library + business_prompt_lab + case-driven evaluation harness",
+      "features": [
+        {
+          "name": "Tool-Agent system prompt (ReAct + JSON-only contract)",
+          "location": "/tmp/my_agents_ref/prompts/system_prompt.md",
+          "summary": "The canonical system prompt for the role-scoped Tool Agent: strict JSON-only output (tool-request / final schemas), ReAct loop, finish-gate, tool-failure taxonomy (user/env/dependency/logic), read-before-edit, smallest-scoped-change, git-mutation hard-block, and per-MCP usage rules. Uses {{MCP_TOOLS}}/{{SKILLS}} placeholder injection.",
+          "capability_value": "high",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "discipline/json_gate + discipline/finish_gate + llm/ adapter system-prompt assembly; a golden prompt fixture under tests/fixtures/",
+          "already_in_hex": "partial",
+          "dependencies": "Conceptually maps to hex discipline (json_gate, finish_gate, condense); the {{MCP_TOOLS}}/{{SKILLS}} injection assumes a tool/skill registry like core/CapabilityRegistry + skills/SkillRegistry. No code dependency to port the text itself."
+        },
+        {
+          "name": "business_prompt_lab offline JSON-discipline grader (run.py)",
+          "location": "/tmp/my_agents_ref/business_prompt_lab/run.py",
+          "summary": "Self-contained prompt-benchmark runner that scores an LLM's business-analysis JSON output against a fixed schema: weighted checks for strict-JSON-only (no markdown fence), top-level key completeness, decision validity (recommendation enum + 0..1 confidence + rationale), nested section completeness, risk/next-step structure, concise summary, banned-phrase and template-echo detection. Produces a 0-100 score, verdict tiers, and summary.md/json. The parse+evaluate functions are pure and run with no network.",
+          "capability_value": "high",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "discipline/json_gate (schema/strictness checks) + observability/event_log (run artifacts); could become a tests_audit eval-gate or a graded fixture harness",
+          "already_in_hex": "partial",
+          "dependencies": "call_model() imports the repo's llm.py (live LLM) only for generation; the parse_json_object/evaluate_output scoring core has zero deps and is directly portable as an offline grader. EXPECTED_TOP_LEVEL_KEYS/OUTPUT_SCHEMA constants are inline."
+        },
+        {
+          "name": "Business-analysis prompt ladder (p01-p04) + JSON output schema",
+          "location": "/tmp/my_agents_ref/business_prompt_lab/prompts/p01_baseline.md, p02_json_contract.md, p03_business_controller.md, p04_evidence_guarded.md",
+          "summary": "Four escalating prompt variants (baseline prose -> JSON contract -> strict controller -> evidence-guarded) over one {{OUTPUT_SCHEMA}}, designed to A/B prompt discipline. Demonstrates a reusable pattern for measuring how much a prompt tightens structured-output compliance.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "llm/ JSON-mode adapter prompt assets; fixtures for discipline/json_gate eval",
+          "already_in_hex": "none",
+          "dependencies": "Templated via {{OUTPUT_SCHEMA}}/{{CASE_ID}}/{{TODAY}} substitution done by run.py render_prompt; portable as plain markdown with that small substitution helper."
+        },
+        {
+          "name": "Business case fixtures (structured decision scenarios)",
+          "location": "/tmp/my_agents_ref/business_prompt_lab/cases/saas_market_entry.json, retail_expansion.json",
+          "summary": "Structured business-decision cases (id, title, business_task, company_context, available_facts, constraints, requested_focus) rendered into a deterministic user message by run.py case_user_message(). Reusable as deterministic golden inputs for any structured-output eval.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "tests/ or tests_audit/ fixtures for llm/json-mode + discipline eval",
+          "already_in_hex": "none",
+          "dependencies": "Pure JSON data, no deps."
+        },
+        {
+          "name": "BA-skill eval dataset (ba_agent_eval_v0_1.jsonl)",
+          "location": "/tmp/my_agents_ref/business_prompt_lab/ba_agent_eval_v0_1.jsonl",
+          "summary": "12-row labeled eval set of business-analyst prompts (vague/contradictory/scope-creep/solution-first requests) each tagged with expected skill_labels (PROBLEM_FRAMING, NO_LEAP, SCOPE_CONTROL, ...) and constraint_labels (MAX_5_QUESTIONS, NO_TECH_STACK_DECISION, MARK_UNKNOWN, ...). A label-based capability rubric, not a code asset.",
+          "capability_value": "medium",
+          "port_complexity": "low",
+          "offline_testable": true,
+          "hex_fit": "tests_audit/ labeled-eval fixtures; could grade roles/ or skills/ behavior. No scorer ships with it.",
+          "already_in_hex": "none",
+          "dependencies": "Standalone JSONL; the grader/observer that consumes these labels is not present in this area (would need to be written)."
+        },
+        {
+          "name": "Case-driven smoke/acceptance harness (run_all_cases.py + auto_cases/skill_cases markdown)",
+          "location": "/tmp/my_agents_ref/run_all_cases.py (runner, outside prompts/), /tmp/my_agents_ref/prompts/auto_cases/ (35 cases), /tmp/my_agents_ref/prompts/skill_cases/ (25 cases)",
+          "summary": "60 markdown prompt-cases grouped (capability/rag/project/agent/chain/mcp_ext/langgraph/skill/e2e/orchestrator). Each TestCase declares prompt_file, expect_contains/expect_not_contains sentinels (e.g. CHAIN_DOC_FS_PY_LEDGER_OK, no Traceback), timeout, entrypoint, success_marker. Runner shells out to main.py per case and asserts on transcript output. Sentinel-based, end-to-end behavioral acceptance.",
+          "capability_value": "high",
+          "port_complexity": "high",
+          "offline_testable": false,
+          "hex_fit": "supervisor/ + graph/orchestrator (end-to-end agent loop) acceptance tests; conceptually parallels hex tests/test_acceptance_gate.py",
+          "already_in_hex": "partial",
+          "dependencies": "Runner depends on core.runtime_paths and subprocess-launching main.py with a live LLM + many MCP servers (filesystem/python/git/rag/document/ledger), so the full loop is NOT offline. The markdown case files (the load-bearing assets) and the expect_contains assertion model are portable as fixtures; the subprocess+LLM execution must be re-pointed at hex's graph/orchestrator."
+        },
+        {
+          "name": "No-code agent-room orchestration (planner/specialist/reviewer with code-leak guard)",
+          "location": "/tmp/my_agents_ref/business_prompt_lab/agent_room.py",
+          "summary": "Multi-agent business room: a planner emits a task DAG (PLANNER_SCHEMA) assigning tasks to a 6-role roster (context_analyst, market_analyst, finance_strategist, operator, risk_reviewer, customer_voice), specialists answer (SPECIALIST_SCHEMA with assumptions/risks/handoff), a reviewer (REVIEWER_SCHEMA) gates evidence, a final synthesizer composes. Has a NO_CODE_POLICY + CODE_SIGNAL_PATTERNS regex guard that blocks code/SQL/shell leakage, and a --mock/--dry-run path that runs without the LLM.",
+          "capability_value": "medium",
+          "port_complexity": "high",
+          "offline_testable": true,
+          "hex_fit": "supervisor/ (Agent-O TaskLoop, broker, contracts) + delegation/ (manager, policy, registry) + roles/ (RoleSpec, lenses)",
+          "already_in_hex": "full",
+          "dependencies": "Uses repo llm.py for real runs but ships a deterministic mock roster/task-board path (offline). hex already has a more advanced supervisor+delegation+roles stack; the genuinely portable novelty is the NO_CODE_POLICY/CODE_SIGNAL_PATTERNS output-leak guard and the role roster, not the orchestration."
+        },
+        {
+          "name": "repo_understanding_lab eval rubric + No-Leap Guardian + golden-fixture pattern",
+          "location": "/tmp/my_agents_ref/business_prompt_lab/repo_understanding_lab/docs/06_TEST_AND_EVALUATION.md, docs/08_NO_LEAP_GUARDIAN.md, fixtures/tiny_python_repo/",
+          "summary": "An evaluation-design spec: rubric (context precision/recall, evidence quality, No-Leap score, test adequacy, runtime safety, artifact quality), negative-trap fixtures (stale docs vs code, shared symbol names, dead imports), golden-output JSON pattern, and a No-Leap Guardian observer that forces separation of observed evidence / inference / uncertainty / next-step. Includes a tiny_python_repo fixture for golden file/symbol/graph maps.",
+          "capability_value": "medium",
+          "port_complexity": "medium",
+          "offline_testable": true,
+          "hex_fit": "tests_audit/ rubric + observability/ observer report; the tiny_python_repo + golden JSON pattern is a clean offline fixture model for any scanner/RAG eval",
+          "already_in_hex": "none",
+          "dependencies": "Mostly design docs + a stdlib mock scanner (no network). The tiny_python_repo fixture and golden-output convention are directly reusable; the observer/scorer code is described but lives mostly as spec, so porting needs implementation."
+        }
+      ],
+      "notes": "hex_agent currently has NO application-level prompt library and NO case-driven eval harness (confirmed: only harness/ tooling prompts under harness/plugins and harness/install, which are unrelated CLI-skill assets; tests/ has no prompt fixtures, no graded-output gate). So this area is genuinely additive.\n\nHighest-value, lowest-friction ports (all offline): (1) business_prompt_lab/run.py's pure scoring core — parse_json_object + evaluate_output + the weighted checks/banned-phrase/template-echo logic — is a ready-made offline JSON-discipline grader that maps cleanly onto hex discipline/json_gate and could become a tests_audit eval gate; (2) the system_prompt.md tool-agent contract as a golden fixture validating hex's json_gate/finish_gate semantics (hex implements the discipline but has no canonical prompt text capturing it); (3) the cases/*.json + p01-p04 prompt ladder + ba_agent_eval JSONL as deterministic golden inputs.\n\nKey caveat on offline-testability: the run_all_cases.py acceptance harness and agent_room real mode require a live LLM + MCP servers, so they are NOT offline end-to-end. What IS offline and portable from them is the assertion model (expect_contains/expect_not_contains sentinels), the 60 markdown case prompts as fixtures, and agent_room's --mock/--dry-run path plus its NO_CODE_POLICY/CODE_SIGNAL_PATTERNS output-leak guard. hex's supervisor/+delegation/+roles already exceed agent_room's orchestration (already_in_hex=full for the orchestration itself; the leak-guard regex is the only novel bit).\n\nThe case markdown files are bilingual (Vietnamese task text + ASCII sentinels); sentinels like PROJECT_SMOKE_TEST_OK / CHAIN_DOC_FS_PY_LEDGER_OK are the load-bearing assertion anchors and survive porting unchanged. The repo_understanding_lab is largely a design spec (docs) with a stdlib mock scanner; its reusable concrete asset is the tiny_python_repo fixture + golden-JSON convention and the No-Leap evidence/inference/uncertainty rubric, which is a good model for grading hex's rag/ and roles/ behavior."
+    }
+  ],
+  "hexState": {
+    "seams": "All paths under /Users/uspro/Desktop/Namson/hex_agent/. The architecture is hexagonal/microkernel: one chokepoint (AgentKernel.execute_tool), config-driven feature install, and Protocol-based ports for every swap point.\n\n== ADD A TOOL ==\nA tool is any object with `name: str` + `execute(request: ToolRequest) -> dict` (the ToolPort protocol, core/ports.py:19-26). It is NOT installed directly — it is registered by a *feature*. Registration API on CapabilityRegistry (core/registry.py:67-96):\n  - register_tool(name, executor, *, feature_name, kind=\"tool\", idempotent=False, risk=\"low\")\n  - register_tools(names, executor, ...) for one executor exposing many capability names.\n`kind` ∈ model|read|effect|tool; (idempotent, risk) drive retry/policy middleware (core/registry.py:11-20). Resolution: exact name → optional fallback → NullToolPort (core/registry.py:103-112). Registry freezes before first session (core/registry.py:56-61).\n\n== ADD A FEATURE (the primary plugin seam) ==\nA feature is a Python module exposing `install(kernel: AgentKernel) -> None` (features/loader.py:22-25). Convention inside install(): build a FeatureDescriptor, call kernel.registry.register_feature(desc), then register its tools. Canonical patterns:\n  - Trivial: features/example_echo.py:9-25 (FeatureDescriptor + register_tools).\n  - Sandboxed/gated: toolbox/feature.py:10-36 (wraps each tool in SafeToolPort + ToolPolicy, per-tool risk descriptors).\n  - Ports + event-emitting + backend-switchable: rag/feature.py:20-121 (build_service from kernel.config['rag'], tools also publish semantic rag.* events via kernel.events.publish).\nEnable a feature by adding an entry under `features:` in config/features.yaml with `enabled: true` and `module: <import.path>` (config/features.yaml:1-13). install_configured_features iterates enabled entries and importlib-imports each module (features/loader.py:10-25). Wired by build_kernel → install_configured_features + _install_middleware (core/bootstrap.py:56-66). Entry points: create_kernel(config_path) / build_kernel(config) (core/bootstrap.py:56-70).\n\n== ADD MIDDLEWARE (cross-cutting hook around every tool call) ==\nA middleware is a callable matching ToolMiddleware: __call__(request: ToolRequest, nxt: ToolHandler) -> dict (core/middleware.py:11-15). May act before/after, short-circuit, or rewrite the result envelope. Register via kernel.use(mw); registration order = outer→inner (core/kernel.py:57-61). Built-ins are config-wired in _install_middleware in declared order timing→policy→retry→condense (core/bootstrap.py:28-53) from config['middleware'].{timing,policy,retry,condense}.enabled. NOTE: BudgetGuard is intentionally NOT kernel-wired (per-run counter) and must be added per-run. Pipeline freezes before first session (core/kernel.py:48-55).\n\n== ADD A SKILL ==\nA skill is a SKILL.md file: YAML frontmatter (name, description, optional triggers) + body sections 'Allowed (tools)' / 'Forbidden (tools)' / 'Steps' / 'Report' (skills/spec.py:1-11, parse_skill at :98-117). Headings matched by substring, case-insensitive. Skills are role-agnostic (declare tool names only, never reference roles). Load via SkillRegistry.load_file / load_dir (recursive *.md) / load_text (skills/registry.py:28-37). Rendered with progressive disclosure: mode='contract' (desc+Allowed+Forbidden) vs 'full' (+Steps+Report) (skills/registry.py:57-76). union_tools feeds the role allowlist (skills/registry.py:79-89); lint() flags unknown tools (:91-99).\n\n== ADD A ROLE ==\nA role is a YAML file parsed into RoleSpec (roles/spec.py:90-120). Required fields: name, role, department, system_prompt; optional: allowed_tools, allowed_skills, route_permissions.may_route_to, test_ownership{owns_validation,must_handoff_to}, lenses (roles/spec.py:19,90-114). Runtime allowlist derivation is the single skill↔role meeting point: union(explicit_tools, core_tools, each skill's allowed_tools) minus skill forbidden_tools — forbidden wins (roles/spec.py:53-63). Load via AgentRegistry.load_file / load_dir (non-recursive *.yaml) (roles/registry.py:38-43). build_agent(name) is shared by single (E05) and multi (E10) paths (roles/registry.py:60-66); role_view/list_roles give the slim RoleView the supervisor consumes (:69-79).\n\n== ADD A LENS ==\nA lens is a YAML file → LensSpec (name, purpose, optional allowed/forbidden tools, output_schema) (roles/lenses.py:43-61). Load via LensRegistry.load_file/load_dir(*.yaml) (:74-80); a role declares which lenses render into its prompt via the `lenses:` list.\n\n== ADD A DELEGATION TARGET (sub-agent backend) ==\nA delegation target implements DelegationPort: name, can_handle(target)->bool, run(request, child_session, progress_sink)->DelegationResult (core/ports.py:32-45). Register on DelegationRegistry.register(handler); resolve(target) fails loudly on zero or ambiguous matches (delegation/registry.py:15-36). Composition: delegation/bootstrap.py create_delegation_service builds a DelegationManager from registry+SessionFactory+store, gated by config['delegation'].enabled / default_target (config/features.yaml:26-28). Related ports: DelegationStorePort, DelegationServicePort (core/ports.py:48-77).\n\n== ADD AN LLM BACKEND ==\nLLM is itself a capability (features/llm_chat.py) flowing through execute_tool; the adapter (llm/adapter.py) is OpenAI-compatible, JSON-mode, lazy client, injectable.\n\n== ADD AN OBSERVABILITY SINK / EVENT CONSUMER ==\nEverything funnels through EventBus.publish; kernel emits tool.requested/completed/failed with full session lineage (core/kernel.py:80-168). Subscribe any sink(topic, payload) via bus.subscribe; EventLogger.attach_to_bus is the reference consumer mirroring events→JSONL and mapping topics→metrics (observability/event_log.py:102-134). Add a metric by extending _METRICS (observability/event_log.py:17-30) + a topic branch in the sink.\n\n== ADD A CONTROL-PLANE TRANSPORT/STORAGE (E21, seams defined, adapters pending) ==\ncontrol/ports.py defines EventSinkPort.emit(event: RuntimeEvent) (control/ports.py:14-21) as the swap point; v1 in-process BusEventSink, future Kafka/Redis/Postgres adapters drop in with no caller change. Transport / Control-Tower UI / reliability are explicitly NOT yet implemented (README.md:8, MAP.md control/ section).\n\n== OUTPUT-DISCIPLINE SEAM ==\ndiscipline/ holds shared, reusable primitives: json_gate (parse_json_object/parse_action/build_retry_message — field-agnostic JSON repair, discipline/json_gate.py:64-104), budget, condense, finish_gate. Middleware/condense.py and middleware/budget.py wrap these for the tool pipeline.",
+    "bundled": "All under /Users/uspro/Desktop/Namson/hex_agent/.\n\n== FEATURES (config/features.yaml, all enabled by default) ==\n- example_echo (features/example_echo.py) → tool `echo` / EchoTool. Smoke + plugin template.\n- llm_chat (features/llm_chat.py) → LLM exposed as a capability (`llm.*`) through execute_tool.\n- toolbox (toolbox/feature.py) → tools: fs_read, fs_write, fs_list (toolbox/filesystem.py), terminal_run (toolbox/terminal.py, argv no-shell, workspace-jailed, timeout). Every tool wrapped in SafeToolPort+ToolPolicy. Per-tool risk: fs_read/fs_list=read/idempotent/low, fs_write=effect/medium, terminal_run=effect/high.\n- rag (rag/feature.py) → tools: rag_health, rag_ingest, rag_search. Backends: `memory` (default, offline, FakeEmbedder+InMemoryVectorStore) or `qdrant` (FastEmbed+QdrantVectorStore, needs docker-compose.rag.yml + .[rag] extras).\n\n== MIDDLEWARE (middleware/__init__.py exports: BudgetGuard, CondenseResult, PolicyGate, Retry, TimingLog) ==\n- TimingLog (middleware/timing.py) — wall-time, register outermost.\n- PolicyGate (middleware/policy.py) — deny-list chokepoint, blocks before run.\n- Retry (middleware/retry.py) — re-invoke on non-ok; respects idempotent descriptor (won't retry non-idempotent effects).\n- CondenseResult (middleware/condense.py) — shrink tool result before re-feeding model.\n- BudgetGuard (middleware/budget.py) — block repeated identical calls (per-run, wired per-run not in kernel).\n\n== SKILLS (skills/library/, 2 bundled) ==\n- code_review (skills/library/code_review.md) — read-only review; allowed fs_read/fs_list, forbidden fs_write/terminal_run; triggers [review, diff, pull request, pr].\n- file_edit (skills/library/file_edit.md).\n\n== ROLES (roles/library/, 4 bundled) ==\n- code (roles/library/code.yaml) — engineer; tools fs_read/fs_write/fs_list; skill file_edit; may_route_to test/reviewer; owns_validation=false→handoff test; lens correctness.\n- test (roles/library/test.yaml).\n- reviewer (roles/library/reviewer.yaml).\n- business_analyst (roles/library/business_analyst.yaml).\n\n== LENSES (roles/library/lenses/, 2 bundled) ==\n- correctness (roles/library/lenses/correctness.yaml) — logic/edge/failure; allowed fs_read; output verdict+issues.\n- requirements (roles/library/lenses/requirements.yaml).\n\n== DELEGATION TARGETS (adapters/agents/) ==\n- LangGraphDelegationAgent (adapters/agents/langgraph_agent.py) — default local target `agent:general`.\n- scripted (adapters/agents/scripted.py) — deterministic test agent.\n\n== CLI / ENTRYPOINTS ==\n- python run_smoke.py (deterministic, no LLM/network; prints CORE_AGENT_SMOKE_OK).\n- python -m observability.inspect {list|summary|events} (observability/inspect.py).\n- python -m ui.server (local HTTP/SSE Dracula console at 127.0.0.1:8765, ui/server.py).\n- python tools/gen_map.py (regenerates MAP.md).\n\n== ORCHESTRATION FACADES ==\n- Single-agent: orchestrator/loop.py (run/resume over one compiled LangGraph + SQLite checkpointer, orchestrator/checkpoint.py).\n- Multi-agent: supervisor/loop.py run_task_loop / resume_task_loop (Agent-O TaskLoop: compose_team→o_decide→run_round/run_tool→judge_acceptance→guard; SQLite Blackboard checkpoint).\n\n== CONTROL PLANE (E21, contracts shipped, transport/UI pending) ==\ncontrol/: events, event_registry, commands, command_registry, checkpoint, permission, redaction, emitter (EventEmitter — validated/redacted/sequenced publish), errors, ports.",
+    "conventions": "All under /Users/uspro/Desktop/Namson/hex_agent/. New modules go beside their epic peers; MAP.md (auto-generated by tools/gen_map.py) is the index — rerun it after adding files. Each module starts with a one-line docstring naming its epic.\n\nWHERE NEW MODULES GO BY TYPE:\n- New tool/feature → a new module under an existing or new top-level package; expose install(kernel). Trivial/demo features live in features/. Domain features get their own package (toolbox/, rag/ are the precedent: package with feature.py + ports.py + service/adapters). Register the module in config/features.yaml.\n- New middleware → middleware/<name>.py, exported from middleware/__init__.py, optionally wired in core/bootstrap.py _install_middleware + a config/features.yaml `middleware:` knob.\n- New skill → skills/library/<name>.md (SKILL.md format). Loaded via SkillRegistry.load_dir(skills/library).\n- New role → roles/library/<name>.yaml. Loaded via AgentRegistry.load_dir (non-recursive).\n- New lens → roles/library/lenses/<name>.yaml (loaded deeper, separate from roles).\n- New delegation/agent adapter → adapters/agents/<name>.py.\n- New port/protocol → that package's ports.py (core/ports.py for tool/delegation; control/ports.py for control plane; rag/ports.py for RAG). Concrete adapters live in <pkg>/adapters or <pkg>/stores_*.py.\n\nNAMING & CONTRACTS:\n- Tools: snake_case capability names (fs_read, rag_search). Executors carry a `.name` attr.\n- Roles: targets like `agent:general`; role files require name/role/department/system_prompt.\n- Tool result envelope: every tool returns a plain dict with at least `ok: bool`; the kernel wraps it into CapabilityResult (core/schemas.py). A tool must never raise to the kernel (caught at core/kernel.py:113-121).\n- Data contracts live in core/schemas.py (TaskEnvelope, ToolRequest, CapabilityResult, FeatureDescriptor, Delegation* types).\n\nTESTS (two suites):\n- tests/ — offline unit/concurrency/resume/delegation tests (test_<area>.py). Add tests here next to the feature, e.g. tests/test_control_snapshot.py.\n- tests_audit/ — strict adversarial/property suite with shared fixtures in tests_audit/conftest.py; files grouped by concern (test_security_boundaries.py, test_contract_roundtrips.py, test_middleware_exact_semantics.py, test_roles_skills_config_integrity.py, test_supervisor_adversarial_matrix.py, etc.). New persisted/public contracts add a roundtrip property test here; new I/O boundaries add to test_security_boundaries.py.\n- Run: python -m pytest (fully offline).\n\nRUNTIME STATE: var/agent_runs/<run_id>/{events.jsonl,summary.json,langgraph.sqlite,checkpoint.json} — gitignored, never committed. AGENT_RUNS_DIR / AGENT_EVENT_LOG env override.\n\nDOCS: docs/ is Diátaxis-structured; specs in docs/spec/, future work in docs/roadmap/, decisions in docs/decisions.md (decision register). System invariants in README.md:53-54.",
+    "notes": "SCOPE NOTE for the synthesis/gap step: the `harness/` directory at repo root is a VENDORED Claude Code SDLC harness (the /hs:* skills, plugins, hooks listed in CLAUDE.md) — it is tooling for developing this repo, NOT part of the hex_agent runtime's own extension system. The hex_agent agent runtime's own bundled skills/roles are ONLY the 2 skills in skills/library/ and the 4 roles in roles/library/. Do not conflate the ~100 harness/* SKILL.md plugins with the agent's own capability set.\n\nMATURITY / GAPS already visible in current state:\n- Control plane (E21, control/) has contracts + EventEmitter shipped but transport, Control-Tower UI, and reliability are explicitly PENDING (README.md:8). EventSinkPort (control/ports.py) is the defined-but-unfilled seam; only in-process BusEventSink exists.\n- MCP tool architecture is a PROPOSAL only, not implemented (README.md:61, docs/reference/mcp-tools.md).\n- Delegation is sequential single-target by default (`agent:general`); DelegationRegistry supports many handlers but only LangGraphDelegationAgent + scripted ship.\n- BudgetGuard middleware is deliberately not kernel-wired (per-run lifetime) — a caller adding budget enforcement must wire it per-run.\n\nKEY ARCHITECTURAL INVARIANT for gap reasoning: there is exactly ONE tool chokepoint — AgentKernel.execute_tool (core/kernel.py:63-169). Every capability (LLM, fs, terminal, RAG, future MCP) crosses it; cross-cutting concerns are middleware around it; concrete behavior is ports/adapters in the registry. Adding any new capability = (feature module with install()) + (config/features.yaml entry). Adding any new cross-cutting behavior = (ToolMiddleware) + kernel.use/bootstrap wiring. This two-axis model (features = capabilities, middleware = aspects, skills/roles/lenses = agent composition, ports = infra swap points) is the whole extension surface.\n\nFiles I read in full: README.md, MAP.md, core/ports.py, core/registry.py, core/bootstrap.py, core/kernel.py, core/middleware.py, features/loader.py, features/example_echo.py, config/features.yaml, toolbox/feature.py, rag/feature.py, skills/registry.py, skills/spec.py, skills/library/code_review.md, roles/registry.py, roles/spec.py, roles/lenses.py, roles/library/code.yaml, roles/library/lenses/correctness.yaml, discipline/json_gate.py, observability/event_log.py, supervisor/loop.py, delegation/registry.py, delegation/bootstrap.py, control/ports.py, middleware/__init__.py. Directory listings confirmed bundled skills/roles/lenses/adapters/features."
+  }
+}

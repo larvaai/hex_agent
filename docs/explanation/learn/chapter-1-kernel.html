@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<!--
+  Chương 1 — Kernel + execute_tool. Copy design-system + engine từ chapter-0-ban-do.html.
+  Tự chứa: chỉ <style> + <script> inline, KHÔNG src/href ngoài, KHÔNG CDN.
+  Thêm so với template gốc: CSS bảng __init__ (.field-table) + slice <details> + <pre>.
+-->
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chương 1 · Kernel — hex_agent</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #161d29; --panel-2: #1d2735; --ink: #e6edf3; --muted: #93a1b0;
+    --line: #2b3645; --accent: #f5a623; --accent-2: #4ea1ff; --token: #6ee7a8;
+    --ok: #3fb950; --warn: #d29922; --bad: #f85149; --radius: 10px;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); line-height: 1.65; font-size: 16px; }
+  main { max-width: 880px; margin: 0 auto; padding: 32px 20px 80px; }
+  header.chapter { border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 28px; }
+  header.chapter .kicker { color: var(--accent); font-family: var(--mono); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+  header.chapter h1 { margin: 6px 0 10px; font-size: 28px; line-height: 1.2; }
+  header.chapter .need { background: var(--panel); border-left: 3px solid var(--accent); padding: 10px 14px; border-radius: 0 var(--radius) var(--radius) 0; color: var(--muted); }
+  header.chapter .need b { color: var(--ink); }
+  section { margin: 30px 0; }
+  h2 { font-size: 20px; margin: 0 0 12px; }
+  h2 .num { color: var(--muted); font-family: var(--mono); font-size: 15px; margin-right: 8px; }
+  p { margin: 10px 0; }
+  code { font-family: var(--mono); background: var(--panel-2); padding: 1px 6px; border-radius: 5px; font-size: .9em; color: #ffd9a0; }
+  a { color: var(--accent-2); }
+
+  .puzzle { background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
+  .puzzle .q { font-size: 17px; }
+  .puzzle .q .tag { display: inline-block; font-family: var(--mono); font-size: 12px; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 10px; margin-bottom: 8px; }
+  .flip-btn { margin-top: 14px; background: var(--accent); color: #1a1206; border: none; font-weight: 700; font-family: var(--sans); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+  .flip-btn:hover { filter: brightness(1.08); }
+  .answer { margin-top: 14px; padding: 14px 16px; border-radius: 8px; background: rgba(63,185,80,.08); border: 1px solid rgba(63,185,80,.35); }
+  .answer[hidden] { display: none; }
+  .answer b { color: var(--token); }
+
+  .stage { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .stage svg { width: 100%; height: auto; display: block; }
+  .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .controls button { background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); padding: 7px 14px; border-radius: 8px; cursor: pointer; font-family: var(--sans); font-size: 14px; }
+  .controls button:hover { border-color: var(--accent); }
+  .caption { margin-top: 12px; min-height: 44px; background: var(--panel-2); border-radius: 8px; padding: 10px 14px; font-size: 14px; color: var(--muted); border-left: 3px solid var(--token); }
+  .caption b { color: var(--ink); }
+  .node rect { fill: var(--panel-2); stroke: var(--line); stroke-width: 1.5; transition: fill .25s, stroke .25s; }
+  .node text { fill: var(--muted); font-family: var(--mono); font-size: 12px; transition: fill .25s; }
+  .node.active rect { fill: #2a2417; stroke: var(--accent); stroke-width: 2.5; }
+  .node.active text { fill: var(--ink); }
+  .node.dim rect { stroke-dasharray: 4 4; opacity: .7; }      /* lớp sẽ đào ở chương sau: mờ */
+  .node.block rect { stroke: var(--bad); }
+  .node.block text { fill: #ff9d96; }
+  .flow-arrow { stroke: var(--line); stroke-width: 2; fill: none; }
+  .flow-arrow.branch { stroke: var(--bad); stroke-dasharray: 5 4; }
+  .token-dot { fill: var(--token); filter: drop-shadow(0 0 6px var(--token)); transition: transform .6s cubic-bezier(.5,.05,.3,1); }
+
+  /* ── Bảng __init__: field → vai trò. Field nội bộ (_frozen...) tô màu khác. ── */
+  .field-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 14px; }
+  .field-table th, .field-table td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .field-table th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+  .field-table td:first-child { font-family: var(--mono); color: #ffd9a0; white-space: nowrap; }
+  .field-table tr.internal td:first-child { color: #c9a0ff; }
+  .field-table tr.internal td:first-child::after { content: " ·nội bộ"; color: var(--muted); font-size: 11px; }
+
+  .warn-box { background: rgba(210,153,34,.1); border: 1px solid rgba(210,153,34,.4); border-radius: 8px; padding: 12px 14px; margin-top: 14px; font-size: 14px; }
+  .warn-box b { color: var(--warn); }
+
+  details.slice { margin-top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 0 16px; }
+  details.slice summary { cursor: pointer; padding: 14px 0; font-weight: 600; list-style: none; }
+  details.slice summary::before { content: "▸ "; color: var(--accent); }
+  details.slice[open] summary::before { content: "▾ "; }
+  details.slice[open] summary { border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+  pre { background: #0b0f16; border: 1px solid var(--line); border-radius: 8px; padding: 14px; overflow-x: auto; font-family: var(--mono); font-size: 13px; line-height: 1.5; color: #d7e0ea; }
+  pre .cmt { color: #6f7d8c; }
+  pre .out { color: var(--token); }
+
+  footer.evidence { margin-top: 50px; border-top: 1px solid var(--line); padding-top: 16px; font-size: 13px; color: var(--muted); }
+  footer.evidence h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink); margin: 0 0 8px; }
+  footer.evidence ul { margin: 0; padding-left: 18px; }
+  footer.evidence code { font-size: 12px; }
+  .reverify { margin-top: 10px; color: var(--warn); }
+  .nav { margin-top: 24px; display: flex; gap: 14px; font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+
+  <header class="chapter">
+    <div class="kicker">Chương 1 · Kernel</div>
+    <h1>Tôi ra lệnh, có thứ thi hành</h1>
+    <div class="need">
+      <b>Nhu cầu:</b> tôi muốn nói "chạy tool X" và có một thứ đáng tin nhận lệnh, thực thi, trả kết quả
+      — kể cả khi tool đó hỏng. Nhu cầu này đẻ ra <code>AgentKernel</code> + <code>execute_tool</code>.
+    </div>
+  </header>
+
+  <section>
+    <h2><span class="num">§</span>Câu đố</h2>
+    <div class="puzzle">
+      <div class="q">
+        <span class="tag">đoán trước khi lật</span><br>
+        Tool có thể lỗi: file thiếu, network chết, bug. Nếu một tool <b>ném exception</b>,
+        chuyện gì xảy ra với <b>cả agent</b>?
+      </div>
+      <button class="flip-btn" id="flip">Lật đáp án ↓</button>
+      <div class="answer" id="answer" hidden>
+        <b>Không sập gì cả.</b> Kernel bọc <code>try/except</code> quanh executor
+        (<code>core/kernel.py:113</code>): một tool ném exception thì lỗi bị bắt và biến thành
+        envelope <code>kernel_error</code> — agent vẫn sống, vẫn nhận được kết quả "thất bại có cấu trúc".
+        <br><br>
+        Đây là lý do mọi tool đi qua <b>một cửa</b>: cửa là nơi duy nhất đặt cái lưới an toàn đó.
+        Tool nằm rải rác thì mỗi tool phải tự lo try/except — sẽ có chỗ quên.
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">▦</span>Bên trong cánh cửa — <code>AgentKernel.__init__</code></h2>
+    <p>Kernel cố tình <b>nhỏ</b>: chỉ giữ đúng 5 thứ. Mọi hành vi phức tạp nằm ở registry (đằng sau cửa)
+       và middleware (quanh cửa), không phình vào kernel.</p>
+    <table class="field-table">
+      <thead><tr><th>Field</th><th>Vai trò</th></tr></thead>
+      <tbody>
+        <tr><td>registry</td><td>tra tên-tool → executor (đối tượng biết cách chạy tool đó).</td></tr>
+        <tr><td>events</td><td>publish <code>tool.requested/completed/failed</code> để observer nghe.</td></tr>
+        <tr><td>config</td><td>cấu hình; bị <b>đông cứng</b> (freeze) trước session đầu tiên.</td></tr>
+        <tr class="internal"><td>_middlewares</td><td>danh sách các lớp onion bọc quanh cửa.</td></tr>
+        <tr class="internal"><td>_frozen</td><td>đã khoá chưa — cấm sửa registry/config khi đã có session chạy.</td></tr>
+      </tbody>
+    </table>
+    <div class="warn-box">
+      <b>⚠ Chống drift:</b> kernel <b>KHÔNG</b> có field <code>state</code> và <b>KHÔNG</b> có method
+      <code>accept_task</code>. Prose cũ <code>docs/explanation/modules/kernel.md</code> tả nhầm — những thứ
+      đó đã chuyển sang <code>KernelSession</code>/<code>SessionFactory</code> (Chương 2). Verify:
+      mở <code>core/kernel.py:42-46</code>, class body chỉ có 5 field trên.
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">▶</span>Sân khấu — 6 bước thật của <code>execute_tool</code></h2>
+    <div class="stage">
+      <svg viewBox="0 0 760 320" role="img" aria-label="Sáu bước của execute_tool">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#7d8a99"></path>
+          </marker>
+          <marker id="arrow-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#f85149"></path>
+          </marker>
+        </defs>
+
+        <!-- snake: hàng trên trái→phải, xuống, hàng dưới phải→trái -->
+        <path class="flow-arrow" d="M230,98 L280,98" marker-end="url(#arrow)"></path>
+        <path class="flow-arrow" d="M480,98 L530,98" marker-end="url(#arrow)"></path>
+        <path class="flow-arrow" d="M630,126 L630,232" marker-end="url(#arrow)"></path>
+        <path class="flow-arrow" d="M530,258 L480,258" marker-end="url(#arrow)"></path>
+        <path class="flow-arrow" d="M280,258 L230,258" marker-end="url(#arrow)"></path>
+        <!-- nhánh chặn từ scope-check xuống -->
+        <path class="flow-arrow branch" d="M380,126 L380,150" marker-end="url(#arrow-bad)"></path>
+
+        <g class="node" id="k1"><rect x="30" y="70" width="200" height="56" rx="8"></rect><text x="130" y="94" text-anchor="middle">1 · publish</text><text x="130" y="111" text-anchor="middle">tool.requested</text></g>
+        <g class="node" id="k2"><rect x="280" y="70" width="200" height="56" rx="8"></rect><text x="380" y="94" text-anchor="middle">2 · scope check</text><text x="380" y="111" text-anchor="middle">allowed_capabilities?</text></g>
+        <g class="node dim" id="k3"><rect x="530" y="70" width="200" height="56" rx="8"></rect><text x="630" y="94" text-anchor="middle">3 · middleware onion</text><text x="630" y="111" text-anchor="middle">(Chương 3)</text></g>
+        <g class="node" id="k4"><rect x="530" y="230" width="200" height="56" rx="8"></rect><text x="630" y="254" text-anchor="middle">4 · core</text><text x="630" y="271" text-anchor="middle">resolve→execute→env</text></g>
+        <g class="node" id="k5"><rect x="280" y="230" width="200" height="56" rx="8"></rect><text x="380" y="254" text-anchor="middle">5 · publish</text><text x="380" y="271" text-anchor="middle">completed | failed</text></g>
+        <g class="node" id="k6"><rect x="30" y="230" width="200" height="56" rx="8"></rect><text x="130" y="261" text-anchor="middle">6 · return envelope</text></g>
+        <!-- node nhánh chặn -->
+        <g class="node block" id="k-block"><rect x="300" y="150" width="160" height="34" rx="6"></rect><text x="380" y="171" text-anchor="middle">scope_block → failed</text></g>
+
+        <g id="token" transform="translate(130,98)"><circle class="token-dot" r="9"></circle></g>
+      </svg>
+      <div class="controls">
+        <button id="play">▶ Play</button>
+        <button id="step">⏭ Step</button>
+        <button id="reset">⏮ Reset</button>
+      </div>
+      <div class="caption" id="caption"><b>Bấm ▶ Play</b> để đi qua 6 bước của một tool call.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">⌥</span>Slice — vì sao <code>config</code> bị đông cứng?</h2>
+    <details class="slice">
+      <summary>deep_freeze: kernel dùng chung thì config phải bất biến</summary>
+      <p>Kernel là <b>shared</b> — nhiều session (nhiều run) dùng chung một kernel. Nếu config còn sửa được,
+         một run lỡ ghi đè config thì các run khác bị ảnh hưởng → state rò giữa các run. Vì vậy
+         <code>freeze()</code> biến config thành read-only bằng <code>MappingProxyType</code>
+         (<code>core/kernel.py:14-21,48-54</code>).</p>
+      <pre><span class="cmt"># minh hoạ tối giản — chạy: python3 -c "..."</span>
+from types import MappingProxyType
+cfg = MappingProxyType({"model": "gpt-4o"})
+cfg["model"] = "khác"   <span class="cmt"># thử ghi đè</span>
+<span class="out"># TypeError: 'mappingproxy' object does not support item assignment</span></pre>
+      <p>Một cửa = một nơi để khoá. Đông cứng ở cửa thì mọi run sau đều an toàn, không phải tin từng tool.</p>
+    </details>
+  </section>
+
+  <section>
+    <h2><span class="num">⊞</span>Đằng sau cửa — registry &amp; envelope</h2>
+    <p><b>Thiếu tool thì sao?</b> <code>resolve_tool</code> trả về <code>NullToolPort</code> — một executor "rỗng"
+       trả lỗi <code>missing_capability</code> thay vì để kernel chết (<code>core/registry.py:29-40,103-112</code>).
+       Cửa luôn có thứ để gọi.</p>
+    <p><b>Envelope chuẩn:</b> mọi kết quả được gói thành <code>CapabilityResult</code> với đúng các khoá
+       <code>ok · capability · feature · data · error · metadata</code> (<code>core/schemas.py:63-111</code>).
+       Caller chỉ cần biết một hình dạng, không cần biết tool nào trả gì.</p>
+  </section>
+
+  <footer class="evidence">
+    <h3>Bằng chứng (verify được)</h3>
+    <ul>
+      <li>5 field của kernel: <code>core/kernel.py:42-46</code> (không có <code>state</code>/<code>accept_task</code>)</li>
+      <li>6 bước execute_tool: <code>core/kernel.py:63-169</code>, <code>docs/system-architecture.md:78-130</code></li>
+      <li>try/except → kernel_error: <code>core/kernel.py:113</code></li>
+      <li>deep_freeze config: <code>core/kernel.py:14-21,48-54</code></li>
+      <li>NullToolPort &amp; resolve_tool: <code>core/registry.py:29-40,103-112</code></li>
+      <li>CapabilityResult envelope: <code>core/schemas.py:63-111</code></li>
+    </ul>
+    <div class="reverify">⟳ Verify lại nếu sửa <code>core/kernel.py</code>, <code>core/registry.py</code>, hoặc <code>core/schemas.py</code>.</div>
+    <div class="nav"><a href="chapter-0-ban-do.html">← Chương 0</a><a href="README.md">Mục lục</a><a href="chapter-2-session.html">Chương 2 — Session →</a></div>
+  </footer>
+
+</main>
+
+<script>
+  // ── Engine #1: flip đáp án (copy nguyên từ template) ──
+  const flipBtn = document.getElementById('flip');
+  const answer = document.getElementById('answer');
+  flipBtn.addEventListener('click', () => {
+    const showing = !answer.hasAttribute('hidden');
+    if (showing) { answer.setAttribute('hidden', ''); flipBtn.textContent = 'Lật đáp án ↓'; }
+    else { answer.removeAttribute('hidden'); flipBtn.textContent = 'Ẩn đáp án ↑'; }
+  });
+
+  // ── Engine #2: sân khấu. Chỉ thay mảng STEPS — engine giữ nguyên. ──
+  // 6 bước thật của execute_tool (core/kernel.py:63-169).
+  const STEPS = [
+    { node: 'k1', x: 130, y: 98,  caption: '<b>Bước 1 — publish tool.requested:</b> cửa báo "có người gọi tool" TRƯỚC khi làm gì. Mọi observer nghe được, trace bắt đầu từ đây.' },
+    { node: 'k2', x: 380, y: 98,  caption: '<b>Bước 2 — scope check:</b> tool này có trong <code>allowed_capabilities</code> của session không? Nếu KHÔNG → trả envelope <code>scope_block</code> + publish <code>tool.failed</code>, dừng (mũi tên đỏ).' },
+    { node: 'k3', x: 630, y: 98,  caption: '<b>Bước 3 — middleware onion:</b> request chui qua các lớp bọc quanh nhân (đo giờ, policy, log...). Cơ chế đào sâu ở Chương 3.' },
+    { node: 'k4', x: 630, y: 258, caption: '<b>Bước 4 — core (nhân):</b> resolve tool → execute → chuẩn hoá thành envelope. <code>try/except</code> bọc executor nên tool lỗi KHÔNG làm sập kernel.' },
+    { node: 'k5', x: 380, y: 258, caption: '<b>Bước 5 — publish completed | failed</b> tuỳ <code>envelope.ok</code>.' },
+    { node: 'k6', x: 130, y: 258, caption: '<b>Bước 6 — return envelope</b> cho caller. Kết quả tool nào cũng cùng một hình dạng.' },
+  ];
+
+  const token = document.getElementById('token');
+  const caption = document.getElementById('caption');
+  const playBtn = document.getElementById('play');
+  const stepBtn = document.getElementById('step');
+  const resetBtn = document.getElementById('reset');
+  let idx = -1, timer = null;
+  function clearActive() { document.querySelectorAll('.node.active').forEach(n => n.classList.remove('active')); }
+  function goto(i) {
+    idx = i; const s = STEPS[i];
+    token.setAttribute('transform', `translate(${s.x},${s.y})`);
+    clearActive();
+    const n = document.getElementById(s.node);
+    if (n) n.classList.add('active');
+    // bước 2 (scope check) thì làm sáng nhánh chặn để thấy đường rẽ
+    document.getElementById('k-block').classList.toggle('active', s.node === 'k2');
+    caption.innerHTML = s.caption;
+  }
+  function stepForward() { if (idx >= STEPS.length - 1) { stopPlay(); return; } goto(idx + 1); }
+  function stopPlay() { if (timer) { clearInterval(timer); timer = null; } playBtn.textContent = '▶ Play'; }
+  function reset() {
+    stopPlay(); idx = -1; clearActive();
+    document.getElementById('k-block').classList.remove('active');
+    token.setAttribute('transform', 'translate(130,98)');
+    caption.innerHTML = '<b>Bấm ▶ Play</b> để đi qua 6 bước của một tool call.';
+  }
+  playBtn.addEventListener('click', () => {
+    if (timer) { stopPlay(); return; }
+    if (idx >= STEPS.length - 1) reset();
+    playBtn.textContent = '⏸ Tạm dừng';
+    stepForward();
+    timer = setInterval(() => { if (idx >= STEPS.length - 1) stopPlay(); else stepForward(); }, 1300);
+  });
+  stepBtn.addEventListener('click', () => { stopPlay(); stepForward(); });
+  resetBtn.addEventListener('click', reset);
+</script>
+</body>
+</html>

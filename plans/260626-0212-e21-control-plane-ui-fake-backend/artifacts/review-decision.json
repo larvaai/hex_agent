@@ -1,0 +1,7 @@
+{
+  "verdict": "PASS",
+  "reviewer": "user:uspro/agent:hs:code-reviewer",
+  "role": "reviewer",
+  "plan_hash": "f54e0d4187c9",
+  "rationale": "Independent review of the E21 diff (origin/main...feat/o-delegation-flexibility, base 2b75ab2 — purely E21: control/tools/ui/config/tests/fixtures). Found 1 critical + 2 important IN SCOPE, all now fixed with regression tests (commit 9b11783): C1 — build_snapshot leaked raw payload (checkpoints/acceptance_status) when ui_payload was None → now whitelists scalars + folds free-form from the redacted ui_payload only; I1 — SSE visibility gate was a denylist on 'secret' → now an allowlist (public/ui_safe) so internal/restricted never leak; I3 — fake-server shared state was unsynchronized under ThreadingHTTPServer and max_sse_connections was a dead field → added a Lock around all mutators/buffer-reads and actually enforce the cap. I2 (requires_permission not enforced) is the agreed L2 static-token-seam scope, now documented at the endpoint. Out of scope (already in main, NOT this PR): undeclared supervisor event types in command_bridge.py (C2) and AgentRegistry department bucketing (S2/S4) — flagged to the team separately. Latent follow-ups: needs_resync assumes contiguous seqs (S1), un-seq'd events collapse to id 0 (S3) — fixture always stamps seq. Verification after fixes: full python suite + run_smoke green; frontend vitest 20/20 incl contract-seam re-run against the modified server; gen_ts_contracts --check exit 0; ruff clean. Verdict PASS."
+}

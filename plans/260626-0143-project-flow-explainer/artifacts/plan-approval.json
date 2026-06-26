@@ -1,0 +1,17 @@
+{
+  "schema": "plan-approval/v1",
+  "plan": "260626-0143-project-flow-explainer",
+  "plan_hash": "054caea3c620",
+  "file_hashes": {
+    "plan.md": "5dff15215343",
+    "phase-01-scaffold-and-map.md": "463a761370d8",
+    "phase-02-chapter-kernel.md": "4b8c02d3e457",
+    "phase-03-chapter-session.md": "3b312b70b7d3",
+    "phase-04-chapter-middleware.md": "573d2851d742"
+  },
+  "author": "namson.nguyen102@gmail.com",
+  "reviewer": "user:uspro",
+  "verdict": "APPROVED",
+  "rationale": "Approved via Plannotator direct review (status=approved). Đợt 1 docs-only: template + Chương 0-3, không đụng runtime, rollback=git rm. Cadence 0-3 trước theo quyết định user.",
+  "ts": "2026-06-25T19:29:07.448043+00:00"
+}

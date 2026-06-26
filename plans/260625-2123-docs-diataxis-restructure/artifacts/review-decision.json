@@ -1,0 +1,9 @@
+{
+  "schema": "review-decision/v1",
+  "plan": "260625-2123-docs-diataxis-restructure",
+  "verdict": "PASS",
+  "reviewer": "agent:claude-opus-4-8 (6-lens adversarial review workflow, 12 agents)",
+  "role": "code-reviewer",
+  "rationale": "Multi-lens adversarial review of the docs restructure (commit 4193317) returned BLOCKED on one critical defect — 7 ' 2' conflict-copy artifacts (iCloud sync) accidentally committed — plus two majors (a docstring referencing a non-existent docs/spec/done/E08-rag/acceptance.md, and a stale run-count of 38 vs actual 155). All three are FIXED in the shipped commit 99f84ce: the 7 artifacts removed (git ls-tree confirms 0 ' 2' tracked), the docstring repointed to the existing BUILD_PLAN.md (which documents S08.1-S08.5), and THRESHOLDS run-count updated to 155 (still < 500). Five of six lenses passed (content fidelity of the 4 stripped explainers, plan conformance, anti-slop, link integrity = 197 links resolve / 0 banned tokens, generated-content accuracy with real file:line anchors). Docstring edits are comment-only (no logic/import/signature). Tests stable green (200 passed/1 skipped x3). Remaining findings are minor/nit and non-blocking: dependency-map legacy E16/E17/E18 rows not collapsed (banner already notes the E21 merge); regenerate-map.md verbose. PASS.",
+  "ts": "2026-06-26T03:10:30+07:00"
+}

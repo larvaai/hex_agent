@@ -1,0 +1,20 @@
+{
+  "schema": "plan-approval/v1",
+  "plan": "260626-0212-e21-control-plane-ui-fake-backend",
+  "plan_hash": "f54e0d4187c9",
+  "file_hashes": {
+    "plan.md": "3736b0ee876e",
+    "phase-1-backend-contracts.md": "8d604775e736",
+    "phase-2-ts-contract-gen.md": "9430c6268378",
+    "phase-3-fake-control-server.md": "ad3aa44b3a51",
+    "phase-4-frontend-scaffold-adapter.md": "d05ac2808bb4",
+    "phase-5-graph-timeline.md": "c984e4c464a7",
+    "phase-6-inspector-approval-send.md": "3b57dfad1ebb",
+    "phase-7-contract-seam-test.md": "ecdb7a65acd7"
+  },
+  "author": "namson.nguyen102@gmail.com",
+  "reviewer": "user:uspro",
+  "verdict": "APPROVED",
+  "rationale": "Human-approved via hs:plan interactive gate. Full T1 scope (L1), static-token authz (L2), inject-reality (L3); red-team 15/15 findings accepted + propagated (F1/F2/F5 verified vs code); DEC-9 recorded.",
+  "ts": "2026-06-25T19:48:01.697395+00:00"
+}

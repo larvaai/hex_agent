@@ -1,0 +1,39 @@
+{
+  "stage": "ship",
+  "plan": "260626-0237-s2133-ac-evidence-types",
+  "actor": "user:uspro",
+  "ts": "2026-06-25T20:46:05.686010+00:00",
+  "checks": [
+    {
+      "name": "integration:rebased_on_origin_main",
+      "status": "PASS",
+      "detail": "branch feat/e21-s2133-ac-evidence-types = origin/main + 4 S21.33 commits (cherry-picked); conflicts (loop.py imports, CHANGELOG) resolved; coexists with merged o-delegation (apply_pending_commands present)"
+    },
+    {
+      "name": "integration:full_suite",
+      "status": "PASS",
+      "detail": "253 tests green in worktree on top of origin/main: test_supervisor_*.py + test_acceptance_gate.py + test_evidence.py + tests_audit/"
+    },
+    {
+      "name": "integration:smoke",
+      "status": "PASS",
+      "detail": "run_smoke.py -> CORE_AGENT_SMOKE_OK"
+    },
+    {
+      "name": "integration:lint",
+      "status": "PASS",
+      "detail": "ruff clean on all changed source/test files"
+    },
+    {
+      "name": "review:independent_pass",
+      "status": "PASS",
+      "detail": "hs:code-reviewer verdict PASS; one LOW (evidence_types/evidence_ids alignment) fixed in commit d0e864f with pinning test; see review-decision.json"
+    },
+    {
+      "name": "scope:diff_is_s2133_only",
+      "status": "PASS",
+      "detail": "git diff origin/main..HEAD = 7 files +419/-4 (no control/, no config/, no destructive deletions)"
+    }
+  ],
+  "verdict": "PASS"
+}

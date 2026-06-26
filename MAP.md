@@ -21,6 +21,8 @@ Mỗi module + một dòng mục đích + epic. **Chạy lại `python tools/gen
 | `control/permission.py` | Permission — the human-editable, per-agent capability profile. Epic E21 (S21.6). |
 | `control/ports.py` | Ports for the Realtime Control Plane — the seams transport/storage sit behind. Epic E21. |
 | `control/redaction.py` | Redactor — the secret-safety boundary before any payload reaches UI/SSE. Epic E21 (S21.7). |
+| `control/replay.py` | EventReplayBuffer — the bounded event store the fake SSE layer streams + resyncs from. Epic E21 (S21.16). |
+| `control/snapshot.py` | TaskLoopSnapshot read-model — the shape the UI Graph/Inspector render. Epic E21 (S21.9). |
 
 ## core/
 
@@ -143,6 +145,7 @@ Mỗi module + một dòng mục đích + epic. **Chạy lại `python tools/gen
 | `supervisor/broker.py` | Context Broker — writes a just-enough briefing per worker turn. Epic E10. |
 | `supervisor/checkpoint.py` | SQLite checkpoint for the TaskLoop Blackboard — the truth for resume. Epic E10 S10.10. |
 | `supervisor/contracts.py` | Supervisor data contracts — Agent O decisions + Context Broker packet. Epic E10. |
+| `supervisor/evidence.py` | Evidence classification for the acceptance gate. Epic E10/E21 (S21.33). |
 | `supervisor/graph.py` | Supervisor nodes — compose_team / o_decide / run_round / judge / tool. Epic E10. |
 | `supervisor/llm.py` | LLM-backed Agent O + Context Broker (E10 Slice S2). |
 | `supervisor/loop.py` | run_task_loop — the public Agent-O TaskLoop facade. Epic E10. |
@@ -154,26 +157,40 @@ Mỗi module + một dòng mục đích + epic. **Chạy lại `python tools/gen
 | module | mục đích |
 |---|---|
 | `tests_audit/conftest.py` | Shared deterministic fixtures for the strict audit suite. |
+| `tests_audit/test_acceptance_evidence_adversarial.py` | Adversarial matrix for evidence-typed acceptance + AC report. Epic E10/E21 (S21.33). |
 | `tests_audit/test_cli_and_tooling_entrypoints.py` | Executable entrypoints and repository-tooling tests. |
 | `tests_audit/test_contract_roundtrips.py` | Property tests for every persisted/public data contract. |
+| `tests_audit/test_core_edges_rigor.py` | Edge/boundary rigor for the core runtime: middleware protocol, session lifecycle |
+| `tests_audit/test_delegation_bootstrap_rigor.py` | Adversarial rigor for delegation bootstrap/manager/policy/registry/store seams. |
 | `tests_audit/test_discipline_and_rag_properties.py` | Property/fuzz tests for parsers, budgets, condensation, chunking and vector math. |
 | `tests_audit/test_graph_resume_matrix.py` | Graph transition, failure and crash/resume matrix. |
+| `tests_audit/test_json_repair_properties.py` | Property tests for the JSON repair pipeline: superset-of-valid + mangle round-trips. Epic E02. |
 | `tests_audit/test_kernel_registry_adversarial.py` | Adversarial kernel, registry, feature-loader and event-bus contract tests. |
+| `tests_audit/test_llm_features_rigor.py` | Strict audit of the LLM adapter + feature plugins: lazy client, JSON-mode request shape, retry/backoff classification, and the loader/echo/llm_chat plugin contracts. |
 | `tests_audit/test_middleware_exact_semantics.py` | Exact callback, ordering and retry semantics for every middleware. |
+| `tests_audit/test_middleware_safety_graph_rigor.py` | Rigor for middleware/safety/graph/gen_map: pin pass-through branches, jail escapes, node fail-routes, and the MAP generator. |
 | `tests_audit/test_observability_durability.py` | Durability, concurrency, metric mapping and inspection CLI tests. |
+| `tests_audit/test_observability_inspect_rigor.py` | Adversarial rigor for the inspect CLI + EventLogger durability — empty/missing/malformed run dirs, arg-parsing errors, and the run_id path-traversal guard. |
+| `tests_audit/test_orchestrator_loop_rigor.py` | Rigor for orchestrator.loop + orchestrator.checkpoint: run/resume facade, projection, error branches. |
+| `tests_audit/test_rag_edges_rigor.py` | Rigorous edge/error coverage for the rag package — the lines the focused suite leaves cold. |
 | `tests_audit/test_rag_qdrant_adapter_contract.py` | Offline, exhaustive contract tests for the production Qdrant adapter. |
+| `tests_audit/test_roles_rigor.py` | Rigorous audit of roles/ — lens/spec parsing, allowlist enforcement, registry as the single store, round-trip invariants. |
 | `tests_audit/test_roles_skills_config_integrity.py` | Strict parser, registry and bundled-config integrity checks for roles/skills. |
 | `tests_audit/test_security_boundaries.py` | Adversarial checks for every local I/O and process-execution boundary. |
 | `tests_audit/test_session_delegation_state_machine.py` | Lifecycle, scope, ordering and idempotency checks for sessions/delegation. |
 | `tests_audit/test_supervisor_adversarial_matrix.py` | Adversarial schema and authority checks for the multi-agent supervisor. |
+| `tests_audit/test_toolbox_sandbox_rigor.py` | Rigor for the sandboxed toolbox: fs jail escapes, no-shell argv exec, timeout kill, policy gate. |
 | `tests_audit/test_ui_http_and_frontend_contract.py` | Black-box HTTP API and static frontend contract tests. |
+| `tests_audit/test_ui_server_http_rigor.py` | Adversarial/rigor coverage for the OLD observability HTTP server (ui/server.py, ui/__main__.py). |
 
 ## toolbox/
 
 | module | mục đích |
 |---|---|
-| `toolbox/feature.py` | Tool feature — register sandboxed fs + terminal tools, each behind the safety chokepoint. Epic E06. |
-| `toolbox/filesystem.py` | Workspace-sandboxed filesystem tools: fs_read, fs_write, fs_list. Epic E06. |
+| `toolbox/code_index.py` | Read-only code index — symbols, references, imports, dependency graph. Epic E06. |
+| `toolbox/feature.py` | Tool feature — register sandboxed fs + terminal + code-intelligence tools, each behind the safety chokepoint. Epic E06. |
+| `toolbox/filesystem.py` | Workspace-sandboxed filesystem tools: fs_read, fs_write, fs_list + surgical editors. Epic E06. |
+| `toolbox/lint_test.py` | Structured validation tools — compile / ruff / pytest, no arbitrary shell. Epic E06. |
 | `toolbox/terminal.py` | Terminal tool — run an argv (no shell) inside the workspace with a timeout. Policy gates danger. Epic E06. |
 
 ## ui/

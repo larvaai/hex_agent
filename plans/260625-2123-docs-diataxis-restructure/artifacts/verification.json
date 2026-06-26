@@ -1,0 +1,22 @@
+{
+  "stage": "push",
+  "plan": "260625-2123-docs-diataxis-restructure",
+  "actor": "user:namson.nguyen102@gmail.com",
+  "ts": "2026-06-26T03:10:00+07:00",
+  "checks": [
+    { "name": "commit_clean", "status": "PASS", "detail": "Shipped commit 99f84ce (feat/docs-diataxis-restructure, main-based, 94 files +1886/-10852). Zero ' 2' conflict-copy artifacts tracked (the 7 accidentally-committed in 4193317 were removed after the multi-lens review caught them)." },
+    { "name": "gen_map_clean", "status": "PASS", "detail": "AC#1 — python3 tools/gen_map.py runs clean; MAP.md at repo root." },
+    { "name": "smoke", "status": "PASS", "detail": "AC#2 — run_smoke.py prints CORE_AGENT_SMOKE_OK." },
+    { "name": "pytest_stable_green", "status": "PASS", "detail": "AC#3 — tests/: 200 passed, 1 skipped, stable across 3 consecutive runs. test_rag.py edit is docstring-only (path repointed E08-rag/acceptance.md -> BUILD_PLAN.md which exists). No phantom ' 2' test nodes collected." },
+    { "name": "pytest_audit_no_new_failures", "status": "PASS", "detail": "AC#3 — tests_audit/: 199 passed, 2 failed (pre-existing windows-path lexical-escape on macOS, present before any change). Zero new failures." },
+    { "name": "link_audit", "status": "PASS", "detail": "AC#4 — 197 local links across docs/+README+CHANGELOG resolve; 0 broken; 0 banned tokens (rebuild_from_zero/HOW_TO_FOLLOW/NEW_REPO_BUILD_GUIDE/architecture-MCP_TOOLS/ChatGPTCodex)." },
+    { "name": "md_location_invariant", "status": "PASS", "detail": "AC#5 — reorg added zero stray docs; pre-existing non-reorg files outside docs/ (MAP.md, skills/library/*.md skill-contracts, tests_audit/*.md, PROPOSAL_kernel_seams.md) are not reorg artifacts." },
+    { "name": "tree_matches_expected", "status": "PASS", "detail": "AC#6 — docs/ dir tree == plan Expected output." },
+    { "name": "git_history_preserved", "status": "PASS", "detail": "AC#6 — tracked moves preserved as git renames in the commit." },
+    { "name": "docstrings_updated", "status": "PASS", "detail": "AC#7 — 5 docstring cross-refs repointed to new paths; comment-only; pytest green." },
+    { "name": "roadmap_living_notes", "status": "PASS", "detail": "AC#8 — 5 living notes (E11-E14,E20; no E15), 8 fields each, real file:line anchors (independently re-verified by review lens); roadmap/README + THRESHOLDS exist; THRESHOLDS run-count updated 38->155 (re-measured; still < 500). dependency-map E15 map-drift fixed (E16->E21)." },
+    { "name": "multi_lens_review_blockers_resolved", "status": "PASS", "detail": "A 6-lens adversarial review (12 agents) returned BLOCKED on 7 committed ' 2' conflict-copies + a broken docstring ref + a stale run-count. All three fixed and re-verified: 0 ' 2' tracked, docstring points to existing BUILD_PLAN.md, run-count current. Remaining findings are minor/nit (dependency-map legacy E16/17/18 rows; regenerate-map verbosity) — non-blocking." },
+    { "name": "env_sync_corruption_caveat", "status": "PASS", "detail": "RISK (environmental, not the commit): the repo under ~/Desktop is iCloud-synced and actively creating ' 2' conflict-copies (244 repo-wide incl. harness/, .claude/, settings). The SHIPPED COMMIT is verified clean; a push sends the commit not the working tree. But future git ops in this tree risk sweeping ' 2' files and tests transiently mis-collect mid-sync. Flagged for user to move repo off iCloud Desktop." }
+  ],
+  "verdict": "PASS_WITH_RISK"
+}

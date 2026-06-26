@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<!--
+  Chương 3 — Middleware onion + bẫy late-binding closure. Copy design-system + engine từ chapter-0.
+  Tự chứa: chỉ <style> + <script> inline, KHÔNG src/href ngoài, KHÔNG CDN.
+  Sân khấu ở đây có 2 chế độ: "đi suốt" và "policy chặn" (short-circuit) — vẫn dùng chung engine STEPS.
+-->
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chương 3 · Middleware — hex_agent</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #161d29; --panel-2: #1d2735; --ink: #e6edf3; --muted: #93a1b0;
+    --line: #2b3645; --accent: #f5a623; --accent-2: #4ea1ff; --token: #6ee7a8;
+    --ok: #3fb950; --warn: #d29922; --bad: #f85149; --radius: 10px;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); line-height: 1.65; font-size: 16px; }
+  main { max-width: 880px; margin: 0 auto; padding: 32px 20px 80px; }
+  header.chapter { border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 28px; }
+  header.chapter .kicker { color: var(--accent); font-family: var(--mono); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+  header.chapter h1 { margin: 6px 0 10px; font-size: 28px; line-height: 1.2; }
+  header.chapter .need { background: var(--panel); border-left: 3px solid var(--accent); padding: 10px 14px; border-radius: 0 var(--radius) var(--radius) 0; color: var(--muted); }
+  header.chapter .need b { color: var(--ink); }
+  section { margin: 30px 0; }
+  h2 { font-size: 20px; margin: 0 0 12px; }
+  h2 .num { color: var(--muted); font-family: var(--mono); font-size: 15px; margin-right: 8px; }
+  p { margin: 10px 0; }
+  code { font-family: var(--mono); background: var(--panel-2); padding: 1px 6px; border-radius: 5px; font-size: .9em; color: #ffd9a0; }
+  a { color: var(--accent-2); }
+
+  .puzzle { background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
+  .puzzle + .puzzle { margin-top: 16px; }
+  .puzzle .q { font-size: 17px; }
+  .puzzle .q .tag { display: inline-block; font-family: var(--mono); font-size: 12px; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 10px; margin-bottom: 8px; }
+  .flip-btn { margin-top: 14px; background: var(--accent); color: #1a1206; border: none; font-weight: 700; font-family: var(--sans); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+  .flip-btn:hover { filter: brightness(1.08); }
+  .answer { margin-top: 14px; padding: 14px 16px; border-radius: 8px; background: rgba(63,185,80,.08); border: 1px solid rgba(63,185,80,.35); }
+  .answer[hidden] { display: none; }
+  .answer b { color: var(--token); }
+
+  .stage { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .stage svg { width: 100%; height: auto; display: block; }
+  .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .controls button { background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); padding: 7px 14px; border-radius: 8px; cursor: pointer; font-family: var(--sans); font-size: 14px; }
+  .controls button:hover { border-color: var(--accent); }
+  .controls .mode { margin-left: auto; }
+  .controls .mode.block-on { border-color: var(--bad); color: #ff9d96; }
+  .caption { margin-top: 12px; min-height: 44px; background: var(--panel-2); border-radius: 8px; padding: 10px 14px; font-size: 14px; color: var(--muted); border-left: 3px solid var(--token); }
+  .caption b { color: var(--ink); }
+
+  /* các vòng onion: rect lồng nhau, highlight bằng stroke */
+  .ring rect { fill: none; stroke: var(--line); stroke-width: 1.6; transition: stroke .25s, stroke-width .25s; }
+  .ring text { fill: var(--muted); font-family: var(--mono); font-size: 12px; transition: fill .25s; }
+  .ring.active rect { stroke: var(--accent); stroke-width: 2.6; }
+  .ring.active text { fill: var(--ink); }
+  .ring.core rect { fill: #2a2417; stroke: var(--accent); }
+  .ring.core text { fill: var(--accent); }
+  .ring.block rect { stroke: var(--bad); stroke-width: 2.6; }
+  .ring.block text { fill: #ff9d96; }
+  .token-dot { fill: var(--token); filter: drop-shadow(0 0 6px var(--token)); transition: transform .55s cubic-bezier(.5,.05,.3,1); }
+
+  .field-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 14px; }
+  .field-table th, .field-table td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .field-table th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+  .field-table td:first-child { font-family: var(--mono); color: #ffd9a0; white-space: nowrap; }
+
+  details.slice { margin-top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 0 16px; }
+  details.slice summary { cursor: pointer; padding: 14px 0; font-weight: 600; list-style: none; }
+  details.slice summary::before { content: "▸ "; color: var(--accent); }
+  details.slice[open] summary::before { content: "▾ "; }
+  details.slice[open] summary { border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+  pre { background: #0b0f16; border: 1px solid var(--line); border-radius: 8px; padding: 14px; overflow-x: auto; font-family: var(--mono); font-size: 13px; line-height: 1.5; color: #d7e0ea; }
+  pre .cmt { color: #6f7d8c; }
+  pre .bad { color: #ff9d96; }
+  pre .out { color: var(--token); }
+  .twin { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 680px) { .twin { grid-template-columns: 1fr; } }
+
+  .warn-box { background: rgba(210,153,34,.1); border: 1px solid rgba(210,153,34,.4); border-radius: 8px; padding: 12px 14px; margin-top: 14px; font-size: 14px; }
+  .warn-box b { color: var(--warn); }
+
+  footer.evidence { margin-top: 50px; border-top: 1px solid var(--line); padding-top: 16px; font-size: 13px; color: var(--muted); }
+  footer.evidence h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink); margin: 0 0 8px; }
+  footer.evidence ul { margin: 0; padding-left: 18px; }
+  footer.evidence code { font-size: 12px; }
+  .reverify { margin-top: 10px; color: var(--warn); }
+  .nav { margin-top: 24px; display: flex; gap: 14px; font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+
+  <header class="chapter">
+    <div class="kicker">Chương 3 · Middleware</div>
+    <h1>Cài hành vi quanh cửa, không sửa cửa</h1>
+    <div class="need">
+      <b>Nhu cầu:</b> tôi muốn mỗi tool call được đo giờ, check policy, log... mà KHÔNG phải sửa
+      <code>execute_tool</code> mỗi lần thêm/bớt. Đây chính là "hook before/after". Nhu cầu này đẻ ra
+      <code>ToolMiddleware</code> + cơ chế <b>onion</b> (vỏ củ hành).
+    </div>
+  </header>
+
+  <section>
+    <h2><span class="num">§</span>Câu đố 1</h2>
+    <div class="puzzle">
+      <div class="q">
+        <span class="tag">đoán trước khi lật</span><br>
+        Bạn muốn mỗi tool call: <b>đo giờ → check policy → giới hạn → log</b>. Bạn nhét 4 việc đó vào
+        <code>execute_tool</code>? Hay làm sao thêm/bớt mà <b>không đụng kernel</b>?
+      </div>
+      <button class="flip-btn" id="flip1">Lật đáp án ↓</button>
+      <div class="answer" id="answer1" hidden>
+        <b>Middleware.</b> Mỗi việc là một lớp <code>__call__(request, nxt)</code> bọc quanh nhân như
+        <b>vỏ củ hành</b> (<code>core/middleware.py:11-15</code>). Lớp chạy phần "trước", gọi
+        <code>nxt</code> (lớp trong), rồi chạy phần "sau". Thêm/bớt lớp = thêm/bớt vỏ — kernel không đổi.
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">▦</span>Các khái niệm của onion</h2>
+    <table class="field-table">
+      <thead><tr><th>Thứ</th><th>Vai trò</th></tr></thead>
+      <tbody>
+        <tr><td>_middlewares</td><td>danh sách lớp; đăng ký qua <code>use()</code> (<code>core/kernel.py:57-61</code>).</td></tr>
+        <tr><td>nxt</td><td>"lớp kế bên trong" mà mỗi middleware gọi để đi sâu thêm.</td></tr>
+        <tr><td>core</td><td>nhân thật (resolve→execute→envelope), lớp <b>trong cùng</b>, không có <code>nxt</code>.</td></tr>
+        <tr><td>order</td><td>đăng ký ngoài→trong; chuỗi bọc bằng <code>reversed</code> (<code>core/kernel.py:136-138</code>).</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2><span class="num">▶</span>Sân khấu — token vào rồi ra qua các lớp</h2>
+    <div class="stage">
+      <svg viewBox="0 0 760 300" role="img" aria-label="Onion: token đi vào qua các lớp tới core rồi đi ra ngược lại">
+        <!-- các vòng lồng nhau: ngoài → trong = timing → policy → log → core -->
+        <g class="ring" id="m-timing"><rect x="60" y="50" width="640" height="200" rx="14"></rect><text x="80" y="74">timing</text></g>
+        <g class="ring" id="m-policy"><rect x="150" y="86" width="460" height="128" rx="12"></rect><text x="170" y="108">policy</text></g>
+        <g class="ring" id="m-log"><rect x="240" y="118" width="280" height="64" rx="10"></rect><text x="260" y="138">log</text></g>
+        <g class="ring core" id="m-core"><rect x="330" y="132" width="100" height="36" rx="8"></rect><text x="380" y="154" text-anchor="middle">core</text></g>
+        <g id="token" transform="translate(40,150)"><circle class="token-dot" r="9"></circle></g>
+      </svg>
+      <div class="controls">
+        <button id="play">▶ Play</button>
+        <button id="step">⏭ Step</button>
+        <button id="reset">⏮ Reset</button>
+        <button id="mode" class="mode">Chế độ: Đi suốt</button>
+      </div>
+      <div class="caption" id="caption"><b>Bấm ▶ Play</b>: token đi VÀO qua từng vỏ tới nhân, rồi đi RA ngược lại. Đổi "Chế độ" để xem policy <b>chặn</b>.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">§</span>Câu đố 2 — cốt lõi</h2>
+    <div class="puzzle">
+      <div class="q">
+        <span class="tag">đoán trước khi lật</span><br>
+        Đăng ký theo thứ tự A, B, C. Vì sao code bọc bằng <code>reversed</code>? Và nếu viết vòng
+        <code>for mw in mws: handler = lambda req: mw(req, handler)</code> thì <b>hỏng ở đâu</b>?
+      </div>
+      <button class="flip-btn" id="flip2">Lật đáp án ↓</button>
+      <div class="answer" id="answer2" hidden>
+        <b>reversed:</b> muốn A là lớp NGOÀI cùng (chạy đầu), ta phải bọc từ trong ra: bắt đầu từ
+        <code>core</code>, bọc C, rồi B, cuối cùng A. Nên duyệt <code>reversed(_middlewares)</code>.
+        <br><br>
+        <b>Vòng lambda kia hỏng vì late-binding:</b> cả <code>mw</code> lẫn <code>handler</code> bị bind
+        <b>trễ</b> — tới lúc gọi, mọi lambda đều thấy giá trị CUỐI. <code>_wrap()</code> tạo một
+        <b>scope hàm riêng</b> để mỗi lớp giữ đúng <code>nxt</code> của nó (<code>core/kernel.py:24-30</code>).
+        Xem chứng minh chạy thật ở slice dưới.
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">⌥</span>Slice — bẫy late-binding, chạy thật</h2>
+    <details class="slice">
+      <summary>Hai đoạn 6 dòng: SAI (lambda trực tiếp) vs ĐÚNG (_wrap tạo scope)</summary>
+      <p>Cùng input <code>["A","B","C"]</code>. Bản SAI cho mọi lớp trỏ về phần tử cuối; bản ĐÚNG giữ đúng
+         từng lớp. Output dưới là kết quả <b>chạy thật</b> <code>python3 -c "..."</code>:</p>
+      <div class="twin">
+        <div>
+          <pre><span class="bad"># SAI — lambda bắt biến vòng lặp</span>
+mws = ["A", "B", "C"]
+wrong = [lambda: mw for mw in mws]
+print([f() for f in wrong])
+<span class="out"># ['C', 'C', 'C']</span>
+<span class="cmt"># mọi lambda trỏ mw CUỐI</span></pre>
+        </div>
+        <div>
+          <pre><span class="out"># ĐÚNG — bind mw vào scope riêng</span>
+def wrap(mw):
+    return lambda: mw         <span class="cmt"># giống _wrap()</span>
+right = [wrap(mw) for mw in ["A","B","C"]]
+print([f() for f in right])
+<span class="out"># ['A', 'B', 'C']</span></pre>
+        </div>
+      </div>
+      <p><code>wrap(mw)</code> ở đây chính là bản thu nhỏ của <code>_wrap(middleware, nxt)</code> trong kernel:
+         mỗi lần gọi tạo một hàm mới, "đóng băng" <code>mw</code>/<code>nxt</code> của riêng nó — bug biến mất.</p>
+    </details>
+    <div class="warn-box">
+      <b>⚠ Đừng nhầm budget là middleware ở đây:</b> <code>BudgetGuard</code> còn có bản chạy ở
+      <b>graph node</b>, KHÔNG ở middleware (<code>docs/system-architecture.md:308</code>). Chương này chỉ
+      dạy <b>cơ chế onion</b> chung; ví dụ dùng timing/policy cho an toàn.
+    </div>
+  </section>
+
+  <footer class="evidence">
+    <h3>Bằng chứng (verify được)</h3>
+    <ul>
+      <li>ToolMiddleware <code>__call__(request, nxt)</code> + short-circuit: <code>core/middleware.py:11-15</code> (chú thích short-circuit ở <code>:12-13</code>)</li>
+      <li>_wrap tạo scope (cắt late-binding): <code>core/kernel.py:24-30</code></li>
+      <li>đăng ký qua use(): <code>core/kernel.py:57-61</code></li>
+      <li>bọc chuỗi bằng reversed: <code>core/kernel.py:136-138</code></li>
+      <li>BudgetGuard ở graph node (không middleware): <code>docs/system-architecture.md:308</code></li>
+    </ul>
+    <div class="reverify">⟳ Verify lại nếu sửa <code>core/kernel.py</code> (đặc biệt <code>:24-30,136-138</code>) hoặc <code>core/middleware.py</code>.</div>
+    <div class="nav"><a href="chapter-2-session.html">← Chương 2</a><a href="README.md">Mục lục</a></div>
+  </footer>
+
+</main>
+
+<script>
+  // ── Engine #1: flip đáp án — dùng cho CẢ 2 câu đố (hàm chung) ──
+  function wireFlip(btnId, ansId) {
+    const btn = document.getElementById(btnId);
+    const ans = document.getElementById(ansId);
+    btn.addEventListener('click', () => {
+      const showing = !ans.hasAttribute('hidden');
+      if (showing) { ans.setAttribute('hidden', ''); btn.textContent = 'Lật đáp án ↓'; }
+      else { ans.removeAttribute('hidden'); btn.textContent = 'Ẩn đáp án ↑'; }
+    });
+  }
+  wireFlip('flip1', 'answer1');
+  wireFlip('flip2', 'answer2');
+
+  // ── Engine #2: sân khấu onion. 2 chế độ = 2 mảng STEPS, vẫn chung engine. ──
+  // Mỗi step: { ring: id-vòng-sáng, x: vị trí token, block?: tô đỏ vòng, caption }
+  const PASS = [
+    { ring: 'm-timing', x: 110, caption: '<b>VÀO — timing</b> (vỏ ngoài cùng) chạy phần TRƯỚC: bắt đầu bấm giờ, rồi gọi <code>nxt</code> để đi sâu vào trong.' },
+    { ring: 'm-policy', x: 200, caption: '<b>VÀO — policy:</b> kiểm tra được phép không. Nếu cho qua → gọi <code>nxt</code>. (Đổi "Chế độ" để xem khi nó CHẶN.)' },
+    { ring: 'm-log',    x: 290, caption: '<b>VÀO — log:</b> ghi "sắp chạy tool", gọi <code>nxt</code>.' },
+    { ring: 'm-core',   x: 380, caption: '<b>NHÂN — core:</b> resolve → execute → envelope. Lớp trong cùng, không có <code>nxt</code> để gọi.' },
+    { ring: 'm-log',    x: 470, caption: '<b>RA — log</b> chạy phần SAU: ghi "đã xong".' },
+    { ring: 'm-policy', x: 560, caption: '<b>RA — policy</b> phần sau (nếu có), nhường ra lớp ngoài.' },
+    { ring: 'm-timing', x: 650, caption: '<b>RA — timing</b> dừng đồng hồ, gắn "mất bao lâu" vào envelope. Token ra ngoài. Mỗi lớp bọc cả TRƯỚC lẫn SAU — đúng hình củ hành.' },
+  ];
+  const BLOCK = [
+    { ring: 'm-timing', x: 110, caption: '<b>VÀO — timing:</b> bắt đầu bấm giờ, gọi <code>nxt</code>.' },
+    { ring: 'm-policy', x: 200, block: true, caption: '<b>policy CHẶN (short-circuit):</b> return thẳng envelope từ chối, KHÔNG gọi <code>nxt</code>. Token KHÔNG vào sâu hơn — core không bao giờ chạy (<code>core/middleware.py:12-13</code>).' },
+    { ring: 'm-timing', x: 650, caption: '<b>RA — timing</b> phần sau vẫn chạy (nó đã bắt đầu trước khi bị chặn). Token ra ngoài với envelope "bị từ chối". Đây là sức mạnh của onion: một lớp có quyền cắt luồng.' },
+  ];
+
+  let STEPS = PASS, blockMode = false;
+  const token = document.getElementById('token');
+  const caption = document.getElementById('caption');
+  const playBtn = document.getElementById('play');
+  const stepBtn = document.getElementById('step');
+  const resetBtn = document.getElementById('reset');
+  const modeBtn = document.getElementById('mode');
+  let idx = -1, timer = null;
+
+  function clearRings() { document.querySelectorAll('.ring.active, .ring.block').forEach(n => n.classList.remove('active', 'block')); }
+  function goto(i) {
+    idx = i; const s = STEPS[i];
+    token.setAttribute('transform', `translate(${s.x},150)`);
+    clearRings();
+    const ring = document.getElementById(s.ring);
+    ring.classList.add(s.block ? 'block' : 'active');
+    caption.innerHTML = s.caption;
+  }
+  function stepForward() { if (idx >= STEPS.length - 1) { stopPlay(); return; } goto(idx + 1); }
+  function stopPlay() { if (timer) { clearInterval(timer); timer = null; } playBtn.textContent = '▶ Play'; }
+  function reset() {
+    stopPlay(); idx = -1; clearRings();
+    token.setAttribute('transform', 'translate(40,150)');
+    caption.innerHTML = blockMode
+      ? '<b>Chế độ: Policy chặn.</b> Bấm ▶ Play để xem token bị cắt ở policy, không vào tới core.'
+      : '<b>Bấm ▶ Play</b>: token đi VÀO qua từng vỏ tới nhân, rồi đi RA ngược lại.';
+  }
+  playBtn.addEventListener('click', () => {
+    if (timer) { stopPlay(); return; }
+    if (idx >= STEPS.length - 1) reset();
+    playBtn.textContent = '⏸ Tạm dừng';
+    stepForward();
+    timer = setInterval(() => { if (idx >= STEPS.length - 1) stopPlay(); else stepForward(); }, 1300);
+  });
+  stepBtn.addEventListener('click', () => { stopPlay(); stepForward(); });
+  resetBtn.addEventListener('click', reset);
+  modeBtn.addEventListener('click', () => {
+    blockMode = !blockMode;
+    STEPS = blockMode ? BLOCK : PASS;
+    modeBtn.textContent = blockMode ? 'Chế độ: Policy chặn' : 'Chế độ: Đi suốt';
+    modeBtn.classList.toggle('block-on', blockMode);
+    reset();
+  });
+</script>
+</body>
+</html>
