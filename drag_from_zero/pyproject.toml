@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drag_from_zero"
+version = "0.1.0"
+description = "Dynamically composable multi-agent runtime — Slice 1 (event-sourced core, FakeLLM)."
+requires-python = ">=3.11"
+
+[tool.setuptools]
+packages = ["dragzero"]
+
+[project.optional-dependencies]
+# Opt-in browser E2E (phase 5). Not needed for the default deterministic suite.
+test-browser = ["playwright>=1.40", "pytest-playwright>=0.4"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Default suite is deterministic: exclude opt-in layers (real weights, real browser).
+#   pytest -m browser   → run the Playwright layer (needs test-browser deps)
+#   pytest -m real_llm  → run the local-model layer (needs OPENAI_BASE_URL)
+addopts = "-m 'not browser and not real_llm' --import-mode=importlib"
+markers = [
+    "browser: drives the real ui/ in a headless browser (opt-in; needs playwright + chromium)",
+    "real_llm: hits a real local model (opt-in; skips unless OPENAI_BASE_URL is set)",
+]

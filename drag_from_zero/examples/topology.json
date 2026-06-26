@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "nodes": [
+    {"id": "plan", "type": "agent", "role": "planner", "entry": true},
+    {"id": "code", "type": "agent", "role": "coder"},
+    {"id": "rev",  "type": "agent", "role": "reviewer"},
+    {"id": "ops",  "type": "agent", "role": "devops"},
+    {"id": "t_read",  "type": "tool", "tool": "read_file"},
+    {"id": "t_write", "type": "tool", "tool": "write_file"},
+    {"id": "t_list",  "type": "tool", "tool": "list_dir"},
+    {"id": "route_deploy", "type": "router", "rule": "by_keyword", "config": {"keyword": "deploy", "role": "devops"}},
+    {"id": "mem", "type": "memory", "name": "scratch"}
+  ],
+  "edges": [
+    {"from": "plan", "to": "code", "type": "delegates_to"},
+    {"from": "plan", "to": "rev",  "type": "delegates_to"},
+    {"from": "code", "to": "t_read",  "type": "uses_tool"},
+    {"from": "code", "to": "t_write", "type": "uses_tool"},
+    {"from": "code", "to": "t_list",  "type": "uses_tool"}
+  ],
+  "budget": {"max_llm_calls": 50}
+}
