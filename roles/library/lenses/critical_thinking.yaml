@@ -1,0 +1,15 @@
+name: critical_thinking
+purpose: Attack hidden assumptions and false-pass risks before trusting a green test.
+allowed_tools:
+- fs_read
+- code_index
+- lint_compile
+- ruff_check
+- pytest_run
+forbidden_tools:
+- fs_write
+- fs_str_replace
+output_schema:
+  lens: critical_thinking
+  assumptions: list
+  false_pass_risks: list

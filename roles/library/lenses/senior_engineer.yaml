@@ -1,0 +1,14 @@
+name: senior_engineer
+purpose: Review correctness, simplicity, idiomatic design, and obvious bugs.
+allowed_tools:
+- fs_read
+- code_index
+- code_find_references
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: senior_engineer
+  issues: list
+  verdict: string

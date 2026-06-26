@@ -1,0 +1,13 @@
+name: synthesis
+purpose: Turn long research material into compact usable context while preserving
+  source references.
+allowed_tools:
+- fs_read
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: synthesis
+  synthesis: string
+  references: list

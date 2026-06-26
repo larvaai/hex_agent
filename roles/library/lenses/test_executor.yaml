@@ -1,0 +1,17 @@
+name: test_executor
+purpose: Run the narrowest real validation and summarize stdout/stderr without editing
+  code.
+allowed_tools:
+- fs_read
+- code_index
+- lint_compile
+- ruff_check
+- pytest_run
+forbidden_tools:
+- fs_write
+- fs_str_replace
+output_schema:
+  lens: test_executor
+  command: string
+  result: string
+  evidence: list

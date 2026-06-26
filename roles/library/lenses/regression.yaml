@@ -1,0 +1,14 @@
+name: regression
+purpose: Use prior failures and changed files to select regression checks.
+allowed_tools:
+- fs_read
+- code_index
+- lint_compile
+- ruff_check
+- pytest_run
+forbidden_tools:
+- fs_write
+- fs_str_replace
+output_schema:
+  lens: regression
+  regression_targets: list

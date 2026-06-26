@@ -1,0 +1,14 @@
+name: purpose_alignment
+purpose: Catch behavior that technically passes but misses the user's intended purpose.
+allowed_tools:
+- fs_read
+- code_index
+- lint_compile
+- ruff_check
+- pytest_run
+forbidden_tools:
+- fs_write
+- fs_str_replace
+output_schema:
+  lens: purpose_alignment
+  misalignments: list

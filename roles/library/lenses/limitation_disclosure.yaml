@@ -1,0 +1,12 @@
+name: limitation_disclosure
+purpose: State what was not done, not tested, or assumed, without overclaiming.
+allowed_tools:
+- fs_read
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: limitation_disclosure
+  not_done: list
+  assumptions: list

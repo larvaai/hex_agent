@@ -1,0 +1,13 @@
+name: technical_writer
+purpose: Report files changed, tests run, commands, and important stdout/stderr evidence.
+allowed_tools:
+- fs_read
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: technical_writer
+  files_changed: list
+  tests_run: list
+  evidence: list

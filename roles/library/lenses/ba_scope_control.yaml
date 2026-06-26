@@ -1,0 +1,13 @@
+name: ba_scope_control
+purpose: Separate in-scope, out-of-scope, unknown scope, and possible scope creep.
+allowed_tools:
+- fs_read
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: ba_scope_control
+  in_scope: list
+  out_of_scope: list
+  scope_creep: list

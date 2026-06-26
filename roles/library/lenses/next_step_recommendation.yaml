@@ -1,0 +1,11 @@
+name: next_step_recommendation
+purpose: Suggest useful next steps in priority order.
+allowed_tools:
+- fs_read
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: next_step_recommendation
+  next_steps: list

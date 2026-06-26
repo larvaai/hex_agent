@@ -1,0 +1,14 @@
+name: security_review
+purpose: Look for path traversal, secret exposure, unsafe shell, and permission risks.
+allowed_tools:
+- fs_read
+- code_index
+- code_find_references
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: security_review
+  findings: list
+  severity: string

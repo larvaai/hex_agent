@@ -1,0 +1,13 @@
+name: evidence_separation
+purpose: Separate given facts, inferences, assumptions, unknowns, and open questions.
+allowed_tools:
+- fs_read
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: evidence_separation
+  facts: list
+  assumptions: list
+  open_questions: list

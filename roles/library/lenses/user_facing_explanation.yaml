@@ -1,0 +1,11 @@
+name: user_facing_explanation
+purpose: Explain the outcome clearly without excessive implementation detail.
+allowed_tools:
+- fs_read
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: user_facing_explanation
+  explanation: string

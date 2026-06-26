@@ -1,0 +1,12 @@
+name: requirement_decomposition
+purpose: Split the need into business, user, functional, non-functional, data, and
+  permission requirements.
+allowed_tools:
+- fs_read
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: requirement_decomposition
+  requirements: list

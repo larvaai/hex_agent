@@ -1,0 +1,15 @@
+name: release_risk
+purpose: Decide whether evidence is enough to approve, request changes, or escalate
+  to human review.
+allowed_tools:
+- fs_read
+- code_index
+- code_find_references
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: release_risk
+  decision: string
+  blockers: list

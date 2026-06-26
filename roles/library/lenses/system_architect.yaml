@@ -1,0 +1,16 @@
+name: system_architect
+purpose: Define modules, responsibilities, communication paths, and boundaries.
+allowed_tools:
+- code_index
+- code_find_symbol
+- code_dependency_graph
+- fs_read
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: system_architect
+  modules: list
+  boundaries: list
+  risks: list

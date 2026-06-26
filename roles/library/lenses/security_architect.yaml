@@ -1,0 +1,15 @@
+name: security_architect
+purpose: Design safe sandboxing, secret handling, path safety, and tool boundaries.
+allowed_tools:
+- code_index
+- code_find_symbol
+- code_dependency_graph
+- fs_read
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: security_architect
+  threats: list
+  mitigations: list

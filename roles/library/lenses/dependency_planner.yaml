@@ -1,0 +1,13 @@
+name: dependency_planner
+purpose: Find task, file, and module dependencies and identify what can run in parallel.
+allowed_tools:
+- fs_read
+- code_index
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: dependency_planner
+  dependencies: list
+  parallelizable: list

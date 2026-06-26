@@ -1,0 +1,14 @@
+name: planner_scope_control
+purpose: Keep the task bounded and explicitly separate in-scope from out-of-scope
+  work.
+allowed_tools:
+- fs_read
+- code_index
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: planner_scope_control
+  in_scope: list
+  out_of_scope: list
