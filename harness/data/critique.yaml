@@ -1,0 +1,39 @@
+# critique.yaml — config for hs-think:critique (human-edited, YAML).
+#
+# mode:    advisory (default) writes a human report only and never blocks. gate
+#          ALSO writes plans/<active>/artifacts/critique-consensus.json — a
+#          machine verdict the gate_stage hook can block on. Per-run override:
+#          --gate / --advisory on the skill.
+#          ENFORCEMENT (actual blocking) is a separate concern, exactly like
+#          review-decision: a stage lists `critique-consensus` in its `requires:`
+#          in harness/data/stage-policy.yaml. Ships OFF: no stage lists it by
+#          default, so a spine-only install is never blocked by an artifact whose
+#          producer is an opt-in plugin. Add it to a stage's requires (a tracked,
+#          write-guarded edit) to turn the gate on.
+#
+# lenses:  which independent critique agents fan out, keyed by artifact type.
+#          Reuse existing read-only agents (no new lens agents); each already
+#          carries the Evidence Filter (proven vs [UNVERIFIED]). Add/reorder
+#          here to extend coverage. Unknown type falls back to `default`.
+#
+# loop:    --loop bounds the critique -> refute -> consolidate cycle so it
+#          converges instead of arguing forever.
+mode: advisory
+
+lenses:
+  plan:     [red-teamer, independent-revalidator, brainstormer]
+  decision: [red-teamer, independent-revalidator, brainstormer]
+  design:   [red-teamer, independent-revalidator, brainstormer]
+  code:     [red-teamer, code-reviewer, independent-revalidator]
+  diff:     [red-teamer, code-reviewer, independent-revalidator]
+  default:  [red-teamer, independent-revalidator, brainstormer]
+
+loop:
+  max_rounds: 3
+
+# Verdict taxonomy. Enforcement is fixed in harness/scripts/artifact_check.py
+# (a hard stage passes only on PASS) — this block documents the contract; it
+# does not drive the gate.
+verdict:
+  enum: [PASS, PASS_WITH_RISK, BLOCKED]
+  hard_stage_passes_on: PASS

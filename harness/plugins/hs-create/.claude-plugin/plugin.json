@@ -1,0 +1,5 @@
+{
+  "name": "hs-create",
+  "description": "SDLC harness — tạo artifact harness (hs-create:skill-creator / harness-creator / mcp-builder / agentize / port / bootstrap). Sibling của plugin hs (spine).",
+  "version": "2.0.0"
+}

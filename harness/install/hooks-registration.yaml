@@ -1,0 +1,135 @@
+# hooks-registration.yaml — INPUT for the installer (documentation +
+# the installer reads this; dev-loop NEVER edits the repo's own
+# .claude/settings.json).
+#
+# Maps Claude Code hook events to harness hook commands. The installer
+# materializes these into the TARGET repo's .claude/settings.json when
+# invoked explicitly, and copies git_hooks entries into .git/hooks/.
+# $HARNESS_ROOT below means the repo root containing harness/.
+hooks:
+  - event: SessionStart
+    command: python3 $HARNESS_ROOT/harness/hooks/session_init.py
+    class: telemetry   # documentation; the binding HOOK_CLASS lives in the hook file
+  - event: SessionStart
+    command: python3 $HARNESS_ROOT/harness/hooks/voice_inject.py
+    class: telemetry   # injects terminal-voice guidance as additionalContext (fail-open; never blocks)
+  - event: SessionStart
+    command: python3 $HARNESS_ROOT/harness/hooks/inject_prompt_context.py
+    class: telemetry   # arms a context re-inject for the next prompt (compact/clear/startup); emits nothing itself
+  - event: SessionStart
+    command: python3 $HARNESS_ROOT/harness/hooks/setup_nudge.py
+    class: telemetry   # onboarding: nudges restart when env-bound guard/stage is stale + /hs:setup when roster empty; silent otherwise
+  - event: UserPromptSubmit
+    command: python3 $HARNESS_ROOT/harness/hooks/inject_prompt_context.py
+    class: telemetry   # re-injects working context (rules + routing + voice + dynamic branch/plan/naming) on a decay-aware cadence (compact-aware + every N turns); fail-open
+  - event: UserPromptSubmit
+    command: python3 $HARNESS_ROOT/harness/hooks/nudge_context_inject.py
+    class: telemetry   # re-surfaces the latest decision-capture observation as a /hs-mem:remember pointer; interactive-only (inert in AFK claude -p); fail-open
+  - event: UserPromptSubmit
+    command: python3 $HARNESS_ROOT/harness/hooks/disabled_ref_nudge.py
+    class: nudge   # advisory: a ref naming a skill in a disabled group -> suggest enabling the group or reading the skill inline; never blocks, never deletes the ref
+  - event: PreToolUse
+    matcher: Bash
+    command: python3 $HARNESS_ROOT/harness/hooks/gate_stage.py
+    class: compliance
+  - event: PreToolUse
+    matcher: Bash
+    command: python3 $HARNESS_ROOT/harness/hooks/simplify_gate.py
+    class: compliance   # diff-simplification gate at pr/ship/deploy; default ON+SOFT (warn), escalatable to block via harness/data/simplify-policy.yaml (human-only, agent-locked); fail-OPEN
+  - event: PreToolUse
+    matcher: Bash
+    command: python3 $HARNESS_ROOT/harness/hooks/bash_safety_guard.py
+    class: compliance   # destructive-command gate (host blast-radius); break-glass = enabled:false
+  - event: PreToolUse
+    matcher: Bash
+    command: python3 $HARNESS_ROOT/harness/hooks/secret_scan_before_ship.py
+    class: compliance   # pre-ship secret-leak gate: blocks push/pr/ship/deploy when the unpushed diff contains likely secrets (test/docs excluded); break-glass enabled:false
+  - event: PreToolUse
+    matcher: Bash
+    command: python3 $HARNESS_ROOT/harness/hooks/ownership_guard.py
+    class: compliance   # per-actor commit gate; manifest = HARNESS_WORK_OWNERSHIP_FILE (skip if unset)
+  - event: PreToolUse
+    matcher: Bash
+    command: python3 $HARNESS_ROOT/harness/hooks/protected_ref_guard.py
+    class: compliance   # refuse force-push to / direct commit on a protected ref
+  - event: PreToolUse
+    matcher: Write|Edit|MultiEdit
+    command: python3 $HARNESS_ROOT/harness/hooks/write_guard.py
+    class: compliance   # tool-mediated config-edit gate; switch = write-guard.yaml (NOT harness-hooks.yaml/env)
+  - event: PreToolUse
+    matcher: Write|Edit|MultiEdit
+    command: python3 $HARNESS_ROOT/harness/hooks/agent_rbac_guard.py
+    class: compliance   # per-agent_type write lane (additive-skip: inert until agent-permissions.yaml declares roles)
+  - event: PreToolUse
+    matcher: Write
+    command: python3 $HARNESS_ROOT/harness/hooks/descriptive_name.py
+    class: nudge   # default OFF; advisory on a generic NEW-file name (report.md/utils.js); covers the autonomous /goal path where UserPromptSubmit naming guidance never fires; never blocks
+  - event: Stop
+    command: python3 $HARNESS_ROOT/harness/hooks/memory_gap_hook.py
+    class: nudge   # default OFF; advisory gap funnel — enable in harness-hooks.yaml to dogfood
+  - event: PostToolUse
+    matcher: Write|Edit|MultiEdit
+    command: python3 $HARNESS_ROOT/harness/hooks/memory_gap_hook.py --post-tool-use
+    class: nudge   # touched-flag writer feeding the Stop no-op guard
+  - event: Stop
+    command: python3 $HARNESS_ROOT/harness/hooks/decision_capture_nudge.py
+    class: nudge   # default OFF; A-leg of memory-v2 — flags a decision-shaped change (new module / gate-config edit) with no ledger move; enable in harness-hooks.yaml to dogfood
+  - event: PostToolUse
+    matcher: Write|Edit|MultiEdit
+    command: python3 $HARNESS_ROOT/harness/hooks/decision_capture_nudge.py --post-tool-use
+    class: nudge   # touched-flag writer feeding the decision-capture Stop no-op guard
+  # Telemetry hooks (class telemetry: ON, fail-open, never block a tool). Each
+  # appends one JSONL line under state/telemetry/ for a read-only lens. Bash
+  # duration is PAIRED: mark_bash_start (Pre) stamps a monotonic start keyed on
+  # the command; track_script_execution (Post) reads+clears it to compute ms.
+  - event: PreToolUse
+    matcher: Bash
+    command: python3 $HARNESS_ROOT/harness/hooks/mark_bash_start.py
+    class: telemetry
+  - event: PostToolUse
+    matcher: Bash
+    command: python3 $HARNESS_ROOT/harness/hooks/track_script_execution.py
+    class: telemetry
+  - event: PostToolUse
+    matcher: Bash
+    command: python3 $HARNESS_ROOT/harness/hooks/bash_write_guard.py
+    class: telemetry   # surfaces a write to a guarded config path spelled through the shell (redirect/tee/sed -i/python open) that write_guard cannot see; advisory, never blocks
+  - event: PreToolUse
+    matcher: Skill
+    command: python3 $HARNESS_ROOT/harness/hooks/track_skill_invocation.py
+    class: telemetry   # paired with the UserPromptExpansion entry below — slash + Skill-tool paths
+  - event: PreToolUse
+    matcher: Skill
+    command: python3 $HARNESS_ROOT/harness/hooks/cook_isolation_nudge.py
+    class: nudge   # default OFF; advisory /clear-before-cook reminder enable in harness-hooks.yaml to dogfood
+  - event: PreToolUse
+    matcher: Skill
+    command: python3 $HARNESS_ROOT/harness/hooks/discover_isolation_nudge.py
+    class: nudge   # default OFF; advisory /clear-before-plan reminder enable in harness-hooks.yaml to dogfood
+  - event: PreToolUse
+    matcher: Read
+    command: python3 $HARNESS_ROOT/harness/hooks/privacy_read_guard.py
+    class: compliance   # secrets-file (.env/*.pem/*.key/credentials/id_rsa) read gate: block + @@PRIVACY_PROMPT@@ approval; default ON, break-glass = enabled:false
+  - event: UserPromptExpansion
+    command: python3 $HARNESS_ROOT/harness/hooks/track_skill_invocation.py
+    class: telemetry
+  - event: Stop
+    command: python3 $HARNESS_ROOT/harness/hooks/emit_session_summary.py
+    class: telemetry
+  - event: SubagentStop
+    command: python3 $HARNESS_ROOT/harness/hooks/track_subagent_outcome.py
+    class: telemetry
+  - event: PostToolUse
+    matcher: Write|Edit|MultiEdit
+    command: python3 $HARNESS_ROOT/harness/hooks/stamp_artifact.py
+    class: telemetry   # stamps provenance frontmatter into plans/**/*.md; fail-open, idempotent
+
+git_hooks:
+  - hook: pre-push
+    source: harness/install/git-pre-push-hook.sh
+    # Transport-level defense-in-depth for the push stage: catches
+    # pushes spelled through sh -c / eval / aliases that the Bash-command
+    # detector cannot see.
+  - event: SubagentStart
+    command: python3 $HARNESS_ROOT/harness/hooks/subagent_init.py
+    class: telemetry   # injects harness rules/standards pointer + ownership reminder into each subagent at spawn; fail-open, never blocks

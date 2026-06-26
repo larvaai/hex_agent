@@ -1,0 +1,29 @@
+# harness-hooks.yaml — per-hook enabled/mode OVERRIDES only.
+#
+# A hook's CLASS (telemetry | nudge | compliance) is a code constant in the
+# hook file itself (HOOK_CLASS = "...") and CANNOT be changed here — a broken
+# or edited config never reclassifies a gate.
+#
+# Class defaults when a hook has no entry below:
+#   telemetry  → enabled: true,  advisory (fail-open)
+#   nudge      → enabled: false, advisory
+#   compliance → enabled: true,  mode: blocking (fail-closed)
+#
+# This file is TRACKED IN GIT on purpose (tamper-visible): you can
+# flip a gate off in an emergency, but the diff and the gate_skip trace
+# record who and why. Posture: visible drift, not insider-proof.
+#
+# Example overrides:
+#   hooks:
+#     gate_stage: {enabled: false}          # emergency off — leaves a diff
+#     gate_stage: {mode: advisory}          # warn instead of block (opt-in)
+
+hooks:
+  agent_rbac_guard:
+    enabled: true
+  decision_capture_nudge:
+    enabled: true
+  disabled_ref_nudge:
+    enabled: true
+  nudge_context_inject:
+    enabled: true

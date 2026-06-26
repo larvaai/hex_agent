@@ -1,0 +1,5 @@
+{
+  "name": "hs-mem",
+  "description": "SDLC harness — trí nhớ / phản tư / tài liệu (hs-mem:remember / insights / journal / retro / docs / docs-seeker / document-skills). Sibling của plugin hs (spine).",
+  "version": "2.0.0"
+}

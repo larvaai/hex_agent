@@ -1,0 +1,12 @@
+# output.yaml — language of harness-GENERATED prose (reports, docs, plan narration).
+#
+# Instruction files (skills, references, rules, CLAUDE.md) are English. This
+# setting only governs the language the harness WRITES OUT for humans, and
+# whether the humanizer rule (harness/rules/humanizer-and-anti-ai-tells.md) is
+# applied to that prose.
+#
+#   language: vi | en   (default vi — English instructions in, Vietnamese reports out)
+#   humanize: true|false (apply anti-AI-tell + natural-prose cleanup; default true)
+
+language: vi
+humanize: true

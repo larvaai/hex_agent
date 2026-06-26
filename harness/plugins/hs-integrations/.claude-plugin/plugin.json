@@ -1,0 +1,5 @@
+{
+  "name": "hs-integrations",
+  "description": "SDLC harness third-party integration skills: hs-integrations:payment-integration / shopify / google-adk-python / use-mcp / gkg.",
+  "version": "1.0.0"
+}

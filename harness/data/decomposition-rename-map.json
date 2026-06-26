@@ -1,0 +1,286 @@
+{
+  "generated_by": "migrate_decomposition.py",
+  "moved": {
+    "afk": {
+      "group": "flow",
+      "new_dir": "harness/plugins/hs-flow/skills/afk",
+      "new_invoke": "hs-flow:afk",
+      "old_dir": "harness/plugins/hs/skills/afk",
+      "old_invoke": "hs:afk"
+    },
+    "agentize": {
+      "group": "create",
+      "new_dir": "harness/plugins/hs-create/skills/agentize",
+      "new_invoke": "hs-create:agentize",
+      "old_dir": "harness/plugins/hs/skills/agentize",
+      "old_invoke": "hs:agentize"
+    },
+    "autonomous-bell": {
+      "group": "flow",
+      "new_dir": "harness/plugins/hs-flow/skills/autonomous-bell",
+      "new_invoke": "hs-flow:autonomous-bell",
+      "old_dir": "harness/plugins/hs/skills/autonomous-bell",
+      "old_invoke": "hs:autonomous-bell"
+    },
+    "autoresearch": {
+      "group": "research",
+      "new_dir": "harness/plugins/hs-research/skills/autoresearch",
+      "new_invoke": "hs-research:autoresearch",
+      "old_dir": "harness/plugins/hs/skills/autoresearch",
+      "old_invoke": "hs:autoresearch"
+    },
+    "bakeoff": {
+      "group": "think",
+      "new_dir": "harness/plugins/hs-think/skills/bakeoff",
+      "new_invoke": "hs-think:bakeoff",
+      "old_dir": "harness/plugins/hs/skills/bakeoff",
+      "old_invoke": "hs:bakeoff"
+    },
+    "bootstrap": {
+      "group": "create",
+      "new_dir": "harness/plugins/hs-create/skills/bootstrap",
+      "new_invoke": "hs-create:bootstrap",
+      "old_dir": "harness/plugins/hs/skills/bootstrap",
+      "old_invoke": "hs:bootstrap"
+    },
+    "brainstorm": {
+      "group": "think",
+      "new_dir": "harness/plugins/hs-think/skills/brainstorm",
+      "new_invoke": "hs-think:brainstorm",
+      "old_dir": "harness/plugins/hs/skills/brainstorm",
+      "old_invoke": "hs:brainstorm"
+    },
+    "compound": {
+      "group": "flow",
+      "new_dir": "harness/plugins/hs-flow/skills/compound",
+      "new_invoke": "hs-flow:compound",
+      "old_dir": "harness/plugins/hs/skills/compound",
+      "old_invoke": "hs:compound"
+    },
+    "context-engineering": {
+      "group": "meta",
+      "new_dir": "harness/plugins/hs-meta/skills/context-engineering",
+      "new_invoke": "hs-meta:context-engineering",
+      "old_dir": "harness/plugins/hs/skills/context-engineering",
+      "old_invoke": "hs:context-engineering"
+    },
+    "critique": {
+      "group": "think",
+      "new_dir": "harness/plugins/hs-think/skills/critique",
+      "new_invoke": "hs-think:critique",
+      "old_dir": "harness/plugins/hs/skills/critique",
+      "old_invoke": "hs:critique"
+    },
+    "discover": {
+      "group": "research",
+      "new_dir": "harness/plugins/hs-research/skills/discover",
+      "new_invoke": "hs-research:discover",
+      "old_dir": "harness/plugins/hs/skills/discover",
+      "old_invoke": "hs:discover"
+    },
+    "docs": {
+      "group": "mem",
+      "new_dir": "harness/plugins/hs-mem/skills/docs",
+      "new_invoke": "hs-mem:docs",
+      "old_dir": "harness/plugins/hs/skills/docs",
+      "old_invoke": "hs:docs"
+    },
+    "docs-seeker": {
+      "group": "mem",
+      "new_dir": "harness/plugins/hs-mem/skills/docs-seeker",
+      "new_invoke": "hs-mem:docs-seeker",
+      "old_dir": "harness/plugins/hs/skills/docs-seeker",
+      "old_invoke": "hs:docs-seeker"
+    },
+    "document-skills": {
+      "group": "mem",
+      "new_dir": "harness/plugins/hs-mem/skills/document-skills",
+      "new_invoke": "hs-mem:document-skills",
+      "old_dir": "harness/plugins/hs/skills/document-skills",
+      "old_invoke": "hs:document-skills"
+    },
+    "find-skills": {
+      "group": "meta",
+      "new_dir": "harness/plugins/hs-meta/skills/find-skills",
+      "new_invoke": "hs-meta:find-skills",
+      "old_dir": "harness/plugins/hs/skills/find-skills",
+      "old_invoke": "hs:find-skills"
+    },
+    "harness-creator": {
+      "group": "create",
+      "new_dir": "harness/plugins/hs-create/skills/harness-creator",
+      "new_invoke": "hs-create:harness-creator",
+      "old_dir": "harness/plugins/hs/skills/harness-creator",
+      "old_invoke": "hs:harness-creator"
+    },
+    "insights": {
+      "group": "mem",
+      "new_dir": "harness/plugins/hs-mem/skills/insights",
+      "new_invoke": "hs-mem:insights",
+      "old_dir": "harness/plugins/hs/skills/insights",
+      "old_invoke": "hs:insights"
+    },
+    "journal": {
+      "group": "mem",
+      "new_dir": "harness/plugins/hs-mem/skills/journal",
+      "new_invoke": "hs-mem:journal",
+      "old_dir": "harness/plugins/hs/skills/journal",
+      "old_invoke": "hs:journal"
+    },
+    "loop": {
+      "group": "flow",
+      "new_dir": "harness/plugins/hs-flow/skills/loop",
+      "new_invoke": "hs-flow:loop",
+      "old_dir": "harness/plugins/hs/skills/loop",
+      "old_invoke": "hs:loop"
+    },
+    "mcp-builder": {
+      "group": "create",
+      "new_dir": "harness/plugins/hs-create/skills/mcp-builder",
+      "new_invoke": "hs-create:mcp-builder",
+      "old_dir": "harness/plugins/hs/skills/mcp-builder",
+      "old_invoke": "hs:mcp-builder"
+    },
+    "plans-kanban": {
+      "group": "flow",
+      "new_dir": "harness/plugins/hs-flow/skills/plans-kanban",
+      "new_invoke": "hs-flow:plans-kanban",
+      "old_dir": "harness/plugins/hs/skills/plans-kanban",
+      "old_invoke": "hs:plans-kanban"
+    },
+    "port": {
+      "group": "create",
+      "new_dir": "harness/plugins/hs-create/skills/port",
+      "new_invoke": "hs-create:port",
+      "old_dir": "harness/plugins/hs/skills/port",
+      "old_invoke": "hs:port"
+    },
+    "predict": {
+      "group": "think",
+      "new_dir": "harness/plugins/hs-think/skills/predict",
+      "new_invoke": "hs-think:predict",
+      "old_dir": "harness/plugins/hs/skills/predict",
+      "old_invoke": "hs:predict"
+    },
+    "problem-solving": {
+      "group": "think",
+      "new_dir": "harness/plugins/hs-think/skills/problem-solving",
+      "new_invoke": "hs-think:problem-solving",
+      "old_dir": "harness/plugins/hs/skills/problem-solving",
+      "old_invoke": "hs:problem-solving"
+    },
+    "project-management": {
+      "group": "flow",
+      "new_dir": "harness/plugins/hs-flow/skills/project-management",
+      "new_invoke": "hs-flow:project-management",
+      "old_dir": "harness/plugins/hs/skills/project-management",
+      "old_invoke": "hs:project-management"
+    },
+    "project-organization": {
+      "group": "meta",
+      "new_dir": "harness/plugins/hs-meta/skills/project-organization",
+      "new_invoke": "hs-meta:project-organization",
+      "old_dir": "harness/plugins/hs/skills/project-organization",
+      "old_invoke": "hs:project-organization"
+    },
+    "remember": {
+      "group": "mem",
+      "new_dir": "harness/plugins/hs-mem/skills/remember",
+      "new_invoke": "hs-mem:remember",
+      "old_dir": "harness/plugins/hs/skills/remember",
+      "old_invoke": "hs:remember"
+    },
+    "repomix": {
+      "group": "research",
+      "new_dir": "harness/plugins/hs-research/skills/repomix",
+      "new_invoke": "hs-research:repomix",
+      "old_dir": "harness/plugins/hs/skills/repomix",
+      "old_invoke": "hs:repomix"
+    },
+    "research": {
+      "group": "research",
+      "new_dir": "harness/plugins/hs-research/skills/research",
+      "new_invoke": "hs-research:research",
+      "old_dir": "harness/plugins/hs/skills/research",
+      "old_invoke": "hs:research"
+    },
+    "retro": {
+      "group": "mem",
+      "new_dir": "harness/plugins/hs-mem/skills/retro",
+      "new_invoke": "hs-mem:retro",
+      "old_dir": "harness/plugins/hs/skills/retro",
+      "old_invoke": "hs:retro"
+    },
+    "scenario": {
+      "group": "think",
+      "new_dir": "harness/plugins/hs-think/skills/scenario",
+      "new_invoke": "hs-think:scenario",
+      "old_dir": "harness/plugins/hs/skills/scenario",
+      "old_invoke": "hs:scenario"
+    },
+    "security-scan": {
+      "group": "research",
+      "new_dir": "harness/plugins/hs-research/skills/security-scan",
+      "new_invoke": "hs-research:security-scan",
+      "old_dir": "harness/plugins/hs/skills/security-scan",
+      "old_invoke": "hs:security-scan"
+    },
+    "sequential-thinking": {
+      "group": "think",
+      "new_dir": "harness/plugins/hs-think/skills/sequential-thinking",
+      "new_invoke": "hs-think:sequential-thinking",
+      "old_dir": "harness/plugins/hs/skills/sequential-thinking",
+      "old_invoke": "hs:sequential-thinking"
+    },
+    "skill-creator": {
+      "group": "create",
+      "new_dir": "harness/plugins/hs-create/skills/skill-creator",
+      "new_invoke": "hs-create:skill-creator",
+      "old_dir": "harness/plugins/hs/skills/skill-creator",
+      "old_invoke": "hs:skill-creator"
+    },
+    "team": {
+      "group": "flow",
+      "new_dir": "harness/plugins/hs-flow/skills/team",
+      "new_invoke": "hs-flow:team",
+      "old_dir": "harness/plugins/hs/skills/team",
+      "old_invoke": "hs:team"
+    },
+    "techstack": {
+      "group": "research",
+      "new_dir": "harness/plugins/hs-research/skills/techstack",
+      "new_invoke": "hs-research:techstack",
+      "old_dir": "harness/plugins/hs/skills/techstack",
+      "old_invoke": "hs:techstack"
+    },
+    "voice": {
+      "group": "meta",
+      "new_dir": "harness/plugins/hs-meta/skills/voice",
+      "new_invoke": "hs-meta:voice",
+      "old_dir": "harness/plugins/hs/skills/voice",
+      "old_invoke": "hs:voice"
+    },
+    "worktree": {
+      "group": "flow",
+      "new_dir": "harness/plugins/hs-flow/skills/worktree",
+      "new_invoke": "hs-flow:worktree",
+      "old_dir": "harness/plugins/hs/skills/worktree",
+      "old_invoke": "hs:worktree"
+    }
+  },
+  "spine": [
+    "code-review",
+    "cook",
+    "debug",
+    "fix",
+    "git",
+    "plan",
+    "review-pr",
+    "scout",
+    "setup",
+    "ship",
+    "test",
+    "triage",
+    "understand"
+  ]
+}

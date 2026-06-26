@@ -1,0 +1,5 @@
+{
+  "name": "hs-think",
+  "description": "SDLC harness — suy luận / ra quyết định / phản biện (hs-think:brainstorm / predict / scenario / sequential-thinking / problem-solving / critique / bakeoff). Sibling của plugin hs (spine).",
+  "version": "2.0.0"
+}

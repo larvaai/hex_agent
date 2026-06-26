@@ -1,0 +1,19 @@
+{
+  "version": 3,
+  "lines": [
+    [
+      { "type": "model", "id": "a1c0f1e2-0001-4a00-8000-000000000001" },
+      { "type": "git-branch", "id": "a1c0f1e2-0002-4a00-8000-000000000002" },
+      { "type": "context-percentage", "id": "a1c0f1e2-0003-4a00-8000-000000000003" }
+    ]
+  ],
+  "flexMode": "full-minus-40",
+  "compactThreshold": 60,
+  "colorLevel": 2,
+  "minimalistMode": false,
+  "inheritSeparatorColors": false,
+  "globalBold": false,
+  "powerline": {
+    "enabled": false
+  }
+}

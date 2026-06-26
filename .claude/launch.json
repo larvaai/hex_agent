@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "agent-ide",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "ui.ide", "--port", "8800"],
+      "port": 8800
+    },
+    {
+      "name": "fake-control-server",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["tools/fake_control_server.py", "--no-reality", "--port", "8800"],
+      "port": 8800
+    },
+    {
+      "name": "learn-static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "4173"],
+      "port": 4173
+    },
+    {
+      "name": "e21-control-plane",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "ui/control-plane", "run", "dev", "--", "--port", "5176", "--strictPort"],
+      "port": 5176
+    }
+  ]
+}
