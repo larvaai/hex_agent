@@ -26,7 +26,7 @@ export function useRunStream() {
   const apply = useCallback((f: Frame) => {
     setState((s) => {
       if (f.type === "snapshot" && "graph" in f) return { ...s, graph: f.graph as RunGraph };
-      if (f.type === "run_finished") return { ...s, status: s.status === "awaiting" ? s.status : s.status };
+      if (f.type === "run_finished") return s; // terminal marker; run_end/run_cancelled already set status
       if (f.type === "run_cancelled") return { ...s, status: "cancelled" };
       if (f.type === "event" && "data" in f) {
         const d = (f as { data: { type: string; payload: Record<string, unknown> } }).data;

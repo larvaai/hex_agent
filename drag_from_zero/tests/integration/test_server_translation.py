@@ -102,10 +102,13 @@ def test_translate_subtask_spawned_is_decompose_on_parent():
     assert out[0]["data"]["payload"]["children"] == ["child"]
 
 
-def test_translate_task_waiting_is_block():
+def test_translate_task_waiting_is_await_role():
+    # DEC-A5 (Phase 3): a parked task is now a typed `await_role` frame (was a generic `block`),
+    # so the authoring UI can offer an inject affordance with the missing role.
     ev = Event(EventType.TASK_WAITING, task_id="root", payload={"target": "child"})
     out = translate_event(ev)
-    assert [f["data"]["type"] for f in out] == ["block"]
+    assert [f["data"]["type"] for f in out] == ["await_role"]
+    assert out[0]["data"]["payload"]["role"] == "child"
 
 
 def test_translate_task_completed_no_verdict_fn_passes_true():
