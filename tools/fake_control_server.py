@@ -105,6 +105,10 @@ class FakeControlPlane:
         return 200, frames
 
     def _visibility(self, event_type: str) -> str:
+        # FAIL-OPEN posture (decided 2026-06-26, owner uspro): an undeclared event_type is
+        # assumed 'ui_safe' so a hand-authored/experimental fixture event still reaches the UI
+        # during demo/dev rather than vanishing silently. Risk is fake-only — the real producer
+        # (control/emitter.py) calls assert_known and raises on unknown types before publishing.
         try:
             return self.event_registry.visibility(event_type)
         except ControlContractError:
