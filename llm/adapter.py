@@ -50,9 +50,20 @@ def _is_transient(exc: Exception) -> bool:
     return "timeout" in name or "connection" in name
 
 
+def _is_response_format_error(exc: Exception) -> bool:
+    """True when the server rejected ``response_format={"type":"json_object"}``.
+
+    Several OpenAI-compatible local servers (llama.cpp, vLLM, newer LM Studio builds) only accept
+    ``json_schema`` or ``text`` and 400 on ``json_object`` — e.g. "'response_format.type' must be
+    'json_schema' or 'text'". The JSON gate parses plain text anyway, so we downgrade to text mode
+    rather than fail the whole run; this keeps the agent working across servers with no config change."""
+    return "response_format" in str(exc).lower()
+
+
 def call_llm(messages, *, model=None, temperature=0.2, json_mode=True, client=None) -> str:
     """Call an OpenAI-compatible chat endpoint. Retries transient failures with exponential backoff;
-    on permanent failure (or exhausted retries) returns a structured `final`/error JSON (never raises)."""
+    if the server rejects ``json_object`` it retries once in text mode; on permanent failure (or
+    exhausted retries) returns a structured `final`/error JSON (never raises)."""
     cfg = _defaults()
     active = client if client is not None else _get_client()
     kwargs: dict[str, Any] = {"model": model or cfg["model"], "messages": messages,
@@ -62,14 +73,23 @@ def call_llm(messages, *, model=None, temperature=0.2, json_mode=True, client=No
 
     attempts = max(1, cfg["max_retries"] + 1)
     last_exc: Exception | None = None
-    for attempt in range(attempts):
+    attempt = 0
+    downgraded = False
+    while attempt < attempts:
         try:
             response = active.chat.completions.create(**kwargs)
             return response.choices[0].message.content or ""
         except Exception as exc:
             last_exc = exc
+            # Server rejected json_object → downgrade to text once and retry without spending an
+            # attempt (it is a config mismatch, not a flaky call). The JSON gate still parses the text.
+            if json_mode and not downgraded and _is_response_format_error(exc):
+                kwargs["response_format"] = {"type": "text"}
+                downgraded = True
+                continue
             if attempt + 1 < attempts and _is_transient(exc):
                 _sleep(cfg["retry_base"] * (2 ** attempt))  # exp backoff: 0.5, 1.0, 2.0, ...
+                attempt += 1
                 continue
             break
 

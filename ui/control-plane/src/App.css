@@ -1,0 +1,484 @@
+:root {
+  --bg: #0b1620;
+  --panel: #11212e;
+  --panel-2: #0e1c27;
+  --ink: #c9d6df;
+  --muted: #6b8294;
+  --line: #1e3343;
+  --accent: #2aa198;
+  --add: #2aa198;
+  --del: #dc322f;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+button {
+  cursor: pointer;
+  font: inherit;
+}
+
+.redacted {
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* ── shell ───────────────────────────────────────────────────────────── */
+.ide {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ide-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.ide-logo {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.ide-grow {
+  flex: 1;
+}
+
+.ide-badge,
+.ide-runpill {
+  font-size: 11px;
+  color: #001;
+  padding: 2px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ide-session {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ide-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.ide-left {
+  width: 248px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel-2);
+}
+
+.ide-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ide-right {
+  width: 320px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  background: var(--panel-2);
+}
+
+/* ── explorer ────────────────────────────────────────────────────────── */
+.ide-explorer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.ide-explorer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ide-scope {
+  display: flex;
+  gap: 4px;
+}
+
+.ide-seg {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+.ide-seg.is-active {
+  color: var(--ink);
+  border-color: var(--accent);
+  background: rgba(42, 161, 152, 0.12);
+}
+
+.ide-explorer-actions button {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 14px;
+  padding: 2px 4px;
+}
+
+.ide-explorer-actions button:hover {
+  color: var(--ink);
+}
+
+.ide-tree {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.ide-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.ide-tree-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ide-tree-file.is-active {
+  background: rgba(38, 139, 210, 0.18);
+}
+
+.ide-tree-caret {
+  color: var(--muted);
+  width: 12px;
+}
+
+.ide-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.ide-tree-file.is-changed .ide-tree-name {
+  color: var(--accent);
+}
+
+.ide-tree-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.ide-tree-actions {
+  display: none;
+  gap: 2px;
+}
+
+.ide-tree-row:hover .ide-tree-actions {
+  display: flex;
+}
+
+.ide-tree-actions button {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 0 2px;
+}
+
+.ide-tree-actions button:hover {
+  color: var(--ink);
+}
+
+.ide-empty,
+.ide-error {
+  padding: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ide-error {
+  color: var(--del);
+}
+
+.ide-explorer-status {
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── center: editor / diff ───────────────────────────────────────────── */
+.ide-center-head {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ide-center-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.ide-editor,
+.ide-diffpanel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ide-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+}
+
+.ide-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px 5px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--panel-2);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ide-tab.is-active {
+  color: var(--ink);
+  background: var(--panel);
+  border-color: var(--accent);
+}
+
+.ide-tab-close {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ide-tab-close:hover {
+  color: var(--del);
+}
+
+.ide-save {
+  margin-left: auto;
+  background: var(--accent);
+  color: #001;
+  border: none;
+  border-radius: 5px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.ide-save:disabled {
+  background: var(--line);
+  color: var(--muted);
+  cursor: default;
+}
+
+.ide-cm {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.ide-cm .cm-editor {
+  height: 100%;
+}
+
+.ide-editor-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+/* ── diff panel ──────────────────────────────────────────────────────── */
+.ide-diffpanel {
+  overflow: auto;
+}
+
+.ide-diff-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+}
+
+.ide-muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ide-diff-file {
+  border-bottom: 1px solid var(--line);
+}
+
+.ide-diff-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.ide-diff-head:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ide-diff-status {
+  text-transform: uppercase;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  color: #001;
+}
+
+.ide-diff-status.is-added {
+  background: var(--add);
+}
+
+.ide-diff-status.is-modified {
+  background: #b58900;
+}
+
+.ide-diff-status.is-deleted {
+  background: var(--del);
+}
+
+.ide-diff-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ide-diff-stat {
+  font-size: 11px;
+}
+
+.ide-diff-body {
+  margin: 0;
+  padding: 4px 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-x: auto;
+  background: var(--panel-2);
+}
+
+.ide-diff-body > div {
+  padding: 0 10px;
+  white-space: pre;
+}
+
+.ide-diff-add {
+  color: var(--add);
+  background: rgba(42, 161, 152, 0.08);
+}
+
+.ide-diff-del {
+  color: var(--del);
+  background: rgba(220, 50, 47, 0.08);
+}
+
+.ide-diff-hunk {
+  color: #268bd2;
+}
+
+.ide-diff-meta {
+  color: var(--muted);
+}
+
+.ide-diff-ctx {
+  color: var(--ink);
+}
+
+/* ── right rail ──────────────────────────────────────────────────────── */
+.ide-rail-panel {
+  border-bottom: 1px solid var(--line);
+  padding: 8px 10px;
+}
+
+.ide-rail-title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.ide-rail-graph-body {
+  height: 240px;
+  overflow: hidden;
+}
+
+/* ── prompt dock ─────────────────────────────────────────────────────── */
+.ide-prompt-dock {
+  border-top: 1px solid var(--line);
+  padding: 8px 12px;
+  background: var(--panel-2);
+}
+
+.ide-prompt-dock textarea {
+  width: 100%;
+}
+
+/* leftover control-plane classes still referenced by inline-styled components */
+.cp-modal {
+  z-index: 50;
+}
