@@ -41,35 +41,6 @@ class RunCancelled(BaseException):
     would limp on). As a ``BaseException`` it slips past all of them and reaches ``_run``'s
     ``except RunCancelled``, which reports a clean ``loop.failed`` (cancelled) + ``chat.error``."""
 
-# Arg hints for the tools an IDE agent actually reaches for. The registry only knows tool *names*
-# (no schema), and a local model that isn't told the exact name + args guesses "write_file" /
-# "file_editor" and fails the call — so we spell them out. Paths are workspace-relative.
-_TOOL_HINTS: dict[str, str] = {
-    "fs_write": '{"path":"<rel>","content":"<text>"} — create or overwrite a file',
-    "fs_read": '{"path":"<rel>"} — read a file',
-    "fs_str_replace": '{"path":"<rel>","old_text":"<exact>","new_text":"<new>","expected_replacements":1} — surgical edit',
-    "fs_insert": '{"path":"<rel>","line":<1-based>,"content":"<text>"} — insert before a line',
-    "fs_write_lines": '{"path":"<rel>","lines":["..."],"overwrite":true} — write a file from a list of lines',
-    "fs_list": '{"path":"<rel>"} — list a directory',
-    "terminal_run": '{"argv":["cmd","arg"],"timeout":10} — run a command in the workspace',
-}
-
-
-def _tool_guide(kernel) -> str:
-    """Build a system-prompt tool catalog from the *live* registry so the names are always correct."""
-    names = [
-        t["name"]
-        for t in kernel.registry.list_tools()
-        if not str(t["name"]).startswith("llm.") and t["name"] not in {"echo", "null_tool"}
-    ]
-    detailed = [f'- {n}  {_TOOL_HINTS[n]}' for n in names if n in _TOOL_HINTS]
-    others = [n for n in names if n not in _TOOL_HINTS]
-    lines = ["Available tools — call by EXACT name (do NOT invent names like 'write_file'):", *detailed]
-    if others:
-        lines.append("- other tools: " + ", ".join(sorted(others)))
-    lines.append("Paths are relative to the workspace root. To edit a file, use fs_write/fs_str_replace.")
-    return "\n".join(lines)
-
 
 class AgentRunner:
     def __init__(self, session: IdeSession) -> None:
@@ -124,6 +95,7 @@ class AgentRunner:
         # Imports are deferred so the file API works even if the agent stack (langgraph/openai)
         # is not installed — file editing must not depend on the runtime being importable.
         from core.bootstrap import create_kernel
+        from core.tool_guide import tool_guide
         from delegation.bootstrap import create_delegation_service
         from observability import EventLogger, attach_to_bus
         from orchestrator import run as run_agent
@@ -147,7 +119,7 @@ class AgentRunner:
             kernel.events.subscribe(bridge.subscriber)
             attach_to_bus(EventLogger(run_id=run_id), kernel.events)  # persist to var/agent_runs too
             delegation_service = create_delegation_service(kernel)
-            full_system = (system_prompt or DEFAULT_SYSTEM) + "\n\n" + _tool_guide(kernel)
+            full_system = (system_prompt or DEFAULT_SYSTEM) + "\n\n" + tool_guide(kernel)
             outcome = run_agent(
                 kernel,
                 prompt,

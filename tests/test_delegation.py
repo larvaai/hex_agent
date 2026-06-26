@@ -160,3 +160,43 @@ def test_langgraph_child_is_an_adapter_behind_delegation_port():
     assert result.outcome == "success"
     assert result.summary["final"] == "child answer"
     assert result.summary["steps"] == 1
+
+
+def _recording_client(reply):
+    """OpenAI-compatible stub that records every ``messages=`` it is handed."""
+    captured: list = []
+
+    class Completions:
+        def create(self, **kwargs):
+            captured.append(kwargs.get("messages"))
+            message = type("M", (), {"content": reply})()
+            return type("R", (), {"choices": [type("C", (), {"message": message})()]})()
+
+    client = type("Client", (), {"chat": type("Chat", (), {"completions": Completions()})()})()
+    return client, captured
+
+
+def test_delegated_agent_system_prompt_carries_real_tool_catalog():
+    """A delegated child must see the LIVE tool names in its system prompt — without them a local
+    model invents 'write_file'/'bash'. Regression guard for the bare-COMPAT-prompt delegation bug."""
+    from toolbox.feature import install
+
+    kernel = build_kernel(ECHO)
+    install(kernel)  # registers fs_write / terminal_run / ... as real capabilities
+    client, captured = _recording_client('{"action":"final","message":"done","finish_reason":"done"}')
+    kernel.registry.register_feature(FEATURE)
+    kernel.registry.register_tools(
+        FEATURE.capabilities, LLMChatTool(client=client), feature_name=FEATURE.name
+    )
+    registry = DelegationRegistry()
+    registry.register(LangGraphDelegationAgent("agent:general"))
+    manager = DelegationManager(
+        registry=registry, sessions=SessionFactory(kernel=kernel), store=InMemoryDelegationStore()
+    )
+    parent = SessionFactory(kernel=kernel).create_root("parent")
+    result = manager.delegate(parent, "agent:general", DelegationSpec("solve child task"))
+
+    assert result.outcome == "success"
+    assert captured, "child agent never reached the LLM"
+    system = next(m["content"] for m in captured[0] if m["role"] == "system")
+    assert "fs_write" in system and "terminal_run" in system
