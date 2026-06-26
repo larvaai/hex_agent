@@ -12,8 +12,9 @@ from typing import Any
 
 
 class Journal:
-    def __init__(self, workspace_root: str | Path, root: str) -> None:
+    def __init__(self, workspace_root: str | Path, root: str, sink=None) -> None:
         self._dir = Path(workspace_root) / "var" / "decompose" / root
+        self._sink = sink  # optional callback(record) for live streaming (server SSE)
 
     def _path(self, node_id: str) -> Path:
         return self._dir / f"{node_id}.jsonl"
@@ -22,6 +23,11 @@ class Journal:
         self._dir.mkdir(parents=True, exist_ok=True)
         with self._path(node_id).open("a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        if self._sink is not None:
+            try:
+                self._sink({"node": node_id, **record})
+            except Exception:  # a slow/broken consumer must never break the run
+                pass
 
     def records(self, node_id: str) -> list[dict[str, Any]]:
         path = self._path(node_id)

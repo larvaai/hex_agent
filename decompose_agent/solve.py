@@ -81,6 +81,7 @@ def solve_leaf(tree, node_id: str, worker, budget: RootBudget, journal: Journal,
                workspace_root, root: str, parse_max: int = PARSE_MAX) -> Outcome:
     node = tree.nodes[node_id]
     tree.nodes[node_id] = replace(node, status="active", activated_at=time.time())  # stamp BEFORE writes → fresh
+    journal.append(node_id, {"event": "activated", "node": node_id, "kind": "work"})
     dwc = len(node.done_when)
     attempts = AttemptBudget(k=K_LEAF if dwc == 1 else K)
     parse = ParseBudget(max_parse=parse_max)
@@ -198,6 +199,7 @@ def solve_reduce(tree, node_id: str, budget: RootBudget, journal: Journal, works
     """Run a reduce node by CODE (no LLM): gather sibling outputs → compose → Gate-1."""
     node = tree.nodes[node_id]
     tree.nodes[node_id] = replace(node, status="active", activated_at=time.time())  # stamp before write → fresh
+    journal.append(node_id, {"event": "activated", "node": node_id, "kind": "reduce"})
     budget.record_step()
     if budget.step_exceeded():
         return _block(tree, node_id, "BUDGET", journal)

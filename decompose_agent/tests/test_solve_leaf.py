@@ -2,7 +2,6 @@
 DONE|retry-K|BLOCKED, DFS cursor, all_children_done closure, parse/step budgets."""
 from __future__ import annotations
 
-import json
 
 from decompose_agent import worker as W
 from decompose_agent.budget import RootBudget

@@ -12,11 +12,20 @@ Run:  python -m decompose_agent.server [--tree PATH] [--root ID] [--port 8765] [
 from __future__ import annotations
 
 import argparse
+import json
+import queue
+import tempfile
+import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
+from .journal import Journal
+from .solve import solve as run_solve
+from .tree import load_tree
 from .ui_data import DEFAULT_ROOT, DEFAULT_TREE, build_project_data_js
+from .worker import ScriptedWorker
 
 _UI_DIR = Path(__file__).resolve().parent / "ui"
 _HTML_NAME = "Agent IDE.dc.html"
@@ -33,6 +42,30 @@ _CTYPES = {
 
 def _ctype(path: Path) -> str:
     return _CTYPES.get(path.suffix.lower(), "application/octet-stream")
+
+
+def _slim(record: dict) -> dict:
+    """Drop the heavy payload (artifact contents) from a journal record before streaming —
+    the live UI only needs node / event / verdict / reason."""
+    out = {k: v for k, v in record.items() if k not in ("action", "reasons", "children")}
+    action = record.get("action")
+    if isinstance(action, dict) and action.get("tool"):
+        out["tool"] = action["tool"]
+    return out
+
+
+def _solve_into(tree_path: Path, root: str, sink) -> dict:
+    """Run a real solve() in a fresh workspace, streaming each (slimmed) journal record to `sink`.
+    Returns the final state (node statuses + blocked outcome)."""
+    tree = load_tree(tree_path)
+    workspace = tempfile.mkdtemp(prefix="decompose_run_")
+    journal = Journal(workspace, root, sink=lambda rec: sink(_slim(rec)))
+    result = run_solve(tree, ScriptedWorker(satisfy=tree), root=root,
+                       workspace_root=workspace, journal=journal)
+    return {
+        "nodes": {nid: n.status for nid, n in result.tree.nodes.items()},
+        "blocked": (result.blocked._asdict() if result.blocked else None),
+    }
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -65,6 +98,20 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(js.encode("utf-8"), _CTYPES[".js"])
             return
 
+        if path == "/api/run":  # one-shot: run a real solve, return the final state
+            try:
+                final = _solve_into(self.tree_path, self.root, lambda _rec: None)
+            except Exception as exc:
+                final = {"error": str(exc)}
+            self._send(json.dumps(final).encode("utf-8"), _CTYPES[".json"])
+            return
+
+        if path == "/api/stream":  # live: SSE of journal events while a real solve() runs
+            qs = parse_qs(urlparse(self.path).query)
+            pace = float(qs.get("pace", ["0.22"])[0])
+            self._stream_solve(pace)
+            return
+
         target = (_UI_DIR / path.lstrip("/")).resolve()
         if _UI_DIR in target.parents and target.is_file():  # jailed to ui/
             self._send(target.read_bytes(), _ctype(target))
@@ -72,6 +119,44 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(b"not found", "text/plain; charset=utf-8", status=404)
 
     do_HEAD = do_GET
+
+    def _stream_solve(self, pace: float) -> None:
+        """Run solve() in a worker thread; emit each journal record as an SSE event (paced so a
+        fast scripted run is watchable), then a final `done` event with the end state."""
+        events: queue.Queue = queue.Queue()
+        DONE = object()
+        final: dict = {}
+
+        def work() -> None:
+            try:
+                final.update(_solve_into(self.tree_path, self.root, events.put))
+            except Exception as exc:  # noqa: BLE001
+                final["error"] = str(exc)
+            finally:
+                events.put(DONE)
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+
+        threading.Thread(target=work, daemon=True).start()
+        try:
+            while True:
+                item = events.get()
+                if item is DONE:
+                    break
+                self._sse("event", item)
+                if pace > 0:
+                    time.sleep(pace)
+            self._sse("done", final)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # client navigated away mid-stream
+
+    def _sse(self, event: str, data: object) -> None:
+        self.wfile.write(f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode("utf-8"))
+        self.wfile.flush()
 
     def log_message(self, *args) -> None:  # quiet by default
         pass

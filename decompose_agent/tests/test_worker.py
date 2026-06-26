@@ -2,7 +2,6 @@
 text-mode (F6), and F7 — the action runner forces writes into the ACTIVE node's dir only."""
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
 
 import pytest

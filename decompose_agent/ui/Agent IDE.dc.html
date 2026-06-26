@@ -384,7 +384,7 @@ class Component extends DCLogic {
     } catch (e) { console.warn("cdu", e); }
     this.fitGraph();
   }
-  componentWillUnmount() { clearTimeout(this._runT); if (this._fit) window.removeEventListener("resize", this._fit); if (this._ro) this._ro.disconnect(); }
+  componentWillUnmount() { clearTimeout(this._runT); if (this._es) { try { this._es.close(); } catch (e) {} } if (this._fit) window.removeEventListener("resize", this._fit); if (this._ro) this._ro.disconnect(); }
 
   // ---------- theme ----------
   rootRef(el) { this._root = el; if (el) this.applyTheme(this.state.theme); }
@@ -452,36 +452,43 @@ class Component extends DCLogic {
     this.setState({ draft: "" });
     this.runWorkflow();
   }
+  // BACKEND-WIRED: drive the graph from a REAL solve() streamed over /api/stream (SSE).
+  // (the decompose_agent backend serves this page; node ids map to slots via agent.nodeId)
   runWorkflow() {
     if (this.state.run.running) return;
-    const fast = !!this.props.reduceMotion;
-    const steps = [
-      { node: "orchestrator", edge: null, msg: { role: "orchestrator", text: "routing the request → delegating across the team" } },
-      { node: "planner", edge: "o-planner", msg: { role: "planner", text: "decomposed the work into 3 steps → plan.json" } },
-      { node: "coder", edge: "planner-coder", msg: { role: "coder", text: "implemented session.ts + tokens.ts · pre-commit hook ✓" } },
-      { node: "reviewer", edge: "coder-reviewer", msg: { role: "reviewer", text: "rules: no-any ✓ · tests-required ✓ · 1 note → review.md" } },
-      { node: "tester", edge: "reviewer-tester", msg: { role: "tester", text: "vitest → 2 passed (0.41s) · coverage 86%" } },
-      { node: "orchestrator", edge: "tester-o", msg: { role: "orchestrator", text: "auth module is green and ready to merge ✓" } },
-    ];
-    let i = 0;
-    const tick = () => {
-      if (i >= steps.length) {
-        this.setState({ run: { active: null, edge: null, done: ["orchestrator", "planner", "coder", "reviewer", "tester"], running: false }, touched: { "src/auth/session.ts": 1, "src/auth/tokens.ts": 1, "tests/auth.test.ts": 1 } });
-        return;
-      }
-      const st = steps[i];
-      this.setState((s) => {
-        const prevA = s.run.active;
-        const done = prevA && prevA !== st.node && !s.run.done.includes(prevA) ? [...s.run.done, prevA] : s.run.done;
-        return { run: { active: st.node, edge: st.edge, done, running: true }, selectedAgent: st.node };
-      });
-      if (st.msg) this.pushMsg(st.msg);
-      i++; this._runT = setTimeout(tick, fast ? 360 : 1150);
-    };
+    if (this._es) { try { this._es.close(); } catch (e) {} this._es = null; }
+    const A = this.AGENTS || [];
+    const slotOf = {}; A.forEach((a) => { if (a.nodeId) slotOf[a.nodeId] = a.id; });
+    const allSlots = A.map((a) => a.id);
+    const markDone = (slot) => this.setState((s) => ({ run: { ...s.run, done: s.run.done.includes(slot) ? s.run.done : [...s.run.done, slot] } }));
     this.setState({ run: { active: null, edge: null, done: [], running: true } });
-    this._runT = setTimeout(tick, fast ? 150 : 450);
+    this.pushMsg({ role: "orchestrator", text: "running solve() on the backend…" });
+    let es;
+    try { es = new EventSource("/api/stream"); }
+    catch (e) { this.pushMsg({ role: "system", text: "stream unavailable: " + e }); this.setState((s) => ({ run: { ...s.run, running: false } })); return; }
+    this._es = es;
+    es.addEventListener("event", (ev) => {
+      let r; try { r = JSON.parse(ev.data); } catch (e) { return; }
+      const slot = slotOf[r.node]; if (!slot) return;
+      if (r.event === "activated") {
+        this.setState((s) => ({ run: { ...s.run, active: slot, running: true }, selectedAgent: slot }));
+      } else if ((r.event === "attempt" || r.event === "reduce") && r.verdict === "PASS") {
+        markDone(slot); this.pushMsg({ role: slot, text: r.node + " · gate PASS ✓" });
+      } else if (r.event === "closed") {
+        markDone(slot);
+      } else if (r.event === "blocked") {
+        this.pushMsg({ role: slot, text: r.node + " · BLOCKED — " + (r.reason || "") });
+      }
+    });
+    es.addEventListener("done", (ev) => {
+      try { es.close(); } catch (e) {} this._es = null;
+      let f = {}; try { f = JSON.parse(ev.data); } catch (e) {}
+      this.setState({ run: { active: null, edge: null, done: allSlots, running: false } });
+      this.pushMsg({ role: "orchestrator", text: (f && f.blocked) ? ("run BLOCKED — " + f.blocked.reason) : "run complete · every node done ✓" });
+    });
+    es.onerror = () => { try { es.close(); } catch (e) {} this._es = null; this.setState((s) => ({ run: { ...s.run, running: false } })); };
   }
-  resetRun() { clearTimeout(this._runT); this.setState({ run: { active: null, edge: null, done: [], running: false } }); }
+  resetRun() { if (this._es) { try { this._es.close(); } catch (e) {} this._es = null; } clearTimeout(this._runT); this.setState({ run: { active: null, edge: null, done: [], running: false } }); }
 
   // ---------- refs ----------
   taRef(el) { this._ta = el; }

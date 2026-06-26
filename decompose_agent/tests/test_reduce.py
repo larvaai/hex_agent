@@ -3,7 +3,6 @@ siblings' outputs and produces the aggregate artifact its done_when checks."""
 from __future__ import annotations
 
 import json
-from dataclasses import replace
 
 import pytest
 

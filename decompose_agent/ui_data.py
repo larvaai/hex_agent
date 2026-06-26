@@ -135,6 +135,7 @@ def _agents(tree, journal) -> list[dict]:
         role = "Navigator · closure" if node.depth == 0 else "Worker · leaf"
         agents.append({
             "id": sid,
+            "nodeId": node.id,  # real backend node id → lets the live stream map events to this slot
             "name": _short(node.id),
             "role": role,
             "letter": letter,
