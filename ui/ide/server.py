@@ -19,6 +19,7 @@ import json
 import mimetypes
 import os
 import re
+import sys
 import threading
 import time
 import uuid
@@ -110,6 +111,17 @@ class IdeControlServer(ThreadingHTTPServer):
         self._dedup: dict[tuple[str, str], dict[str, Any]] = {}
         self._dedup_lock = threading.Lock()
         super().__init__(server_address, IdeHandler)
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        """Swallow benign peer disconnects (the client reset/closed the socket mid-request — a
+        browser reload, navigation, or EventSource reconnect, which session-switch triggers
+        constantly). These escape ``handle_one_request`` *before* any handler try/except, so without
+        this the stdlib default would print a full traceback for every normal client hang-up. Real
+        handler errors are delegated to the default reporter."""
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)):
+            return
+        super().handle_error(request, client_address)
 
     # ── command handling (mirrors the fake's seam; SubmitPrompt drives a real run) ──
     def submit_command(self, *, token: str | None, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:

@@ -267,6 +267,30 @@ def test_server_sessions_terminal_cancel(workspace):
         server.server_close()
 
 
+def test_handle_error_suppresses_peer_disconnect(workspace, capsys):
+    """A client resetting the socket mid-request (browser reload / EventSource reconnect — which
+    session-switch does constantly) escapes the handler at handle_one_request, before any try/except
+    in our code, and socketserver's default handle_error prints a full traceback. That benign
+    disconnect must be swallowed — but a genuine handler error must still surface."""
+    import ui.ide.server as server_mod
+
+    server = server_mod.IdeControlServer(("127.0.0.1", 0), token="t", session_id="t1_demo")
+    try:
+        try:
+            raise ConnectionResetError(54, "reset by peer")
+        except ConnectionResetError:
+            server.handle_error(None, ("127.0.0.1", 55998))  # benign → swallowed
+        try:
+            raise ValueError("real boom")
+        except ValueError:
+            server.handle_error(None, ("127.0.0.1", 55999))  # real → surfaced
+    finally:
+        server.server_close()
+    err = capsys.readouterr().err
+    assert "ConnectionResetError" not in err  # peer hang-up: silent, no traceback noise
+    assert "real boom" in err  # genuine errors are still reported
+
+
 def _conn(port):
     return HTTPConnection("127.0.0.1", port, timeout=5)
 
