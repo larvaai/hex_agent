@@ -2,6 +2,10 @@
 
 Mỗi mục = một đợt thêm/sửa, gắn với **Sprint + Epic**, để theo dõi "thêm gì, vì sao". Mục mới nhất ở trên.
 
+## E21/E06 — Port kỷ luật harness vào control plane (DEC-8) · 2026-06-26
+
+- **Doctrine attribution≠authz + predicate** (`control/authz.py` MỚI; `docs/explanation/authz-vs-attribution.md` MỚI): `issued_by`/`Actor` = attribution tự khai (audit/trail), KHÔNG phải authz. `is_permission_escalating` bắt cờ `can_*` False→True; `command_needs_human_checkpoint` ép `UpdateAgentPermission`→`can_modify_permissions` cần human `RuntimeCheckpoint` kể cả dưới trust-O. Enforcement (`command_bridge`) hoãn (DEC-7) — doc đặt tên call-site MUST gọi predicate trước khi áp. Sửa docstring `commands.py` "authz"→"audit/attribution". `feat(E21): authz≠attribution doctrine + predicate`.
+
 ## E21 — S21.33 evidence types + AC report · 2026-06-26
 
 - **Siết acceptance gate theo loại evidence** (`supervisor/evidence.py` MỚI; `supervisor/graph.py:238`): `evidence_type_of(artifact)` suy loại từ `artifact.kind`; `judge_acceptance` honor `passed` chỉ khi **mọi** id cited resolve trên Blackboard **và ≥1** id là evidence thật (≥1-valid, KHÔNG all-valid). Scaffolding (`session_plan`/`context_packet`/`ac_report` ∈ `NON_EVIDENCE_KINDS`) hoặc kind rỗng → không tính. Chặn O "pass" AC bằng cách trỏ vào scaffolding.

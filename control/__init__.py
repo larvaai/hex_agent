@@ -8,6 +8,11 @@ later) arrives in Phase B/C. See docs/spec/active/E21-realtime-control-plane/.
 """
 from __future__ import annotations
 
+from control.authz import (
+    PERMISSION_EDIT_PERMISSIONS,
+    command_needs_human_checkpoint,
+    is_permission_escalating,
+)
 from control.checkpoint import (
     CHECKPOINT_STATUSES,
     RESOLVED_STATUSES,
@@ -90,6 +95,10 @@ __all__ = [
     # permission
     "Permission",
     "EFFECTIVE_FROM",
+    # authz predicates (attribution≠authz doctrine)
+    "is_permission_escalating",
+    "command_needs_human_checkpoint",
+    "PERMISSION_EDIT_PERMISSIONS",
     # redaction
     "Redactor",
     "SECRET_KEYS",

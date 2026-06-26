@@ -16,6 +16,8 @@ from control.errors import ControlContractError
 EFFECTIVE_FROM = frozenset({"immediately", "next_turn", "next_checkpoint"})
 
 
+# can_modify_permissions is a real escalation surface — editing it is gated, not attributed.
+# Escalation predicate=control/authz.py · doctrine=docs/explanation/authz-vs-attribution.md
 @dataclass(frozen=True)
 class Permission:
     allowed_tools: tuple[str, ...] = ()

@@ -2,8 +2,11 @@
 
 UI never mutates state directly; it submits a ``RuntimeCommand``. The gateway validates
 it (``parse_command``) before it enters the queue. ``idempotency_key`` + ``issued_by`` are
-mandatory: the first guards against double-apply, the second names who acted (for authz +
-audit). ``apply_at`` / ``requires_permission`` live in the command-type registry, not here.
+mandatory: the first guards against double-apply, the second records who acted — for
+**audit/attribution, NOT authz** (the issuer self-asserts it). The authz decision is
+``requires_permission`` resolved at a checkpoint; see ``control/authz.py`` +
+``docs/explanation/authz-vs-attribution.md``. ``apply_at`` / ``requires_permission`` live in
+the command-type registry, not here.
 """
 from __future__ import annotations
 
@@ -25,6 +28,8 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Attribution only — self-asserted by the issuer, never a proof of authority.
+# authz=control/authz.py · doctrine=docs/explanation/authz-vs-attribution.md
 @dataclass(frozen=True)
 class IssuedBy:
     type: str

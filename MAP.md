@@ -11,6 +11,7 @@ Mỗi module + một dòng mục đích + epic. **Chạy lại `python tools/gen
 
 | module | mục đích |
 |---|---|
+| `control/authz.py` | Authz predicates — attribution≠authz boundary for the control plane. Epic E21. |
 | `control/checkpoint.py` | RuntimeCheckpoint — the approval-gate contract for risky actions. Epic E21 (S21.5). |
 | `control/command_registry.py` | Command-type registry — declares when each command applies and what it needs. Epic E21 (S21.4). |
 | `control/commands.py` | RuntimeCommand — the one structured shape for every UI/human intervention. Epic E21 (S21.3). |
