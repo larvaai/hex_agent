@@ -21,11 +21,54 @@ def _deep_freeze(value: Any) -> Any:
     return value
 
 
-def _wrap(middleware, nxt):
-    """Bind one middleware around the next handler (avoids late-binding closure bug)."""
+class _LatchedNext:
+    """One-shot proxy around the inner handler. Runs it at most once; later calls replay the
+    first outcome (result or exception) WITHOUT re-executing. Guards a fail-open middleware that
+    raises *after* already invoking nxt from double-running the tool (FM-HIGH, non-idempotent)."""
+
+    __slots__ = ("_nxt", "_ran", "_result", "_exc")
+
+    def __init__(self, nxt) -> None:
+        self._nxt = nxt
+        self._ran = False
+        self._result: Any = None
+        self._exc: Exception | None = None
+
+    def __call__(self, request: ToolRequest) -> dict[str, Any]:
+        if not self._ran:
+            self._ran = True
+            try:
+                self._result = self._nxt(request)
+            except Exception as exc:  # store so the skip-fallback replays, never re-runs
+                self._exc = exc
+        if self._exc is not None:
+            raise self._exc
+        return self._result
+
+
+def _wrap(middleware, nxt, on_skip=None):
+    """Bind one middleware around the next handler (avoids late-binding closure bug).
+
+    Default posture is **fail-closed**: a raising middleware propagates to the kernel boundary
+    (ok=False). A middleware that opts in with ``fail_open = True`` (advisory — telemetry/condense)
+    is **skipped** when it raises: the chain continues with the inner result. Its ``nxt`` is latched
+    (one-shot) so a post-nxt raise cannot re-execute the tool. Only the fail-open branch latches —
+    fail-closed (incl. Retry, which calls nxt repeatedly by design) gets the raw ``nxt``.
+    """
+    if getattr(middleware, "fail_open", False) is not True:
+        def handler(request: ToolRequest) -> dict[str, Any]:
+            return middleware(request, nxt)
+
+        return handler
 
     def handler(request: ToolRequest) -> dict[str, Any]:
-        return middleware(request, nxt)
+        latched = _LatchedNext(nxt)
+        try:
+            return middleware(request, latched)
+        except Exception as exc:  # advisory failed → skip it, keep the (latched) inner result
+            if on_skip is not None:
+                on_skip(middleware, exc)
+            return latched(request)
 
     return handler
 
@@ -133,9 +176,22 @@ class AgentKernel:
                 },
             ).as_dict()
 
+        def on_skip(mw: Any, exc: Exception) -> None:
+            # A fail-open (advisory) middleware raised and was skipped — make it observable.
+            self.events.publish(
+                "middleware.skipped",
+                {
+                    **lineage,
+                    "tool": request.name,
+                    "request_id": request.request_id,
+                    "middleware": getattr(mw, "name", type(mw).__name__),
+                    "error": str(exc),
+                },
+            )
+
         handler = core
         for mw in reversed(self._middlewares):
-            handler = _wrap(mw, handler)
+            handler = _wrap(mw, handler, on_skip=on_skip)
         try:
             envelope = handler(request)
         except Exception as exc:  # a middleware must never crash the kernel boundary
