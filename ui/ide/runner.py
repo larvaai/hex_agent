@@ -29,6 +29,18 @@ from .session import IdeSession
 
 _AGENT_ID = "agent:root"
 
+
+_MAX_CHAT_CHARS = 20_000  # cap a chat bubble's text (the prompt is already capped server-side)
+
+
+class RunCancelled(BaseException):
+    """Raised at the ``execute_tool`` chokepoint when the user stops a run. It subclasses
+    ``BaseException`` *on purpose*: every layer on the path home — Retry, the kernel's
+    ``execute_tool`` boundary, and ``orchestrator._stream`` — guards with ``except Exception``, which
+    would otherwise swallow a cancel and convert it into an ordinary tool-error envelope (the run
+    would limp on). As a ``BaseException`` it slips past all of them and reaches ``_run``'s
+    ``except RunCancelled``, which reports a clean ``loop.failed`` (cancelled) + ``chat.error``."""
+
 # Arg hints for the tools an IDE agent actually reaches for. The registry only knows tool *names*
 # (no schema), and a local model that isn't told the exact name + args guesses "write_file" /
 # "file_editor" and fails the call — so we spell them out. Paths are workspace-relative.
@@ -63,6 +75,17 @@ class AgentRunner:
     def __init__(self, session: IdeSession) -> None:
         self.session = session
         self._lock = threading.Lock()
+        self._cancel = threading.Event()
+
+    def cancel(self) -> bool:
+        """Request the running agent stop. Cooperative: the cancel middleware raises at the next
+        tool/LLM chokepoint, so the run aborts within one step (an in-flight LLM call finishes
+        first). Returns True if a run was actually active to cancel. ``run_status`` is read through
+        the session's own lock (``snapshot_status``) so this never races the runner thread's write."""
+        if self.session.snapshot_status() != "running":
+            return False
+        self._cancel.set()
+        return True
 
     def start(self, prompt: str, system_prompt: str | None = None) -> str | None:
         """Snapshot the baseline, emit the opening events, and run the agent on a daemon thread.
@@ -71,13 +94,15 @@ class AgentRunner:
         clobber the diff baseline and interleave two runs' events. The check-and-claim is atomic
         under ``self._lock`` so two concurrent SubmitPrompts cannot both pass it."""
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:8]
+        # Snapshot the baseline before claiming (it walks the workspace); the atomic claim lives in
+        # the session under its own lock, so two concurrent SubmitPrompts cannot both win.
+        baseline = files.snapshot_baseline("workspace")
         with self._lock:
-            if self.session.run_status == "running":
+            if not self.session.try_begin_run(prompt, baseline, "workspace"):
                 return None
-            self.session.last_prompt = prompt
-            self.session.baseline = files.snapshot_baseline("workspace")
-            self.session.baseline_scope = "workspace"
-            self.session.set_status("running")
+            self._cancel.clear()
+        # chat.user first so the conversation thread (ordered by seq) opens with the prompt.
+        self.session.emit("chat.user", {"text": prompt[:_MAX_CHAT_CHARS]})
         self.session.emit("loop.team_composed", {"selected": [_AGENT_ID]})
         self.session.emit(
             "loop.decision",
@@ -108,6 +133,17 @@ class AgentRunner:
         outcome: dict[str, Any]
         try:
             kernel = create_kernel()
+            # Cooperative cancel: this middleware sits on the single execute_tool chokepoint and
+            # raises once the user hits Stop. Registered before run_agent freezes the kernel.
+            def _cancel_mw(request, nxt):  # noqa: ANN001 — middleware signature is (request, nxt)
+                if self._cancel.is_set():
+                    raise RunCancelled()
+                return nxt(request)
+
+            try:
+                kernel.use(_cancel_mw)
+            except RuntimeError:
+                pass  # already frozen (not expected pre-run) — Stop degrades to a no-op
             kernel.events.subscribe(bridge.subscriber)
             attach_to_bus(EventLogger(run_id=run_id), kernel.events)  # persist to var/agent_runs too
             delegation_service = create_delegation_service(kernel)
@@ -120,10 +156,16 @@ class AgentRunner:
                 checkpoint=True,
                 delegation_service=delegation_service,
             )
+        except RunCancelled:
+            self._finish_cancelled()
+            return
         except Exception as exc:  # the run stack itself failed (import/bootstrap) — report honestly
             self._finish_failed(f"{type(exc).__name__}: {exc}")
             return
 
+        if self._cancel.is_set():  # cancel landed as the run wound down — report it as cancelled
+            self._finish_cancelled()
+            return
         status = str(outcome.get("status") or "completed")
         result = outcome.get("result")
         summary = _stringify(result)
@@ -137,6 +179,7 @@ class AgentRunner:
             round_no=1,
         )
         self.session.emit("loop.finished", {"status": status, "result": summary[:1000]})
+        self.session.emit("chat.assistant", {"text": summary[:_MAX_CHAT_CHARS]})
         self.session.set_status("finished")
 
     def _finish_failed(self, message: str) -> None:
@@ -147,7 +190,20 @@ class AgentRunner:
             round_no=1,
         )
         self.session.emit("loop.failed", {"error": message[:1000]})
+        self.session.emit("chat.error", {"text": message[:_MAX_CHAT_CHARS]})
         self.session.set_status("failed")
+
+    def _finish_cancelled(self) -> None:
+        message = "Run stopped by user."
+        self.session.emit(
+            "loop.turn",
+            {"agent_id": _AGENT_ID, "outcome": f"(cancelled) {message}", "round": 1},
+            actor=Actor(type="agent", id=_AGENT_ID),
+            round_no=1,
+        )
+        self.session.emit("loop.failed", {"error": message, "cancelled": True})
+        self.session.emit("chat.error", {"text": message, "cancelled": True})
+        self.session.set_status("cancelled")
 
 
 def _stringify(value: Any) -> str:

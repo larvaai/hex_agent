@@ -69,10 +69,16 @@ class ControlPlaneStore {
     this.commit({ ...this.state, status });
   };
 
-  // test-only: reset between cases
-  _reset = (): void => {
+  // Switching sessions: drop the previous conversation's snapshot + events so the new session's
+  // stream replays into a clean store (the dedup set is per-stream-cursor, not cross-session).
+  resetForSession = (): void => {
     this.seen = new Set();
     this.commit({ snapshot: null, events: [], selectedAgentId: null, status: "connecting" });
+  };
+
+  // test-only: reset between cases
+  _reset = (): void => {
+    this.resetForSession();
   };
 }
 

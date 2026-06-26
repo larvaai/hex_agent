@@ -18,11 +18,15 @@ the whole repo would be both huge and pointless.
 from __future__ import annotations
 
 import difflib
+import os
 import re
+import shlex
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
+from safety.policy import classify_terminal
 from safety.sandbox import PROJECT_DIR, workspace_dir
 
 # Kept in sync with the legacy console so both explorers hide the same noise.
@@ -357,3 +361,57 @@ _LANG_BY_SUFFIX = {
 def _language_for(name: str) -> str:
     suffix = name.rsplit(".", 1)[-1].lower() if "." in name else ""
     return _LANG_BY_SUFFIX.get(suffix, "text")
+
+
+# ── terminal (manual command runner for the IDE's terminal panel) ─────────────────
+MAX_TERMINAL_OUTPUT = 60_000  # cap captured std/err so a chatty command can't bloat the response
+# Whitelist the env a command sees. Inheriting the server's full os.environ would let an allowed
+# command (`env`, `printenv`, `node -e 'process.env'`) dump the IDE token, SSH agent, and any API
+# keys straight back to the caller. Only the vars a build/test actually needs are passed through.
+_SAFE_ENV_KEYS = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TMPDIR", "TZ")
+
+
+def _safe_env() -> dict[str, str]:
+    return {k: os.environ[k] for k in _SAFE_ENV_KEYS if k in os.environ}
+
+
+def run_command(command: str | None, argv: list[str] | None, timeout: int) -> dict[str, Any]:
+    """Run a command (no shell) in the workspace root, gated by the *same* policy the agent's
+    ``terminal_run`` tool enforces (``classify_terminal``). Accepts a shell-style ``command`` string
+    (shlex-split, never handed to a shell) or an explicit ``argv`` list. Output is captured and
+    capped; the workspace jail keeps it inside ``var/workspace``."""
+    if argv is None:
+        if not isinstance(command, str) or not command.strip():
+            raise FileOpError("command must be a non-empty string", status=400)
+        try:
+            argv = shlex.split(command)
+        except ValueError as exc:
+            raise FileOpError(f"unparseable command: {exc}", status=400) from exc
+    if not isinstance(argv, list) or not argv:
+        raise FileOpError("argv must be a non-empty list", status=400)
+    decision = classify_terminal(argv)
+    if not decision.allowed:
+        raise FileOpError(decision.reason or "command blocked by policy", status=403)
+    timeout = min(max(int(timeout or 10), 1), 30)
+    cwd = workspace_dir()
+    cwd.mkdir(parents=True, exist_ok=True)
+    try:
+        proc = subprocess.run(
+            [str(a) for a in argv],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=_safe_env(),  # scrubbed env — never leak the server's secrets to a command
+        )
+    except FileNotFoundError as exc:
+        raise FileOpError(f"command not found: {exc}", status=400) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise FileOpError(f"timeout after {timeout}s", status=408) from exc
+    return {
+        "ok": proc.returncode == 0,
+        "argv": [str(a) for a in argv],
+        "returncode": proc.returncode,
+        "stdout": (proc.stdout or "")[:MAX_TERMINAL_OUTPUT],
+        "stderr": (proc.stderr or "")[:MAX_TERMINAL_OUTPUT],
+    }

@@ -18,6 +18,7 @@ event instead of busy-polling. The contract-honest invariant — stream only the
 from __future__ import annotations
 
 import threading
+from datetime import datetime
 from typing import Any
 
 from control.errors import ControlContractError
@@ -32,10 +33,13 @@ class IdeSession:
         self,
         session_id: str,
         *,
+        title: str | None = None,
         event_registry: EventTypeRegistry | None = None,
         redactor: Redactor | None = None,
     ) -> None:
         self.session_id = session_id
+        self.title = title or session_id
+        self.created_at = datetime.now().isoformat(timespec="seconds")
         self.buffer = EventReplayBuffer()
         self.event_registry = event_registry or load_event_registry()
         self.redactor = redactor or Redactor()
@@ -106,3 +110,39 @@ class IdeSession:
         with self._cond:
             self.run_status = status
             self._cond.notify_all()
+
+    # ── run-lifecycle fields, all guarded by the one condition ──────────────────
+    # run_status / last_prompt / baseline are written by the runner thread and read by HTTP handler
+    # threads (cancel, diff, meta). Guarding every access with this single lock — not the runner's
+    # separate lock — keeps them consistent (no cross-lock asymmetry).
+    def try_begin_run(self, prompt: str, baseline: dict[str, str], scope: str) -> bool:
+        """Atomically claim the session for a new run: refuse if one is already running, else set the
+        prompt + diff baseline + status under the lock. Returns True if the caller won the claim."""
+        with self._cond:
+            if self.run_status == "running":
+                return False
+            self.last_prompt = prompt
+            self.baseline = baseline
+            self.baseline_scope = scope
+            self.run_status = "running"
+            self._cond.notify_all()
+            return True
+
+    def snapshot_status(self) -> str:
+        with self._cond:
+            return self.run_status
+
+    def diff_baseline(self) -> tuple[dict[str, str], str]:
+        with self._cond:
+            return self.baseline, self.baseline_scope
+
+    def meta(self) -> dict[str, Any]:
+        """Compact descriptor for the session-list endpoint (all run fields read under the lock)."""
+        with self._cond:
+            return {
+                "id": self.session_id,
+                "title": self.title,
+                "status": self.run_status,
+                "last_prompt": self.last_prompt[:120],
+                "created_at": self.created_at,
+            }

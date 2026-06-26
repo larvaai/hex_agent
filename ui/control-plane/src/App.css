@@ -98,14 +98,28 @@ button {
 }
 
 .ide-right {
-  width: 320px;
+  width: 380px;
   flex-shrink: 0;
   border-left: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   background: var(--panel-2);
+}
+
+.ide-rail-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.ide-rail-agent {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 /* ── explorer ────────────────────────────────────────────────────────── */
@@ -467,15 +481,281 @@ button {
   overflow: hidden;
 }
 
-/* ── prompt dock ─────────────────────────────────────────────────────── */
-.ide-prompt-dock {
-  border-top: 1px solid var(--line);
-  padding: 8px 12px;
-  background: var(--panel-2);
+/* ── session bar (header) ────────────────────────────────────────────── */
+.ide-sessions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.ide-prompt-dock textarea {
+.ide-session-select {
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 12px;
+  max-width: 200px;
+}
+
+.ide-newsession,
+.ide-termtoggle {
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ide-newsession:hover,
+.ide-termtoggle:hover {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+.ide-termtoggle.is-active {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+/* ── chat ────────────────────────────────────────────────────────────── */
+.chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.chat-log {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-empty,
+.term-empty {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 6px 0;
+}
+
+.chat-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.chat-role {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.chat-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+
+.chat-user .chat-text {
+  background: rgba(38, 139, 210, 0.12);
+  border-color: rgba(38, 139, 210, 0.4);
+}
+
+.chat-assistant .chat-text {
+  background: var(--panel);
+}
+
+.chat-error .chat-text {
+  background: rgba(203, 75, 22, 0.12);
+  border-color: rgba(203, 75, 22, 0.45);
+  color: #e0a890;
+}
+
+.chat-tool {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+}
+
+.chat-tool[data-ok="false"] {
+  border-left-color: #dc322f;
+}
+
+.chat-tool-mark {
+  color: #2aa198;
+}
+
+.chat-tool[data-ok="false"] .chat-tool-mark {
+  color: #dc322f;
+}
+
+.chat-tool-name {
+  color: var(--ink);
+}
+
+.chat-tool-path {
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-stop {
+  margin: 0 12px 6px;
+  align-self: flex-start;
+  background: rgba(220, 50, 47, 0.15);
+  color: #f2998c;
+  border: 1px solid rgba(220, 50, 47, 0.5);
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chat-stop:hover {
+  background: rgba(220, 50, 47, 0.28);
+}
+
+.chat .cp-prompt {
+  border-top: 1px solid var(--line);
+  padding: 8px 12px;
+  flex-shrink: 0;
+}
+
+.chat .cp-prompt textarea {
   width: 100%;
+}
+
+/* ── terminal dock ───────────────────────────────────────────────────── */
+.ide-term-dock {
+  height: 240px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--line);
+  background: var(--panel-2);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ide-term-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ide-term-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.ide-term-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.ide-term-close:hover {
+  color: var(--ink);
+}
+
+.term {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.term-log {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.term-entry {
+  margin-bottom: 8px;
+}
+
+.term-cmd {
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.term-prompt {
+  color: #2aa198;
+  font-weight: 600;
+}
+
+.term-rc {
+  font-size: 10px;
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(220, 50, 47, 0.2);
+  color: #f2998c;
+}
+
+.term-rc[data-ok="true"] {
+  background: rgba(42, 161, 152, 0.2);
+  color: #7fd3ca;
+}
+
+.term-out,
+.term-err {
+  margin: 3px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.term-err {
+  color: #f2998c;
+}
+
+.term-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding: 6px 12px;
+}
+
+.term-input input {
+  flex: 1;
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-family: inherit;
+  font-size: 12px;
 }
 
 /* leftover control-plane classes still referenced by inline-styled components */

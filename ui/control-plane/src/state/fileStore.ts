@@ -24,7 +24,7 @@ import {
   type TreeNode,
   type TreeResponse,
 } from "../adapter/files";
-import { SESSION_ID } from "../config";
+import { currentSession } from "./sessionStore";
 
 export interface Tab {
   scope: Scope;
@@ -91,6 +91,23 @@ class FileStore {
   activeTab(): Tab | null {
     return this.state.tabs.find((t) => tabKey(t.scope, t.path) === this.state.activeKey) ?? null;
   }
+
+  // Switching sessions: drop the previous conversation's editor state so a switched-to session does
+  // not show the old session's open tabs, diffs, or false "changed" flags. Mirrors
+  // store.resetForSession() (the App resets both stores together). Scope choice is kept.
+  resetForSession = (): void => {
+    this.prevTree = new Map();
+    this.commit({
+      tree: null,
+      treeError: null,
+      tabs: [],
+      activeKey: null,
+      view: "editor",
+      diffs: [],
+      changed: new Set(),
+      status: null,
+    });
+  };
 
   // ── tree ──────────────────────────────────────────────────────────────────
   setScope = async (scope: Scope): Promise<void> => {
@@ -215,7 +232,7 @@ class FileStore {
 
   refreshDiffs = async (): Promise<void> => {
     try {
-      this.commit({ diffs: await getDiffs(SESSION_ID) });
+      this.commit({ diffs: await getDiffs(currentSession()) });
     } catch (err) {
       this.commit({ status: (err as Error).message });
     }

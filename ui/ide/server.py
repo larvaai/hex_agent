@@ -43,15 +43,60 @@ MAX_PROMPT_CHARS = 20_000
 STREAM_KEEPALIVE_SECONDS = 12.0
 DRAIN_TIMEOUT_SECONDS = 1.0
 MAX_DEDUP_ENTRIES = 4_096  # bound the idempotency map so a long-lived server can't leak memory
+MAX_SESSIONS = 64  # cap live sessions so a token holder can't exhaust memory via /api/sessions
 
 # CORS is reflected only for same-machine origins (the served origin + the vite dev server). A
 # blanket "*" would let any site a user visits read this localhost service's responses; reflecting
-# only localhost/127.0.0.1 keeps the dev workflow while denying arbitrary cross-origin reads.
-_LOCAL_ORIGIN = re.compile(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$")
+# only localhost/127.0.0.1/[::1] keeps the dev workflow while denying arbitrary cross-origin reads.
+_LOCAL_ORIGIN = re.compile(r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$")
 
 
 def _origin_allowed(origin: str | None) -> bool:
     return bool(origin) and bool(_LOCAL_ORIGIN.match(origin))
+
+
+class SessionRegistry:
+    """The set of live IDE sessions — each its own event buffer, diff baseline, and runner.
+
+    Session history (opencode parity) needs more than one conversation; the server keeps them here
+    keyed by id. All sessions share the one ``var/workspace`` on disk, so each captures its *own*
+    diff baseline at creation — its diff is what changed since that session opened, not since boot."""
+
+    def __init__(self, default_id: str) -> None:
+        self._lock = threading.Lock()
+        self._sessions: dict[str, IdeSession] = {}
+        self._runners: dict[str, AgentRunner] = {}
+        self.default_id = default_id
+        self.create(default_id, title="Session 1")
+
+    def create(self, session_id: str | None = None, *, title: str | None = None) -> IdeSession:
+        # Full uuid4 hex (128-bit) — an 8-char prefix is only 32 bits, collidable in ~65k tries by a
+        # token holder, which would let one session's stream/diff/commands hit another's.
+        sid = session_id or ("s_" + uuid.uuid4().hex)
+        # Snapshot the baseline outside the lock (it walks the workspace); register atomically.
+        baseline = files.snapshot_baseline("workspace")
+        with self._lock:
+            if sid in self._sessions:
+                return self._sessions[sid]
+            if len(self._sessions) >= MAX_SESSIONS:
+                raise FileOpError("session limit reached; close some sessions first", status=429)
+            session = IdeSession(sid, title=title or sid)
+            session.baseline = baseline
+            self._sessions[sid] = session
+            self._runners[sid] = AgentRunner(session)
+            return session
+
+    def get(self, session_id: str | None) -> IdeSession | None:
+        with self._lock:
+            return self._sessions.get(session_id or self.default_id)
+
+    def runner(self, session_id: str | None) -> AgentRunner | None:
+        with self._lock:
+            return self._runners.get(session_id or self.default_id)
+
+    def list(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return [s.meta() for s in sorted(self._sessions.values(), key=lambda x: x.created_at)]
 
 
 class IdeControlServer(ThreadingHTTPServer):
@@ -60,11 +105,7 @@ class IdeControlServer(ThreadingHTTPServer):
 
     def __init__(self, server_address: tuple[str, int], *, token: str, session_id: str) -> None:
         self.token = token
-        self.session = IdeSession(session_id)
-        # Snapshot the workspace now so the diff endpoint reads empty until something actually
-        # changes — otherwise an empty baseline makes every existing file look freshly "added".
-        self.session.baseline = files.snapshot_baseline("workspace")
-        self.runner = AgentRunner(self.session)
+        self.registry = SessionRegistry(session_id)
         self.command_registry = load_command_registry()
         self._dedup: dict[tuple[str, str], dict[str, Any]] = {}
         self._dedup_lock = threading.Lock()
@@ -79,14 +120,19 @@ class IdeControlServer(ThreadingHTTPServer):
             self.command_registry.assert_known(cmd.command_type)
         except ControlContractError as exc:
             cid = str(body.get("command_id") or uuid.uuid4().hex)
-            self.session.emit("command.rejected", {"command_id": cid, "reason": str(exc)})
             return 400, CommandAck(command_id=cid, status="rejected", rejection_reason=str(exc)).as_dict()
+
+        session = self.registry.get(cmd.session_id)
+        if session is None:
+            return 404, CommandAck(
+                command_id=cmd.command_id, status="rejected", rejection_reason=f"unknown session {cmd.session_id!r}"
+            ).as_dict()
 
         key = (cmd.session_id, cmd.idempotency_key)
         with self._dedup_lock:
             if key in self._dedup:
                 return 200, self._dedup[key]  # idempotent replay → same ack, run dispatched once
-            seq = self.session.emit(
+            seq = session.emit(
                 "command.received", {"command_id": cmd.command_id, "command_type": cmd.command_type}
             )
             ack = CommandAck(command_id=cmd.command_id, status="received", seq=seq)
@@ -96,18 +142,22 @@ class IdeControlServer(ThreadingHTTPServer):
                 # dict preserves insertion order — drop the oldest; idempotency only needs a window.
                 del self._dedup[next(iter(self._dedup))]
 
-        self._dispatch(cmd.command_type, cmd.payload)
+        self._dispatch(cmd.session_id, cmd.command_type, cmd.payload)
         return 200, ack_dict
 
-    def _dispatch(self, command_type: str, payload: dict[str, Any]) -> None:
+    def _dispatch(self, session_id: str, command_type: str, payload: dict[str, Any]) -> None:
+        session = self.registry.get(session_id)
+        runner = self.registry.runner(session_id)
+        if session is None or runner is None:
+            return
         if command_type == "SubmitPrompt":
             prompt = str(payload.get("prompt") or "").strip()[:MAX_PROMPT_CHARS]
             if not prompt:
                 return
             # runner.start atomically refuses to start over a live run (would clobber the diff
             # baseline and interleave two runs' loop.* events); surface that as a rejected command.
-            if self.runner.start(prompt, str(payload.get("system_prompt") or "") or None) is None:
-                self.session.emit("command.rejected", {"reason": "a run is already active"})
+            if runner.start(prompt, str(payload.get("system_prompt") or "") or None) is None:
+                session.emit("command.rejected", {"reason": "a run is already active"})
         # ApproveCheckpoint / RejectCheckpoint / others: accepted + recorded, but the single-agent
         # runner has no live approval gate yet, so they are no-ops beyond the command.received event.
 
@@ -178,16 +228,22 @@ class IdeHandler(BaseHTTPRequestHandler):
         path = parsed.path
 
         if path == "/api/snapshot":
-            session = (qs.get("session") or [self.app.session.session_id])[0]
-            if session and session != self.app.session.session_id:
-                self._json(404, {"error": f"unknown session {session!r}"})
+            session = self.app.registry.get((qs.get("session") or [None])[0])
+            if session is None:
+                self._json(404, {"error": "unknown session"})
                 return
-            snap = build_snapshot(self.app.session.events(), session_id=self.app.session.session_id)
+            snap = build_snapshot(session.events(), session_id=session.session_id)
             self._json(200, snap.as_dict())
             return
 
         if path == "/api/stream":
             self._stream(qs)
+            return
+
+        if path == "/api/sessions":
+            if not self._require_token():
+                return
+            self._json(200, {"sessions": self.app.registry.list(), "default": self.app.registry.default_id})
             return
 
         if path == "/api/files/tree":
@@ -208,8 +264,13 @@ class IdeHandler(BaseHTTPRequestHandler):
         if path == "/api/files/diff":
             if not self._require_token():
                 return
-            diffs = files.compute_diffs(self.app.session.baseline, self.app.session.baseline_scope)
-            self._json(200, {"session": self.app.session.session_id, "files": diffs})
+            session = self.app.registry.get((qs.get("session") or [None])[0])
+            if session is None:
+                self._json(404, {"ok": False, "error": "unknown session"})
+                return
+            baseline, scope = session.diff_baseline()  # read under the session lock (no race)
+            diffs = files.compute_diffs(baseline, scope)
+            self._json(200, {"session": session.session_id, "files": diffs})
             return
 
         self._serve_static(path)
@@ -239,6 +300,33 @@ class IdeHandler(BaseHTTPRequestHandler):
             self._file_result(
                 lambda: files.rename_path(
                     str(body.get("scope") or "workspace"), str(body.get("path") or ""), str(body.get("to") or "")
+                )
+            )
+            return
+        if path == "/api/sessions":
+            if not self._require_token():
+                return
+            body = self._read_body()
+            self._file_result(lambda: self.app.registry.create(title=str(body.get("title") or "") or None).meta())
+            return
+        if path == "/api/runs/cancel":
+            if not self._require_token():
+                return
+            body = self._read_body()
+            runner = self.app.registry.runner(str(body.get("session") or "") or None)
+            if runner is None:
+                self._json(404, {"ok": False, "error": "unknown session"})
+                return
+            self._json(200, {"ok": True, "cancelled": runner.cancel()})
+            return
+        if path == "/api/terminal":
+            if not self._require_token():
+                return
+            body = self._read_body()
+            argv = body.get("argv") if isinstance(body.get("argv"), list) else None
+            self._file_result(
+                lambda: files.run_command(
+                    str(body.get("command") or "") or None, argv, int(body.get("timeout") or 10)
                 )
             )
             return
@@ -288,6 +376,10 @@ class IdeHandler(BaseHTTPRequestHandler):
         if (qs.get("token") or [None])[0] != self.app.token:
             self._json(401, {"error": "unauthorized"})
             return
+        session = self.app.registry.get((qs.get("session") or [None])[0])
+        if session is None:
+            self._json(404, {"error": "unknown session"})
+            return
         last = self.headers.get("Last-Event-ID") or (qs.get("lastEventId") or ["0"])[0]
         try:
             last_seq = int(last)
@@ -300,7 +392,6 @@ class IdeHandler(BaseHTTPRequestHandler):
         self.send_header("X-Accel-Buffering", "no")
         self._cors()
         self.end_headers()
-        session = self.app.session
         try:
             self.wfile.write(b"retry: 1000\n\n")
             self.wfile.flush()

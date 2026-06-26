@@ -153,6 +153,120 @@ def test_server_command_token_and_file_write(workspace):
         server.server_close()
 
 
+# ── opencode parity: chat events, stop/cancel, terminal, session history ─────
+
+def test_runner_finish_emits_chat_events():
+    """A failed run surfaces chat.error; a cancelled run flags it and sets status 'cancelled'."""
+    from ui.ide.runner import AgentRunner
+    from ui.ide.session import IdeSession
+
+    failed = IdeSession("f")
+    AgentRunner(failed)._finish_failed("boom")
+    ftypes = [e["event_type"] for e in failed.events()]
+    assert "loop.failed" in ftypes and "chat.error" in ftypes
+    assert failed.run_status == "failed"
+
+    cancelled = IdeSession("c")
+    AgentRunner(cancelled)._finish_cancelled()
+    by_type = {e["event_type"]: e["ui_payload"] for e in cancelled.events()}
+    assert by_type["chat.error"].get("cancelled") is True
+    assert cancelled.run_status == "cancelled"
+
+
+def test_cancel_idle_returns_false():
+    from ui.ide.runner import AgentRunner
+    from ui.ide.session import IdeSession
+
+    assert AgentRunner(IdeSession("t")).cancel() is False  # nothing running to cancel
+
+
+def test_cancel_raises_through_kernel_boundary(workspace):
+    """The load-bearing claim behind Stop: a cancel raised at the execute_tool chokepoint must reach
+    the runner. The kernel's own boundary (core.kernel.execute_tool) and Retry both guard with
+    `except Exception`, so RunCancelled subclasses BaseException to slip past them. This exercises the
+    REAL kernel stack (not Retry in isolation) — if RunCancelled were a plain Exception it would be
+    swallowed into a tool-error envelope and Stop would silently no-op."""
+    import threading as _t
+
+    from core.bootstrap import create_kernel
+
+    from ui.ide.runner import RunCancelled
+
+    kernel = create_kernel()
+    flag = _t.Event()
+    flag.set()
+
+    def cancel_mw(request, nxt):
+        if flag.is_set():
+            raise RunCancelled()
+        return nxt(request)
+
+    kernel.use(cancel_mw)
+    with pytest.raises(RunCancelled):
+        kernel.execute_tool("fs_list", {"path": "."})
+
+
+def test_terminal_env_is_scrubbed(workspace, monkeypatch):
+    """A terminal command must not inherit the server's secrets (IDE token, ssh agent, api keys)."""
+    import os
+
+    _, files = workspace
+    monkeypatch.setenv("IDE_SECRET_TEST", "leak-me")
+    env = files._safe_env()
+    assert "IDE_SECRET_TEST" not in env  # secrets never reach a command
+    if "PATH" in os.environ:
+        assert "PATH" in env  # but PATH passes through so commands still resolve
+
+
+def test_session_registry_caps_creation(workspace, monkeypatch):
+    import ui.ide.server as server_mod
+
+    monkeypatch.setattr(server_mod, "MAX_SESSIONS", 2)
+    reg = server_mod.SessionRegistry("s1")  # default counts as 1
+    reg.create(title="two")  # 2 — at cap
+    with pytest.raises(server_mod.FileOpError):
+        reg.create(title="three")  # over cap → refused
+
+
+@pytest.mark.integration
+def test_server_sessions_terminal_cancel(workspace):
+    import ui.ide.server as server_mod
+
+    server = server_mod.IdeControlServer(("127.0.0.1", 0), token="tok", session_id="t1_demo")
+    port = server.socket.getsockname()[1]
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+    thread.start()
+    time.sleep(0.1)
+    try:
+        # session list is token-gated; the default session is present
+        assert _get(port, "/api/sessions", token=None)[0] == 401
+        listed = _get(port, "/api/sessions", token="tok")
+        assert listed[0] == 200 and listed[1]["default"] == "t1_demo"
+        assert any(s["id"] == "t1_demo" for s in listed[1]["sessions"])
+
+        # create a session → its own snapshot resolves; an unknown one 404s
+        created = _post(port, "/api/sessions", {"title": "Feature X"}, token="tok")
+        assert created[0] == 200 and created[1]["title"] == "Feature X"
+        sid = created[1]["id"]
+        assert _get(port, f"/api/snapshot?session={sid}")[0] == 200
+        assert _get(port, "/api/snapshot?session=nope")[0] == 404
+
+        # terminal: token-gated, runs in the workspace, refuses a destructive command
+        assert _post(port, "/api/terminal", {"command": "ls"}, token=None)[0] == 401
+        ran = _post(port, "/api/terminal", {"command": "ls"}, token="tok")
+        assert ran[0] == 200 and ran[1]["ok"] is True
+        assert _post(port, "/api/terminal", {"command": "rm -rf /"}, token="tok")[0] == 403
+
+        # cancel an idle session → nothing to cancel
+        cancelled = _post(port, "/api/runs/cancel", {"session": "t1_demo"}, token="tok")
+        assert cancelled[0] == 200 and cancelled[1]["cancelled"] is False
+        # cancel an unknown session → 404
+        assert _post(port, "/api/runs/cancel", {"session": "nope"}, token="tok")[0] == 404
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def _conn(port):
     return HTTPConnection("127.0.0.1", port, timeout=5)
 

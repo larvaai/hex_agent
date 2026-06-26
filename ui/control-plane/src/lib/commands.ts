@@ -7,7 +7,7 @@
  * SubmitPrompt — the last added in this phase, F5/D8) or the fake gateway 400s it.
  */
 import type { RuntimeCommand } from "../contracts/generated";
-import { SESSION_ID } from "../config";
+import { currentSession } from "../state/sessionStore";
 
 export function buildCommand(
   command_type: string,
@@ -17,7 +17,7 @@ export function buildCommand(
   const id = crypto.randomUUID();
   return {
     command_type,
-    session_id: opts.sessionId ?? SESSION_ID,
+    session_id: opts.sessionId ?? currentSession(),
     issued_by: { type: "human", user_id: opts.userId ?? "ui-user", agent_id: null },
     idempotency_key: id, // fresh per click → server dedups; double-click is safe
     payload,

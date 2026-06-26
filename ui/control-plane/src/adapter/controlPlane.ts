@@ -24,6 +24,7 @@ export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "closed"
 
 export interface StreamOptions {
   lastEventId?: string;
+  session?: string; // which session's stream to open (defaults to the server's default session)
   onResync?: () => void;
   onStatus?: (status: ConnectionStatus) => void;
   eventTypes?: string[];
@@ -54,6 +55,10 @@ export const KNOWN_EVENT_TYPES = [
   "command.accepted",
   "command.rejected",
   "command.applied",
+  // chat thread — the runner emits these so the conversation reconstructs from the buffer.
+  "chat.user",
+  "chat.assistant",
+  "chat.error",
 ];
 
 export async function getSnapshot(session?: string): Promise<TaskLoopSnapshot> {
@@ -89,6 +94,7 @@ export function openStream(onEvent: (event: StreamEvent) => void, opts: StreamOp
     if (closed) return;
     opts.onStatus?.(attempt === 0 ? "connecting" : "reconnecting");
     let url = `${BASE_URL}/api/stream?token=${encodeURIComponent(CP_TOKEN)}`;
+    if (opts.session) url += `&session=${encodeURIComponent(opts.session)}`;
     if (lastEventId) url += `&lastEventId=${encodeURIComponent(lastEventId)}`;
     source = new EventSource(url);
 
