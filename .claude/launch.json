@@ -10,8 +10,14 @@
     {
       "name": "fake-control-server",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["tools/fake_control_server.py", "--no-reality", "--port", "8800"],
-      "port": 8800
+      "runtimeArgs": ["tools/fake_control_server.py", "--no-reality", "--port", "8801"],
+      "port": 8801
+    },
+    {
+      "name": "fake-control-server-paused",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["tools/fake_control_server.py", "--no-reality", "--port", "8801", "--fixture", "fixtures/control_plane/t1_paused.events.jsonl"],
+      "port": 8801
     },
     {
       "name": "learn-static",
