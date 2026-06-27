@@ -1,0 +1,22 @@
+{
+  "stage": "phase-4",
+  "plan": "260626-2329-dragdrop-ui-real-langchain-bakeoff",
+  "actor": "user:uspro/agent:hs:cook",
+  "ts": "2026-06-27T04:46:30Z",
+  "checks": [
+    {"name": "phase4-tdd-red-then-green", "status": "PASS", "detail": "test_bakeoff_substrate.py 9 passed + 1 skipped (burr absent): Z port+inject_clean+obs 4/4, determinism spread-zero, bad-substrate scores 0<Z, langgraph importorskip (recomposed=1/inject_clean=0), base-import-zero-dep subprocess, under_two REFUSE, default-env REFUSE, real bakeoff_rank.py verdict shape (candidates>=2, winner=zerodep)"},
+    {"name": "phase4-verdict-by-real-rank-script", "status": "PASS", "detail": "verdict computed by harness/scripts/bakeoff_rank.py (NOT reimplemented). artifacts/bakeoff-verdict.json schema-valid (artifact-bakeoff-verdict): winner=zerodep, ranking [zerodep,langgraph], gap 1.0 > band 0.05. Z inject_clean=1 recomposed=0 obs 4/4; L inject_clean=0 recomposed=1 obs 2/4"},
+    {"name": "phase4-base-import-zero-dep", "status": "PASS", "detail": "subprocess asserts langgraph/burr NOT in sys.modules after `import dragzero, dragzero.bakeoff`; frameworks lazy-imported only inside candidate_*; pyproject [project.optional-dependencies] bakeoff=[langgraph,burr]"},
+    {"name": "phase4-default-posture-refuses", "status": "PASS", "detail": "default env (no .[bakeoff]) -> <2 candidates -> under_two_reason REFUSE (exit 4), Z NOT crowned unopposed. The Z-wins verdict above required langgraph present in the shared interpreter; it is NOT the default posture's result"},
+    {"name": "phase4-substrate-DEC-NOT-registered", "status": "PASS", "detail": "deliberately did NOT auto-register a substrate DEC. DEC-A4 gate unmet: (1) L adapter is a minimal compile-model rep — does not exercise langgraph interrupt()/Command(goto)/subgraphs, so verdict is 'Z wins on THIS rubric+adapter' not 'L cannot mid-run join'; (2) non-Z sign-off rubric required before trusting verdict. Both left as OPEN ITEMS for human review"},
+    {"name": "full-suite-no-regression", "status": "PASS", "detail": "python suite 282 passed, 1 skipped (burr), 7 deselected (browser/real_llm). +9 over phase-3's 273 are the bakeoff tests"},
+    {"name": "core-untouched-git-diff-empty", "status": "PASS", "detail": "git diff 8452bce -- orchestrator/read_model/events/topology/wiring/roster/contracts/agent/llm/tools == empty after phase 4. Bake-off is purely additive (new dragzero/bakeoff/ package)"},
+    {"name": "isolation-worktree", "status": "PASS", "detail": "cook isolated in worktree cook/dragdrop-ui-bakeoff (HEAD 6c72547); core stays clean — no concurrent writers in worktree"}
+  ],
+  "open_items": [
+    "langgraph adapter fidelity: minimal compile-model; does not model interrupt()/Command(goto)/checkpoint-resume. A langgraph expert could contest the recomposed=1 claim. Verdict is rubric+adapter-scoped.",
+    "non-Z sign-off (DEC-A4): no permanent substrate DEC registered. Trusting the verdict for a real swap decision needs a non-Z reviewer to ratify the rubric and the adapter fidelity first.",
+    "default posture is REFUSE: the Z-wins number depends on langgraph being installed (.[bakeoff]); the shipped default deterministic suite REFUSES rather than crowning Z."
+  ],
+  "verdict": "PASS"
+}

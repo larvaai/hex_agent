@@ -1,0 +1,19 @@
+{
+  "schema": "plan-approval/v1",
+  "plan": "260626-2322-drag-from-zero-test-suite",
+  "plan_hash": "fa35c1899b97",
+  "file_hashes": {
+    "plan.md": "36a8f7685cc9",
+    "phase-1-scaffold-rehome.md": "9e6027739e8e",
+    "phase-2-unit.md": "1311c8cab79f",
+    "phase-3-integration.md": "9e84570df0ec",
+    "phase-4-e2e-deterministic.md": "ef77b109ae63",
+    "phase-5-e2e-browser.md": "728375049dbb",
+    "phase-6-real-llm-and-manual.md": "3c10c989e69b"
+  },
+  "author": "uspro",
+  "reviewer": "user:uspro",
+  "verdict": "APPROVED",
+  "rationale": "User approved full test pyramid: stdlib over-wire E2E + Playwright browser + env-gated real-LLM + manual runbook. Rebuild pyramid scope.",
+  "ts": "2026-06-26T17:26:39.031870+00:00"
+}

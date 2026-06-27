@@ -1,0 +1,18 @@
+{
+  "schema": "plan-approval/v1",
+  "plan": "260626-2325-control-plane-e2e-manual-test-suite",
+  "plan_hash": "b48346e7f347",
+  "file_hashes": {
+    "plan.md": "30caa3ed910f",
+    "phase-1-backend-integration.md": "492e08a799b4",
+    "phase-2-playwright-det.md": "f07dfd070c93",
+    "phase-3-live-e2e.md": "317ddaa89404",
+    "phase-4-manual-runbook.md": "ff1a04dd8d6d",
+    "phase-5-component-gapfill.md": "03e53268bc30"
+  },
+  "author": "uspro",
+  "reviewer": "user:uspro",
+  "verdict": "APPROVED",
+  "rationale": "approve all: L1+L4+trimmed-L2 core plus L3 agent-run + L5 component pulled in; red-team REVISE findings applied (F1 L2-graph-mirage cut, F2 CI-claims corrected, F4 approval-spec cut, F5 reconnect-spec cut)",
+  "ts": "2026-06-26T17:27:41.909333+00:00"
+}

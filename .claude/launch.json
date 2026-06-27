@@ -2,16 +2,46 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "dragzero-ui-cook",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["/Users/uspro/Desktop/namnson/hex_agent.worktrees/dragdrop-ui-bakeoff/drag_from_zero/run_server.py", "--ui-dir", "/Users/uspro/Desktop/namnson/hex_agent.worktrees/dragdrop-ui-bakeoff/drag_from_zero/app/dist", "--port", "8752", "--pace", "0"],
+      "port": 8752
+    },
+    {
+      "name": "dragzero-ui",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["drag_from_zero/run_server.py", "--port", "8746", "--pace", "0.12"],
+      "port": 8746
+    },
+    {
+      "name": "dragzero-decompose",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["/private/tmp/claude-501/-Users-uspro-Desktop-namnson-hex-agent/daa276c7-1e35-4dc2-9471-c920981306ee/scratchpad/decompose_server.py", "--port", "8749", "--pace", "0.1"],
+      "port": 8749
+    },
+    {
       "name": "agent-ide",
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "ui.ide", "--port", "8800"],
       "port": 8800
     },
     {
+      "name": "decompose-ui",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "decompose_agent.server", "--port", "8765"],
+      "port": 8765
+    },
+    {
       "name": "fake-control-server",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["tools/fake_control_server.py", "--no-reality", "--port", "8800"],
-      "port": 8800
+      "runtimeArgs": ["tools/fake_control_server.py", "--no-reality", "--port", "8801"],
+      "port": 8801
+    },
+    {
+      "name": "fake-control-server-paused",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["tools/fake_control_server.py", "--no-reality", "--port", "8801", "--fixture", "fixtures/control_plane/t1_paused.events.jsonl"],
+      "port": 8801
     },
     {
       "name": "learn-static",
