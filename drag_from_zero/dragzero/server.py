@@ -27,10 +27,11 @@ import tempfile
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from queue import Empty, Queue
-from threading import Lock, Thread
+from threading import Event, Lock, Thread
 from urllib.parse import parse_qs, urlparse
 
 from .adapters.tools_fs import FsSandbox, default_tool_catalog
+from .agent import Agent
 from .contracts import TaskStatus
 from .events import EventType
 from .llm import FakeLLM
@@ -174,7 +175,10 @@ def translate_event(ev, verdict_fn=None) -> list:
     if t == EventType.SUBTASK_SPAWNED:
         return [E("decompose", node_id=p.get("parent"), payload={"children": [nid]})]
     if t == EventType.TASK_WAITING:
-        return [E("block", payload={"reason": f"waiting for {p.get('target')}", "detail": ""})]
+        # DEC-A5: a parked task is await_role (typed), not a generic block — the UI offers an inject affordance.
+        return [E("await_role", payload={"role": p.get("target")})]
+    if t == EventType.AGENT_JOINED:
+        return [E("agent_joined", node_id=None, payload={"role": p.get("role"), "agent": ev.agent_id})]
     if t == EventType.TASK_COMPLETED:
         # The completion is the model's CLAIM; the verdict is code's, re-derived over the
         # sandbox by verdict_fn. With no spec, fall back to the claim (orchestration-only runs).
@@ -236,22 +240,31 @@ class Run:
         self.orch = None
         self.entry = None
         self.sandbox = None
+        self._join_evt = Event()          # P3: an injected agent wakes the parked run thread
+        self._closed = False              # P3: /cancel + shutdown unpark and exit cleanly
+        self._park_heartbeat = 30.0       # P3: re-emit a snapshot < WS 60s timeout while parked
         self.reset()
 
-    # --- lifecycle ---
+    def _set_status(self, status: str) -> None:
+        with self._lock:
+            self.status = status
+
+    # --- lifecycle ---  (awaiting is BUSY — guarded like running, never rebuilt mid-park)
     def reset(self) -> None:
         with self._lock:
-            if self.status == "running":
+            if self.status in ("running", "awaiting"):
                 return
             self.orch, self.entry, self.sandbox = self.builder()
             self.orch.start(self.task, agent=self.entry, done_when=self.root_done_when)
             self.frames = []
             self.status = "created"
             self.done = False
+            self._closed = False
+            self._join_evt.clear()
 
     def start(self) -> None:
         with self._lock:
-            if self.status == "running":
+            if self.status in ("running", "awaiting"):
                 return
             self.status = "running"
             self.done = False
@@ -286,7 +299,30 @@ class Run:
 
         self.orch.log.subscribe(sub)
         try:
-            self.orch.run_until_idle()
+            while True:
+                self.orch.run_until_idle()
+                if self.orch.waiting_count() == 0:
+                    break  # nothing parked -> the run is genuinely idle; settle it
+                # parked on a missing role: hold the thread alive in AWAITING (not done) until an
+                # agent is injected (_join_evt) or the run is cancelled (_closed). Heartbeat snapshots
+                # keep the WS from timing out while the human decides who to inject.
+                self._set_status("awaiting")
+                self._emit_snapshot()
+                while self.orch.waiting_count() > 0 and not self._closed:
+                    woke = self._join_evt.wait(timeout=self._park_heartbeat)
+                    self._join_evt.clear()  # clear AFTER wait (set-before-wait is safe — no lost wakeup)
+                    if self._closed or woke:
+                        break
+                    self._emit_snapshot()  # heartbeat < 60s
+                if self._closed:
+                    self._set_status("cancelled")
+                    self._emit_snapshot()
+                    self._emit({"type": "run_cancelled"})
+                    with self._lock:
+                        self.done = True
+                    self._emit({"type": "run_finished"})
+                    return
+                self._set_status("running")
             status = _final_status(self.orch.log, self.sandbox, self.done_when, self._activated_at)
         except Exception as exc:  # never let a run kill the server thread
             status = "blocked"
@@ -299,6 +335,22 @@ class Run:
             self.status = status
             self.done = True
         self._emit({"type": "run_finished"})
+
+    # --- P3: mid-run injection (orchestrator already supports join_agent -> _wake_waiting) ---
+    def join(self, role: str, id: str | None = None) -> bool:
+        """Inject an agent for a parked role and wake the run thread. Returns whether anything was
+        parked (woke). No-op (False) when nothing is waiting. Mints a FRESH LLM via the factory."""
+        if self.orch is None or self.orch.waiting_count() == 0:
+            return False
+        llm = self._llm_provider() if self._llm_provider is not None else None
+        self.orch.join_agent(Agent(id or role, role, llm), resume=False)  # resume on the run thread, not here
+        self._join_evt.set()
+        return True
+
+    def close(self) -> None:
+        """Unpark a waiting run and let its thread exit cleanly (cancel / server shutdown)."""
+        self._closed = True
+        self._join_evt.set()
 
     # --- frames ---
     def graph(self) -> dict:
@@ -367,7 +419,8 @@ class App:
         self.runs = {run.id: run}
         self.default_run = run
         self.static_dir = os.path.abspath(static_dir)
-        self.index_file = index_file
+        # Serve the Vite SPA index (app/dist/index.html) when present, else the legacy ui/ index.
+        self.index_file = "index.html" if os.path.isfile(os.path.join(self.static_dir, "index.html")) else index_file
         # substrate-agnostic run factory: an LLM *factory* (minted per run, never shared) + a tool catalog.
         self.llm_provider = llm_provider or (lambda: FakeLLM(_default_responder))
         self.tool_catalog = tool_catalog if tool_catalog is not None else default_tool_catalog()
@@ -392,6 +445,11 @@ class App:
     def session(self) -> dict:
         r = self.default_run
         return {"id": r.id, "status": r.status, "title": r.title, "graph": r.graph()}
+
+    def close(self) -> None:
+        """Unpark every run so daemon threads exit cleanly on server shutdown."""
+        for run in list(self.runs.values()):
+            run.close()
 
     # --- topology store ---
     def list_topologies(self) -> list:
@@ -548,6 +606,18 @@ class _Handler(BaseHTTPRequestHandler):
             if m:
                 self.app.get_run(m.group(1)).start()
                 return self._json({"ok": True})
+            m = re.match(r"^/api/runs/([^/]+)/join$", path)
+            if m:
+                body = self._read_json_body()
+                role = body.get("role")
+                if not role:
+                    return self._json({"errors": ["missing 'role'"]}, 422)
+                woke = self.app.get_run(m.group(1)).join(role, id=body.get("id"))
+                return self._json({"ok": True, "woke": woke})
+            m = re.match(r"^/api/runs/([^/]+)/cancel$", path)
+            if m:
+                self.app.get_run(m.group(1)).close()
+                return self._json({"ok": True})
             return self._json({"detail": "not found"}, 404)
         except KeyError:
             return self._json({"detail": "not found"}, 404)
@@ -594,7 +664,9 @@ class _Handler(BaseHTTPRequestHandler):
                 try:
                     frame = q.get(timeout=60)
                 except Empty:
-                    break
+                    if run.done:  # keep the socket alive while the run is parked (awaiting inject)
+                        break
+                    continue
                 send(frame)
                 if frame.get("type") == "run_finished":
                     break
