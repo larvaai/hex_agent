@@ -14,6 +14,10 @@ packages = ["dragzero"]
 [project.optional-dependencies]
 # Opt-in browser E2E (phase 5). Not needed for the default deterministic suite.
 test-browser = ["playwright>=1.40", "pytest-playwright>=0.4"]
+# Opt-in substrate bake-off challengers (phase 4). Base `import dragzero` stays zero-dep;
+# these are lazy-imported only inside dragzero.bakeoff.candidate_*. Absent -> bake-off REFUSES
+# rather than crowning Z unopposed (run_bakeoff.under_two_reason).
+bakeoff = ["langgraph", "burr"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
