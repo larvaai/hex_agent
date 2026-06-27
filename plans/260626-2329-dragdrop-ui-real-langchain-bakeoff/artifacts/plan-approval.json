@@ -1,0 +1,17 @@
+{
+  "schema": "plan-approval/v1",
+  "plan": "260626-2329-dragdrop-ui-real-langchain-bakeoff",
+  "plan_hash": "12ad1505e6c7",
+  "file_hashes": {
+    "plan.md": "f9e4f304aa30",
+    "phase-1-api-boundary.md": "b138cd389f23",
+    "phase-2-react-flow-canvas.md": "7a15a5de67b2",
+    "phase-3-midrun-join.md": "c26e4c5a7792",
+    "phase-4-substrate-bakeoff.md": "5ef45a70dcf8"
+  },
+  "author": "user:uspro",
+  "reviewer": "user:uspro",
+  "verdict": "APPROVED",
+  "rationale": "Human-approved via Plannotator after REVISE cycle (12 must-fixes applied; spine independently re-confirmed). Re-recorded post status-bump so plan.md hash matches the approved file.",
+  "ts": "2026-06-26T18:04:04.102713+00:00"
+}

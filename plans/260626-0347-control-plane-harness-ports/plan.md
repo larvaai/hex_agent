@@ -1,7 +1,7 @@
 ---
 title: "Port harness design → control plane: authz doctrine + middleware posture + AC verdict"
 slug: control-plane-harness-ports
-status: draft
+status: approved   # human-approved 2026-06-26 by uspro
 mode: hard
 tdd: true
 created: 2026-06-26 03:47

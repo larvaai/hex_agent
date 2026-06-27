@@ -1,0 +1,14 @@
+{
+  "tier": "L3 live browser E2E (@live)",
+  "command": "LLM_MODEL=qwen3.6-35b-a3b-uncensored-claude-genesis LLM_BASE_URL=http://localhost:1234/v1 npm --prefix ui/control-plane run test:e2e:live",
+  "model": "qwen3.6-35b-a3b-uncensored-claude-genesis (LM Studio, TEXT-mode JSON)",
+  "result": "1 passed (14.6s); the @live test itself 13.4s",
+  "asserted_structural_invariants": [
+    "chat-tool[data-ok=true] fs_write step folded into the thread (bridge.py:60-79)",
+    ".chat-assistant bubble closed the turn",
+    ".ide-runpill reached 'finished' (runner.py:175-182)",
+    ".ide-diff-file row appeared (write persisted vs run-start baseline)"
+  ],
+  "ts": "2026-06-27T00:55:00Z",
+  "note": "Real python -m ui.ide + real local 35B end-to-end through a real Chromium. Content-agnostic assertions only. NOT in CI (DEC-T5)."
+}

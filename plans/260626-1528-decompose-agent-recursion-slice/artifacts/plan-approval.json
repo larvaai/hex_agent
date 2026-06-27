@@ -1,0 +1,17 @@
+{
+  "schema": "plan-approval/v1",
+  "plan": "260626-1528-decompose-agent-recursion-slice",
+  "plan_hash": "a7474c016e21",
+  "file_hashes": {
+    "plan.md": "063e21dadd2d",
+    "phase-1-skeleton-loader.md": "4495eea12ff3",
+    "phase-2-done-gate.md": "d14094851f51",
+    "phase-3-leaf-attempt-loop.md": "39c6091b9e99",
+    "phase-4-decompose-recursion.md": "3e93a605457f"
+  },
+  "author": "uspro",
+  "reviewer": "user:uspro",
+  "verdict": "APPROVED",
+  "rationale": "Human-approved 2026-06-26 by uspro after red-team+revalidate: blockers F1/F2/F4 fixed (min D12/COMPOSE_FAIL un-fenced, atomic staging-is-cache commit, all_children_done len>=1), F3/F5/F6/F7 applied, DEC-9/DEC-10 registered.",
+  "ts": "2026-06-26T09:19:23.934834+00:00"
+}

@@ -1,0 +1,89 @@
+{
+  "stage": "phase",
+  "plan": "260626-2325-control-plane-e2e-manual-test-suite",
+  "actor": "user:uspro/agent:claude-opus-4-8",
+  "ts": "2026-06-27T00:45:00Z",
+  "checks": [
+    {
+      "name": "phase1_l1_new_tests",
+      "status": "PASS",
+      "detail": "4 new files (test_ide_stream/files_edges/http_cors_auth/run_lifecycle), 19 tests green. Covers SSE redaction+visibility+last-event-id+resync (server.py:387-436), files edges binary/oversize/ignored-dir/sensitive-CRUD/symlink/agent-runs (files.py), CORS+auth asymmetry+idempotency (server.py:55-205), runner cancel/baseline/concurrent-diff."
+    },
+    {
+      "name": "phase1_full_suite_green",
+      "status": "PASS",
+      "detail": "python -m pytest tests/ -q → all green (was 1072; +19 new). New files add only; no existing test touched."
+    },
+    {
+      "name": "phase1_anti_vacuous",
+      "status": "PASS",
+      "detail": "Discriminators proven: raw payload still holds 'sk-LEAK' (only _stream choosing ui_payload keeps it off the wire); agent.output.raw visibility=internal → dropped; needs_resync(1)=True / needs_resync(4)=False on a maxlen-2 ring. Each security/filter assertion bites the guard."
+    },
+    {
+      "name": "phase1_lint",
+      "status": "PASS",
+      "detail": "python -m ruff check on the 4 new files → All checks passed."
+    },
+    {
+      "name": "audit_suite_no_new_failures",
+      "status": "PASS",
+      "detail": "tests_audit/ has 2 PRE-EXISTING failures (test_parse_action_roundtrips_arbitrary_valid_json_object, test_json_gate_repairs_trailing_comma_with_or_without_fence) in the discipline/JSON-repair property suite. Reproduced with all Phase-1 files stashed away → not introduced by this round; the file imports no ui.ide. Out of scope (decompose/discipline subsystem). LOGGED per DEC-T4, not patched."
+    },
+    {
+      "name": "plan_deviations_logged",
+      "status": "PASS",
+      "detail": "Two test-door corrections that preserve the cited file:line invariant: (1) binary-reject exercised via read/_decode (files.py:180-181) since write_file has no NUL guard — a NUL written via the JSON API is write-once-unreadable (minor product gap, LOGGED not patched); (2) ignored-dir/agent-runs hiding tested at project scope (files.py:89-91,112-113) since workspace scope shows its sandbox whole. Plan said --session e2e for L2 but config.ts hardcodes SESSION_ID=t1_demo, so the harness boots --session t1_demo to match the code."
+    },
+    {
+      "name": "phase2_l2_playwright_det",
+      "status": "PASS",
+      "detail": "@playwright/test@1.61.1 + chromium installed. playwright.config.ts + e2e/global-setup|teardown (ephemeral ports, process-group kill, readiness-polled — F9) spawn REAL python -m ui.ide + Vite, no model. 4 specs (files: tree→open→edit→save→diff; sensitive-not-openable; sessions: New→dropdown switch; cors: browser-enforced preflight from Vite origin) → 4 passed, run TWICE identically (deterministic)."
+    },
+    {
+      "name": "phase2_fake_vs_real_discriminator",
+      "status": "PASS",
+      "detail": "F-gate: each save verified by an os-level read of the temp workspace file AND a fresh GET /api/files/read — a fixture/DOM-only server cannot produce the on-disk file. The sensitive spec asserts the real 403 surfaces in .ide-explorer-status."
+    },
+    {
+      "name": "phase2_regression_vitest_tsc",
+      "status": "PASS",
+      "detail": "vite.config.ts test.include scoped to src/** so vitest stops grabbing the Playwright e2e/*.spec (additive, non-weakening). npm test → 7 files / 22 tests green. tsc --noEmit -p tsconfig.json (app build, src-only) clean; standalone tsc on e2e/*.ts + playwright.config.ts clean. No ESLint config in repo."
+    },
+    {
+      "name": "phase3_l3_live_agent_run",
+      "status": "PASS",
+      "detail": "e2e/live/agent-run.spec.ts (@live) + test:e2e:live script. RAN GREEN against the real local 35B (qwen3.6-35b-a3b-uncensored-claude-genesis, LM Studio): 1 passed (13.4s). Real python -m ui.ide + real model end-to-end through Chromium. Content-agnostic: fs_write tool step + assistant bubble + runpill 'finished' + diff row. Evidence: artifacts/l3-live-run.json."
+    },
+    {
+      "name": "phase3_live_excluded_from_det",
+      "status": "PASS",
+      "detail": "--grep-invert @live lists 4 tests in 3 files (no agent-run); --grep @live lists 1 (agent-run only). Det tier re-run green (4 passed) with NO model. One guarded test.skip(reason) is the only skip path — never a silent green."
+    },
+    {
+      "name": "phase3_spec_robustness",
+      "status": "PASS",
+      "detail": "Specs read .runtime.json lazily in beforeEach (was a top-level read that crashed `playwright test --list`/collection before global-setup runs). Fixed across all 4 spec files."
+    },
+    {
+      "name": "phase4_docs_testing",
+      "status": "PASS",
+      "detail": "docs/testing/README.md (tier table, one-command runner per tier, boot/fake-server/35B how-to) + docs/testing/manual-runbook-control-plane.md (9-step human checklist incl. redaction-eye, approval-manual, kill-server-resync, terminal-refusal). In-CI column is accurate: CI = ruff + pytest tests + pytest tests_audit (Python-only), so only L0-pytest + L1 gate; vitest/L2/L3/L4 marked local-only (DEC-T5)."
+    },
+    {
+      "name": "phase4_commands_verified",
+      "status": "PASS",
+      "detail": "Documented runners exercised: `pytest tests/test_ide_*.py -q` → 44 passed; `npm ... test` (vitest) green; `npm ... run test:e2e` green; boot/spawn paths exercised via global-setup. Cut items (approval F4, server-bounce F5) documented as manual with the honest invariant."
+    },
+    {
+      "name": "phase5_l5_component_tests",
+      "status": "PASS",
+      "detail": "6 new __tests__/*.test.tsx (FileExplorer, DiffPanel, ChatPanel, SessionBar, Terminal, CodeEditor) — the 6 zero-coverage IDE components. 16 new tests; full vitest 13 files / 38 tests green. CodeMirror stubbed (assert wrapper/state not paint); adapters mocked, stores driven via real methods so assertions bite the fold logic (exact tool names ✓/✗, +2/−1 stat, exit-code, agent-changed dot via real mtime bump)."
+    },
+    {
+      "name": "phase5_build_and_setup",
+      "status": "PASS",
+      "detail": "tsc --noEmit && vite build clean (575 modules; pre-existing chunk-size warning only). Added a guarded scrollIntoView no-op to src/test/setup.ts (test infra, alongside ResizeObserver/matchMedia) for ChatPanel/Terminal; typeof-HTMLElement guard keeps node-env contract-seam spec green."
+    }
+  ],
+  "verdict": "PASS"
+}

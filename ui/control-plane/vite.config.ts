@@ -9,5 +9,8 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     css: false,
+    // Keep vitest to the unit/contract tier under src/. The Playwright browser specs in e2e/ are run
+    // by `playwright test`, not vitest — without this, vitest's default *.spec glob grabs them.
+    include: ["src/**/*.{test,spec}.{ts,tsx}"],
   },
 });

@@ -103,3 +103,108 @@ affects: "control/authz.py,control/commands.py,control/permission.py,docs/explan
 ## DEC-8 — attribution≠authz: issued_by/Actor là ghi nhận, không phải quyền; permission-edit (UpdateAgentPermission→can_modify_permissions) cần human RuntimeCheckpoint kể cả dưới trust-O
 
 Harness tuyên bố actor≠authz vì là tool hợp tác; hex_agent xây authz THẬT nên port sự phân biệt và ĐẢO kết luận: authz quyết bởi requires_permission+checkpoint, không phải claim của issuer. requires_permission mới khai báo (runtime_command_types.yaml) chưa thực thi; command_bridge vắng trên branch (DEC-7). Phase 1 chỉ doctrine+predicate thuần (control/authz.py), enforcement hoãn cho epic command-application.
+
+---
+id: DEC-9
+status: active
+date: 2026-06-26
+actor: "user:uspro"
+ts: "2026-06-26T09:18:24.128605+00:00"
+affects: "decompose_agent/accept.py,decompose_agent/solve.py"
+---
+
+## DEC-9 — decompose_agent μ = done_when_count as sole convergence measure (drop scope_token_len tiebreak)
+
+Tokenizer drift across decomposer_version breaks the lex tiebreak silently (spec.md:343,345). Single-int well-order is clean; accepted limit: a dwc<=2 node needing honest multi-criterion children is BLOCKED(NOT_SMALLER). Plan 260626-1528-decompose-agent-recursion-slice DEC-D1.
+
+---
+id: DEC-10
+status: active
+date: 2026-06-26
+actor: "user:uspro"
+ts: "2026-06-26T09:18:24.209800+00:00"
+affects: "decompose_agent/solve.py,decompose_agent/gates.py"
+---
+
+## DEC-10 — decompose_agent runtime-decomposed parent gate = all_children_done (len>=1) AND re-assert original done_when; else BLOCKED(COMPOSE_FAIL)
+
+Red-team F1/F2: dropping _reduce + fencing D12 let a decomposed parent pass vacuously (all([])==True) and lost its original metric gate. Un-fence minimal D12: COMPOSE_FAIL detects the need for reduce, does not re-decompose. Plan 260626-1528 DEC-D4.
+
+---
+id: DEC-11
+status: superseded
+date: 2026-06-26
+actor: "user:uspro"
+ts: "2026-06-26T09:31:55.085138+00:00"
+affects: "new-greenfield-repo, engine-core, config-spec, canvas-contract"
+---
+
+## DEC-11 — Greenfield drag-drop LLM-workflow+chat engine: build the spec/safety layer, spike Burr for the FSM runtime
+
+Target locked single-user-local + generic workflow builder + existing React-Flow canvas + greenfield. Platforms (Flowise/Langflow/Dify/n8n) rejected: own-UI makes their canvas dead weight + UI-lock/license traps. Real fork = build runtime (D1) vs rent Burr FSM (D2-prime). Decision: build the YAML-spec+parse-gateway+registry+compile-time-cycle-check+canvas-contract (the IP, Report A 5x idiom); decide build-vs-rent FSM via a one-weekend Burr spike (clean=>D2-prime, fighting-abstractions=>D1). NON-NEGOTIABLE spine regardless of substrate: three separate state lifetimes (per-run graph state resets / cross-turn ledger persists OUTSIDE graph / display stream never source-of-truth); compile-time cycle check (every loop traverses a budget node); LLM never authors route/verdict; plugins not importlib-any-string; saved workflows carry schema_version+migration. Engine is headless: spec-load + run + SSE stream API behind the existing canvas.
+
+---
+id: DEC-12
+status: active
+date: 2026-06-27
+actor: "user:uspro"
+ts: "2026-06-26T17:26:42.658618+00:00"
+affects: "drag_from_zero/tests,drag_from_zero/pyproject.toml,drag_from_zero/MANUAL_TESTING.md"
+---
+
+## DEC-12 — drag_from_zero test pyramid: determinism boundary + marker policy
+
+Default pytest runs deterministic layers (unit/integration/e2e on FakeLLM/RecordedLLM) only. Real weights behind marker 'real_llm' (skip unless OPENAI_BASE_URL); real browser behind marker 'browser' (skip unless playwright). Manual runbook in drag_from_zero/MANUAL_TESTING.md. Every test must have a mutation proof (no vacuous green).
+
+---
+id: DEC-13
+status: active
+date: 2026-06-27
+actor: "user:uspro"
+ts: "2026-06-26T17:27:46.736822+00:00"
+affects: "tests/test_ide_*, ui/control-plane/e2e, ui/ide, control/snapshot.py, .github/workflows/ci.yml"
+---
+
+## DEC-13 — control-plane E2E = real-only Playwright, two-tier; browser asserts ONLY HTTP surface
+
+ui.ide AgentRunner always calls real LLM (runner.py:151, no stub seam); graph/timeline/chat fold loop.* events with NO HTTP seed route (snapshot.py:3-9, AgentGraph.tsx:65 root is only model-free node). So browser cannot render agent state without the model: det-browser tier (L2) asserts only file-API/CORS/session; agent-state asserts live IN-PROCESS (L1 pytest) or @live (L3). CI is python-only (ci.yml) -> L2/L5 are local gates, not CI.
+
+---
+id: DEC-14
+status: active
+date: 2026-06-27
+actor: "user:uspro"
+ts: "2026-06-26T18:04:38.883842+00:00"
+affects: "drag_from_zero/tests/e2e_browser"
+---
+
+## DEC-14 — drag_from_zero browser E2E stays an automated opt-in layer (not manual fallback)
+
+U1 resolved: the custom DC UI renders + runs fully in headless Chromium offline (only a benign SVG-template console warning, no JS crash). All 4 Playwright scenarios (boot/run/artifact-open/reset) pass deterministically. So the phase-5 manual-only fallback is NOT taken — browser E2E ships as the marker=browser automated layer (opt-in via test-browser extra).
+
+---
+id: DEC-15
+status: active
+date: 2026-06-27
+actor: "user:uspro"
+ts: "2026-06-26T18:36:04.040747+00:00"
+affects: "agentplat (greenfield), docs/decisions.md"
+supersedes: DEC-11
+---
+
+## DEC-15 — agentplat = fusion 2-lop (topology authoring x decompose-until-trivial) tren 1 event-log/projection, hexagonal headless; bo Burr
+
+8 quyet dinh interview (discovery-brief 260627-0054): Fusion 2-lop; cay-long-cay (per-agent decomposer, budget_child=min(authored,parent_remaining)); 1 event-log append-only nest by parent-id, verdict/mu/budget re-derive o fold (khong luu); Agent entity giau, LLM port mang agent (1 model gio, multi sau); runtime tu viet vendored stdlib-first (event-log-projection khong khop FSM-transition cua Burr); palette full 6 Agent/Tool/Router/Memory/Hook/Gate voi invariant Router/Memory khong-thanh-truth-2; chat = turn-ledger rieng ngoai engine; UI headless 2-format canvas-JSON<->spec qua compiler. Hexagonal adapters->ports->domain enforce import-rule.
+
+---
+id: DEC-16
+status: active
+date: 2026-06-27
+actor: "user:uspro"
+ts: "2026-06-27T15:13:31.525270+00:00"
+affects: "drag_from_zero/dragzero/verifier.py, drag_from_zero/dragzero/accept.py, drag_from_zero/dragzero/orchestrator.py, ui/Agent IDE.dc.html"
+---
+
+## DEC-16 — drag_from_zero rebuild: supervisor LLM la trong tai verdict toi cao, phan tren artifact that + code gate lam chung cu, context tach roi worker, cung model 35B
+
+Re-build tu user-experience: 1 worker mac dinh tu phan loai hoi-vs-task + dinh o vuong task; supervisor LLM (1 con toan cuc) adjudicate. Dao nguoc verifier.py (code la trong tai duy nhat) -> LLM-co-chung-cu. Giu propose/adjudicate split vi supervisor context rieng + phan tren disk that. Rui ro: 35B bia verdict xanh; guard: log mau thuan khi code gate FAIL nhung supervisor PASS. User chon A sau khi nghe rui ro.
