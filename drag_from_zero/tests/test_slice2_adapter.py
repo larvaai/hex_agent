@@ -13,6 +13,7 @@ from dragzero.adapters.llm_local import (
     RecordedLLM,
     build_messages,
     coerce_response,
+    coerce_triage,
     extract_json,
 )
 
@@ -121,3 +122,49 @@ def test_real_adapter_is_substitutable_with_fakellm():
     fake = FakeLLM(lambda ctx: coerce_response(_DELEGATE) if ctx["role"] == "planner" else coerce_response(_SOLO))
     recorded = RecordedLLM([_DELEGATE, _SOLO])
     assert shape(fake) == shape(recorded)  # same tree regardless of which adapter
+
+
+# --- Slice D1: the triage branch (request:"triage") through the same parse path - #
+def _triage_ctx(text):
+    return {"agent_id": "w", "role": "worker", "input": text, "request": "triage"}
+
+
+def test_recorded_triage_answer():
+    llm = RecordedLLM(['{"kind":"answer","text":"Paris is the capital."}'])
+    out = llm.complete(_triage_ctx("capital of France?"))
+    assert out["triage"]["kind"] == "answer" and "Paris" in out["triage"]["text"]
+
+
+def test_recorded_triage_task_parse():  # fenced JSON, done_when as typed triples → passed through
+    reply = ('```json\n{"kind":"task","goal":"add tests","done_when":['
+             '{"check":"file_exists","artifact":"test_x.py"},'
+             '{"check":"grep_matches","artifact":"test_x.py","params":{"pattern":"def test_"}}]}\n```')
+    out = RecordedLLM([reply]).complete(_triage_ctx("write tests for x"))
+    assert out["triage"]["kind"] == "task" and out["triage"]["goal"] == "add tests"
+    dw = out["triage"]["done_when"]
+    assert dw[0] == {"check": "file_exists", "artifact": "test_x.py"}
+    assert dw[1]["check"] == "grep_matches" and dw[1]["params"] == {"pattern": "def test_"}
+
+
+def test_triage_parse_repair():  # broken→good recovers via repair; ever-broken falls back to answer, never raises
+    calls = {"n": 0}
+
+    def transport(messages):
+        calls["n"] += 1
+        return "Let me think about it." if calls["n"] == 1 else \
+            '{"kind":"task","goal":"g","done_when":[{"check":"file_exists","artifact":"a.txt"}]}'
+
+    llm = OpenAICompatLLM(transport=transport)
+    out = llm.complete(_triage_ctx("do x"))
+    assert out["triage"]["kind"] == "task" and calls["n"] == 2
+    assert llm.last_meta["repaired"] is True and llm.last_meta["fallback"] is False
+
+    llm2 = OpenAICompatLLM(transport=lambda m: "no json here, ever, sorry")
+    out2 = llm2.complete(_triage_ctx("x"))
+    assert out2["triage"]["kind"] == "answer" and llm2.last_meta["fallback"] is True
+
+
+# coerce_triage is pure + total: it never raises, falling back to an answer ----- #
+def test_coerce_triage_pure_fallback():
+    assert coerce_triage("utter garbage")["triage"]["kind"] == "answer"
+    assert coerce_triage('{"kind":"task","goal":"g"}')["triage"]["goal"] == "g"

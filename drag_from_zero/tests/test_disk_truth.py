@@ -61,6 +61,20 @@ def test_eventlog_persists_every_append(tmp_path):
     assert p.exists() and len(p.read_text().splitlines()) == 2
 
 
+def test_append_fails_closed_keeps_memory_and_disk_in_sync(tmp_path):
+    # A non-serializable payload must NOT land in memory while the durable write fails — else disk
+    # falls behind RAM and seqs go non-contiguous (the adversary's low-severity finding).
+    import pytest
+    p = tmp_path / "events.jsonl"
+    log = EventLog(ledger=Ledger(p))
+    log.append(Event(EventType.ROOT_TASK_CREATED, task_id="t1", payload={"d": "go"}))
+    with pytest.raises(TypeError):
+        log.append(Event(EventType.TOOL_CALLED, task_id="t1", payload={"x": object()}))  # not JSON
+    log.append(Event(EventType.TASK_COMPLETED, task_id="t1"))
+    disk = Ledger(p).read()
+    assert [e.seq for e in log.events()] == [e.seq for e in disk] == [0, 1]  # memory == disk, contiguous
+
+
 def test_resume_from_disk_yields_identical_tree(tmp_path):
     p = tmp_path / "events.jsonl"
     sandbox = FsSandbox(str(tmp_path / "work"))

@@ -64,6 +64,32 @@ class ToolCall:
 
 
 @dataclass
+class TriageResult:
+    """The entry worker's classification of raw input (Slice D1). The worker PROPOSES;
+    CODE adjudicates the done_when downstream. `kind` defaults to the safe 'answer' branch
+    so a garbled reply never crashes the orchestrator or fabricates a task."""
+
+    kind: str = "answer"                 # "answer" | "task"
+    text: Optional[str] = None           # answer branch
+    goal: Optional[str] = None           # task branch
+    done_when: list = field(default_factory=list)
+    reasoning: str = ""
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "TriageResult":
+        if not isinstance(d, dict):
+            return cls()
+        kind = d.get("kind") if d.get("kind") in ("answer", "task") else "answer"
+        return cls(
+            kind=kind,
+            text=d.get("text"),
+            goal=d.get("goal"),
+            done_when=list(d.get("done_when") or []),
+            reasoning=d.get("reasoning", ""),
+        )
+
+
+@dataclass
 class DelegationDecision:
     mode: DelegationMode
     target: Optional[str] = None

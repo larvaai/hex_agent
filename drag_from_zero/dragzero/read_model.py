@@ -27,6 +27,35 @@ class TaskNode:
     done_when: list = field(default_factory=list)  # Gap 2: carried from the spawning/root event
 
 
+@dataclass
+class TaskBox:
+    """A materialized task box (Slice D1) — the inbox read-model's unit. status: 'materialized'
+    (done_when present + adjudicated), 'unverified' (no criteria yet), or 'rejected' (forged)."""
+
+    goal: Optional[str]
+    done_when: list = field(default_factory=list)
+    status: str = "materialized"
+    reason: Optional[str] = None  # rejected branch only
+
+
+def reduce_inbox(events: list[Event]) -> dict:
+    """Fold the 4 triage events into the inbox view {answers, task_boxes}. Pure, like `reduce`:
+    same events → same view. The execution tree (`reduce`) is untouched — this is a sibling
+    projection over a disjoint event set."""
+    answers: list = []
+    boxes: list = []
+    for e in events:
+        if e.type == EventType.ANSWER_PRODUCED:
+            answers.append(e.payload.get("text", ""))
+        elif e.type == EventType.TASK_BOX_CREATED:
+            dw = list(e.payload.get("done_when") or [])
+            boxes.append(TaskBox(e.payload.get("goal"), dw,
+                                 status="materialized" if dw else "unverified"))
+        elif e.type == EventType.TASK_BOX_REJECTED:
+            boxes.append(TaskBox(e.payload.get("goal"), status="rejected", reason=e.payload.get("reason")))
+    return {"answers": answers, "task_boxes": boxes}
+
+
 def reduce(events: list[Event]) -> tuple[Optional[TaskNode], dict]:
     nodes: dict = {}
     root_id: Optional[str] = None

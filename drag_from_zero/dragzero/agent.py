@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from .contracts import DelegationDecision, PlanSpec, ToolCall
+from .contracts import DelegationDecision, PlanSpec, ToolCall, TriageResult
 
 
 @dataclass
@@ -56,6 +56,20 @@ class Agent:
             plan=PlanSpec.from_dict(resp.get("plan", {})),
             decision=DelegationDecision.from_dict(resp["decision"]),
         )
+
+    def triage(self, raw_input: str) -> TriageResult:
+        """Classify raw user input: a plain question (answer) vs a task (goal + proposed done_when).
+        The worker PROPOSES — it never adjudicates; CODE validates the done_when in the orchestrator
+        (Slice D2). Branches on ctx['request'] like decompose, so the step/decompose paths are untouched."""
+        ctx = {
+            "agent_id": self.id,
+            "role": self.role,
+            "input": raw_input,
+            "request": "triage",                # the responder branches on this
+        }
+        resp = self.llm.complete(ctx)
+        payload = resp.get("triage") if isinstance(resp, dict) and "triage" in resp else (resp or {})
+        return TriageResult.from_dict(payload if isinstance(payload, dict) else {})
 
     def decompose(self, task: Task, depth: int, evidence: Optional[list] = None) -> list:
         """Ask the worker to PROPOSE child nodes after K leaf attempts failed. Returns the raw

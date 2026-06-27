@@ -1,0 +1,44 @@
+{
+  "stage": "ship",
+  "plan": "260627-2131-drag-from-zero-input-triage-task-box",
+  "actor": "user:uspro/agent:claude-opus-4-8",
+  "ts": "2026-06-27T15:45:30Z",
+  "verdict": "PASS",
+  "checks": [
+    {
+      "name": "full_suite",
+      "status": "PASS",
+      "detail": "python -m pytest drag_from_zero -q → 282 passed, 7 deselected (real_llm/browser markers, unchanged). Baseline at cook start: 263 passed → +19 new tests, 0 regressions."
+    },
+    {
+      "name": "additive_gate_law2",
+      "status": "PASS",
+      "detail": "My orchestrator edits are strictly the submit + _materialize_task_box block + the TriageResult import — start()/run()/run_until_idle()/_solve_gated/reduce()/coerce_response() untouched. read_model + llm_local: ZERO deletions. test_slice2_adapter.py: only appended (8 original tests unchanged, still green)."
+    },
+    {
+      "name": "phase1_triage_seam",
+      "status": "PASS",
+      "detail": "4 EventType (input_classified/answer_produced/task_box_created/task_box_rejected) + TriageResult.from_dict (tolerant) + Agent.triage (branches on ctx.request=='triage' like decompose). test_triage.py 4 tests red→green."
+    },
+    {
+      "name": "phase2_orchestrator_submit_law1_law3",
+      "status": "PASS",
+      "detail": "Orchestrator.submit classify→emit→STOP; _materialize_task_box runs build_done_when (LAW 1: forged verdict key → TASK_BOX_REJECTED, never a valid box). LAW 3: no LEAF_VERIFIED/SUBTASK_SPAWNED/DECOMPOSITION_PROPOSED on the materialize path (test_submit_task_does_not_execute). 6 tests red→green."
+    },
+    {
+      "name": "phase3_projection_and_adapter",
+      "status": "PASS",
+      "detail": "reduce_inbox + TaskBox in read_model (pure fold, reduce() untouched); coerce_triage (total, never raises) + build_triage_messages + request:'triage' branch in OpenAICompatLLM (repair ladder) and RecordedLLM (deterministic replay). 9 tests red→green (5 projection + 4 adapter)."
+    },
+    {
+      "name": "compile",
+      "status": "PASS",
+      "detail": "python -m py_compile on all 7 changed modules + 2 test files → OK."
+    },
+    {
+      "name": "lint",
+      "status": "SKIP",
+      "detail": "No linter installed/configured (ruff absent; pyproject has only [tool.pytest.ini_options]). Naming follows snake_case funcs / PascalCase classes per docs/code-standards §3, consistent with the module."
+    }
+  ]
+}

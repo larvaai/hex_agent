@@ -15,12 +15,13 @@ from .contracts import (
     PlanStep,
     TaskStatus,
     ToolCall,
+    TriageResult,
 )
 from .events import Event, EventLog, EventType
 from .live_view import render, render_log, render_tree
 from .llm import LLM, FakeLLM, by_role
 from .orchestrator import Orchestrator
-from .read_model import TaskNode, reduce
+from .read_model import TaskBox, TaskNode, reduce, reduce_inbox
 from .builtins import BUILTIN_HOOKS, BUILTIN_RULES
 from .registries import Budget, HookRegistry, RuleRegistry, ToolRegistry
 from .roster import Roster
@@ -38,6 +39,7 @@ __all__ = [
     "PlanStep",
     "TaskStatus",
     "ToolCall",
+    "TriageResult",
     "SandboxError",
     "Tool",
     "ToolResult",
@@ -52,7 +54,9 @@ __all__ = [
     "by_role",
     "Orchestrator",
     "TaskNode",
+    "TaskBox",
     "reduce",
+    "reduce_inbox",
     "Budget",
     "HookRegistry",
     "RuleRegistry",

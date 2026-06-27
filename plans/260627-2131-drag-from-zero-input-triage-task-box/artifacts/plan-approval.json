@@ -1,0 +1,16 @@
+{
+  "schema": "plan-approval/v1",
+  "plan": "260627-2131-drag-from-zero-input-triage-task-box",
+  "plan_hash": "ed90d53a221a",
+  "file_hashes": {
+    "plan.md": "b7bdb7a37b46",
+    "phase-1-triage-seam.md": "b545a49e6936",
+    "phase-2-orchestrator-submit.md": "7ce08d26eb04",
+    "phase-3-projection-and-adapter.md": "32b226f7a62a"
+  },
+  "author": "uspro",
+  "reviewer": "user:uspro",
+  "verdict": "APPROVED",
+  "rationale": "Slice 1 re-build drag_from_zero: input triage + task-box materialize. Additive, low-risk, 3 phase TDD. Plannotator review sach. Giu 3 luat (worker khong forge verdict, additive, dung o materialize).",
+  "ts": "2026-06-27T15:34:47.937411+00:00"
+}

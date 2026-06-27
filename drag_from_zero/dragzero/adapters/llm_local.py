@@ -132,6 +132,27 @@ def coerce_response(raw: str) -> dict:
     }
 
 
+def coerce_triage(raw: str) -> dict:
+    """Parse a model triage reply into {"triage": {kind, text?|goal?+done_when?, reasoning}}.
+
+    Total + pure: NEVER raises. Unparseable / unclassifiable output falls back to treating the
+    whole reply as an answer (observable via a `_meta.fallback` marker) — the orchestrator's
+    CODE still adjudicates any done_when, so a hallucinated criterion can't sneak through here.
+    """
+    data = extract_json(raw)
+    node = None
+    if isinstance(data, dict):
+        node = data.get("triage") if isinstance(data.get("triage"), dict) else data
+    if not isinstance(node, dict) or node.get("kind") not in ("answer", "task"):
+        return {"triage": {"kind": "answer", "text": (raw or "").strip()}, "_meta": {"fallback": True}}
+    if node["kind"] == "task":
+        triage = {"kind": "task", "goal": node.get("goal"),
+                  "done_when": list(node.get("done_when") or []), "reasoning": node.get("reasoning", "")}
+    else:
+        triage = {"kind": "answer", "text": node.get("text"), "reasoning": node.get("reasoning", "")}
+    return {"triage": triage}
+
+
 def solo_fallback(reason: str) -> dict:
     """Safe default when the model output is unrecoverable — observable via _meta."""
     return {
@@ -181,6 +202,28 @@ def build_messages(ctx: dict, roles: Optional[list] = None, strict: bool = False
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
+_TRIAGE_SYSTEM = (
+    "You are the entry worker of an agent runtime. Classify the user's input, then return ONLY a "
+    "JSON object (no prose, no markdown):\n"
+    '{"kind": "answer|task", '
+    '"text": "<direct answer, when kind=answer>", '
+    '"goal": "<one-line goal, when kind=task>", '
+    '"done_when": [{"check": "file_exists", "params": {}, "artifact": "relative/path"}]}\n'
+    "kind=answer for a question you can answer directly in text. kind=task when the user wants work "
+    "done that yields a verifiable artifact. Each done_when is a typed triple {check, params, "
+    "artifact} — a QUESTION the gate answers, never a verdict. NEVER include a passed/status/score "
+    "field; the gate writes the verdict, not you."
+)
+
+
+def build_triage_messages(ctx: dict, strict: bool = False) -> list:
+    system = _TRIAGE_SYSTEM
+    if strict:
+        system += "\nIMPORTANT: your previous reply was not valid JSON. Return ONLY the raw JSON object."
+    user = f"Classify this input and return the JSON object now:\n{ctx.get('input', '')}"
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
 # --------------------------------------------------------------------------- #
 # Transport
 # --------------------------------------------------------------------------- #
@@ -223,6 +266,8 @@ class OpenAICompatLLM:
         self.last_meta: dict = {}
 
     def complete(self, ctx: dict) -> dict:
+        if ctx.get("request") == "triage":
+            return self._complete_triage(ctx)
         raw = self._transport(build_messages(ctx, self.roles, strict=False))
         try:
             out = coerce_response(raw)
@@ -239,6 +284,19 @@ class OpenAICompatLLM:
         except LLMFormatError as e:
             self.last_meta = {"repaired": True, "fallback": True}
             return solo_fallback(str(e))
+
+    def _complete_triage(self, ctx: dict) -> dict:
+        """Triage variant of the parse/repair ladder: coerce_triage never raises, so the fallback
+        is signalled by a `_meta` marker rather than an exception. One stricter repair call, then
+        the safe answer-fallback — the same graceful-degradation contract as the plan path."""
+        out = coerce_triage(self._transport(build_triage_messages(ctx, strict=False)))
+        if "_meta" not in out:
+            self.last_meta = {"repaired": False, "fallback": False}
+            return out
+        out2 = coerce_triage(self._transport(build_triage_messages(ctx, strict=True)))
+        fell_back = "_meta" in out2
+        self.last_meta = {"repaired": True, "fallback": fell_back}
+        return out2
 
 
 class RecordedLLM:
@@ -258,6 +316,10 @@ class RecordedLLM:
             raise IndexError("RecordedLLM exhausted: more LLM calls than recorded responses")
         raw = self._responses[self._i]
         self._i += 1
+        if ctx.get("request") == "triage":  # replay through the SAME triage parse path
+            out = coerce_triage(raw)
+            self.last_meta = {"fallback": "_meta" in out}
+            return out
         try:
             out = coerce_response(raw)
             self.last_meta = {"fallback": False}

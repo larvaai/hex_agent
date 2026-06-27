@@ -236,3 +236,42 @@ python run_server.py                                 # the UI now shows code ver
 Verified end-to-end in a browser: the tree decomposes live, each node closes with a
 code-derived `verdict pass`, and feeding the tester a report with no coverage line flips
 the tester **and** the root to FAIL while the model still reports every task complete.
+
+## Gaps 1–3 — disk truth, worker-proposed decompose, capability
+
+Three subsystems closing the design doc's open laws. Each is additive: a run that uses none of
+them is byte-identical to Slice 6a. Designed by a parallel agent fan-out grounded in the proven
+`decompose_agent/` engine, then adversarially attacked (invariants 1–5 probed; three holes found
+and fixed with regression tests).
+
+**Gap 1 — disk is the only truth.** `dragzero/ledger.py` is an append-only JSONL ledger:
+`EventLog(ledger=…)` flushes every event durably (the write happens *before* memory is mutated,
+so disk never falls behind RAM), and `EventLog.replay(ledger)` rebuilds — resume is
+`reduce(replay(ledger).events())`, byte-identical to the live tree. The reader is
+corruption-tolerant: a torn tail line (a crash half-write) is dropped, not fatal.
+
+**Gap 2 — the worker PROPOSES, code ACCEPTS (decompose-until-trivial).** A task with authored
+`done_when` runs the code-owned loop in the orchestrator: K leaf attempts (each a ReAct pass +
+`run_checks` over the sandbox), and on persistent failure the worker is asked to propose children
+— each a `{goal, done_when}` node. `dragzero/accept.py` (Gate-2, pure, pre-mutation) accepts only
+a split where every child is **strictly smaller** (μ = `done_when_count`), the parent's criteria
+are all **covered by implication**, and no child forges a verdict key. Children verify by code;
+the parent closes by **compose** — and a failed child or a failing own-gate is `COMPOSE_FAIL`
+(surfaced in the orchestrator *and* the ledger, not just the projection), never a silent DONE.
+Termination is a theorem: μ-descent + a per-root step budget + `MAX_DEPTH` + identical-re-proposal
+STUCK. Leaf-ness is discovered by exhausting K — never asked of the model.
+
+**Gap 3 — capability token (ADR-1..4).** `dragzero/capability.py` is a frozen token threaded down
+the spawn tree; `attenuate()` only narrows (a widen raises), `depth` decrements one per level. The
+Gate reads the token, never the agent's words: a tool outside `capability.tools` is denied at the
+single dispatch site; `depth`/`spawn_quota`/`can_delegate` are hard stops on both the delegate and
+the decompose spawn paths, surfaced as `capability_exhausted`. Default `capability=None` is
+permissive passthrough.
+
+```bash
+python -m pytest tests/test_disk_truth.py tests/test_decompose.py tests/test_capability.py -q
+```
+
+Live: `decompose_server.py` (a `--scenario`-style demo) drives a root whose 3-criterion gate the
+worker can't satisfy alone — it decomposes into `impl-login · impl-session · write-tests`, μ
+shrinks 6→1, every leaf closes on a code verdict, and the parent composes to PASS.

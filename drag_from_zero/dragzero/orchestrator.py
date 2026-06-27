@@ -19,7 +19,7 @@ from .accept import accept_decomposition
 from .agent import Agent, Task
 from .budget import AttemptBudget, RootBudget
 from .capability import Capability
-from .contracts import DelegationMode, TaskStatus
+from .contracts import DelegationMode, TaskStatus, TriageResult
 from .events import Event, EventLog, EventType
 from .registries import Budget, HookRegistry, RuleRegistry, ToolRegistry
 from .roster import Roster
@@ -141,6 +141,41 @@ class Orchestrator:
         self._recs[root.id] = _WorkRec(task=root, depth=0, agent=agent or self._route(root), capability=self.capability)
         self._ready.append(root.id)
         return root.id
+
+    # --- Slice D1: input triage + task-box (additive entrypoint, before start()) ---
+    def submit(self, raw_input: str, agent: Optional[Agent] = None) -> TriageResult:
+        """Classify raw user input and STOP at materialization (SLICE-D1). A question emits an
+        answer; a task emits a code-adjudicated task box. This never enqueues work or calls
+        _solve_gated — start()/run() are the execution entrypoints and stay byte-identical."""
+        worker = agent or self._route(Task(id="_triage", description=raw_input))
+        if worker is None:  # empty roster — surface, never crash
+            self.log.append(Event(EventType.TASK_FAILED, payload={"error": "no agent available"}))
+            return TriageResult(kind="answer", text="")
+        result = worker.triage(raw_input)
+        self.log.append(Event(EventType.INPUT_CLASSIFIED, agent_id=worker.id,
+                              payload={"kind": result.kind, "reasoning": result.reasoning}))
+        if result.kind == "task":
+            self._materialize_task_box(worker, result)
+        else:
+            self.log.append(Event(EventType.ANSWER_PRODUCED, agent_id=worker.id,
+                                  payload={"text": result.text or ""}))
+        return result
+
+    def _materialize_task_box(self, worker: Agent, result: TriageResult) -> None:
+        """CODE adjudicates the worker's proposed done_when (SLICE-D2). A forged verdict key or a
+        path-escape is rejected at construction → TASK_BOX_REJECTED, never a valid box. An empty
+        done_when is allowed (unverified box, per plan §risk), not a rejection."""
+        raw = list(result.done_when or [])
+        if raw:  # empty = unverified, allowed; only adjudicate when criteria are present
+            try:
+                build_done_when(raw)  # forgery / path-jail raise ValueError here
+            except ValueError as exc:
+                self.log.append(Event(EventType.TASK_BOX_REJECTED, agent_id=worker.id,
+                                      payload={"reason": str(exc), "goal": result.goal}))
+                return
+        self.log.append(Event(EventType.TASK_BOX_CREATED, agent_id=worker.id,
+                              payload={"goal": result.goal, "done_when": raw}))
+        # SLICE-D1: STOP. No enqueue, no _solve_gated — materialization is the whole slice.
 
     def run_until_idle(self) -> EventLog:
         while self._ready and not self._halted:
@@ -372,6 +407,13 @@ class Orchestrator:
             self.log.append(Event(EventType.DECOMPOSITION_REJECTED, task_id=task_id, payload={"reasons": list(verdict.reasons)}))
             self._block_leaf(rec, "DECOMPOSE_REJECTED")  # forged/under-covering/non-shrinking → freeze, never degrade
             return
+        cap = rec.capability  # the capability budget bounds the decompose fan-out too (ADR-2), not just delegation
+        if cap is not None and (not cap.can_delegate or cap.depth <= 0
+                                or rec.spawns_used + len(verdict.children) > cap.spawn_quota):
+            self.log.append(Event(EventType.CAPABILITY_EXHAUSTED, task_id=task_id, agent_id=agent.id,
+                                  payload={"reason": "decompose exceeds capability (depth/quota/delegate)"}))
+            self._block_leaf(rec, "CAPABILITY_EXHAUSTED")
+            return
         self.log.append(Event(EventType.DECOMPOSITION_ACCEPTED, task_id=task_id,
                               payload={"children": [c.get("id") for c in verdict.children]}))
         for spec in verdict.children:  # topo-sorted; enqueued in order
@@ -388,6 +430,7 @@ class Orchestrator:
         target = parent_rec.agent  # a decomposed child runs under the same worker
         child_cap = parent_rec.capability.attenuate() if parent_rec.capability is not None else None
         self._recs[cid] = _WorkRec(task=child, depth=parent_rec.depth + 1, agent=target, capability=child_cap)
+        parent_rec.spawns_used += 1  # decompose children count against the node's spawn_quota too
         parent_rec.remaining += 1
         self.log.append(Event(EventType.SUBTASK_SPAWNED, task_id=cid, agent_id=target.id if target else None,
                               payload={"parent": parent_id, "subtask": child.description, "done_when": child.done_when}))
@@ -433,12 +476,39 @@ class Orchestrator:
             prec.remaining -= 1
             if prec.remaining != 0 or prec.settled:
                 break
-            self.log.append(Event(
-                EventType.TASK_COMPLETED,
-                task_id=cur,
-                agent_id=prec.agent.id if prec.agent else None,
-                payload={"result": "delegated"},
-            ))
-            prec.status = TaskStatus.DONE.value
-            prec.settled = True
+            self._close_parent(prec)  # DONE | COMPOSE_FAIL — code-owned for decomposed parents
             cur = prec.task.parent_id
+
+    def _close_parent(self, prec: _WorkRec) -> None:
+        """Roll a parent up when its children settle. A DECOMPOSED parent (carries done_when) is
+        judged by CODE: a failed child or a failing own-gate is COMPOSE_FAIL (freeze + surface),
+        never a silent DONE — the design doc's #1 law must hold in the orchestrator + ledger, not
+        only in the optional projection. A plain delegation parent (no done_when) closes as before.
+        """
+        cur = prec.task.id
+        child_statuses = [r.status for r in self._recs.values() if r.task.parent_id == cur]
+        failed = [s for s in child_statuses
+                  if s in (TaskStatus.FAILED.value, TaskStatus.BLOCKED.value, TaskStatus.HALTED.value)]
+
+        if prec.task.done_when:  # decomposed parent → compose = all_children_done AND own gate, by code
+            if failed:
+                self.log.append(Event(EventType.TASK_FAILED, task_id=cur, agent_id=prec.agent.id if prec.agent else None,
+                                      payload={"error": "COMPOSE_FAIL", "reason": "CHILD_FAILED"}))
+                prec.status = TaskStatus.FAILED.value
+            else:
+                workspace = self.sandbox.root if self.sandbox is not None else "."
+                verdict = run_checks(self._typed_done_when(prec.task.done_when) or [], workspace,
+                                     node_id=cur, activated_at=prec.activated_at, child_statuses=child_statuses)
+                if verdict.ok:
+                    self.log.append(Event(EventType.TASK_COMPLETED, task_id=cur, agent_id=prec.agent.id if prec.agent else None,
+                                          payload={"result": "composed"}))
+                    prec.status = TaskStatus.DONE.value
+                else:
+                    self.log.append(Event(EventType.TASK_FAILED, task_id=cur, agent_id=prec.agent.id if prec.agent else None,
+                                          payload={"error": "COMPOSE_FAIL", "reasons": list(verdict.reasons)}))
+                    prec.status = TaskStatus.FAILED.value
+        else:  # plain delegation parent — unchanged
+            self.log.append(Event(EventType.TASK_COMPLETED, task_id=cur, agent_id=prec.agent.id if prec.agent else None,
+                                  payload={"result": "delegated"}))
+            prec.status = TaskStatus.DONE.value
+        prec.settled = True

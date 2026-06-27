@@ -9,6 +9,7 @@ parent closes by compose. Leaf-ness is discovered by exhausting K — never aske
 from dragzero import Agent, FakeLLM, Orchestrator, Roster
 from dragzero.accept import accept_decomposition
 from dragzero.adapters.tools_fs import FsSandbox, build_fs_tools
+from dragzero.capability import Capability
 from dragzero.events import EventType
 from dragzero.read_model import reduce
 from dragzero.server import build_graph
@@ -131,6 +132,50 @@ def test_rejected_decomposition_blocks_not_degrades(tmp_path):
     assert orch.log.of_type(EventType.DECOMPOSITION_REJECTED)
     assert any(e.payload.get("error") == "DECOMPOSE_REJECTED" for e in orch.log.of_type(EventType.TASK_FAILED))
     assert not orch.log.of_type(EventType.DECOMPOSITION_ACCEPTED)
+
+
+def test_compose_fail_when_a_child_fails_is_not_a_silent_done(tmp_path):
+    # The adversary's critical finding: a decomposed parent whose child FAILS used to roll up to
+    # DONE in the orchestrator + ledger (only the projection caught it). The fence must make the
+    # run's OWN truth (reduce over the event log = disk) report failure.
+    def r(ctx):
+        if ctx.get("request") == "decompose":
+            return {"decompose": {"children": [
+                {"id": "la", "goal": "produce a.txt only", "done_when": [FE("a.txt")]},
+                {"id": "lb", "goal": "produce b.txt only", "done_when": [FE("b.txt")]},
+            ]}}
+        task, obs = ctx["task"], ctx["observations"]
+        if "a.txt only" in task:
+            return _write("a.txt") if not obs else _SOLO
+        return _SOLO  # lb and the root never write b.txt → lb is UNSOLVABLE_LEAF
+    sandbox = FsSandbox(str(tmp_path))
+    orch = Orchestrator(Roster([Agent("w", "worker", FakeLLM(r))]), tools=build_fs_tools(), sandbox=sandbox)
+    root = orch.start("two", agent=orch.roster.by_role_or_id("worker"), done_when=[FE("a.txt"), FE("b.txt")])
+    orch.run_until_idle()
+
+    _, nodes = reduce(orch.log.events())  # this fold IS the disk truth
+    assert nodes[root].status == "failed"  # NOT "done" — the orchestrator no longer lies
+    assert any(e.payload.get("error") == "COMPOSE_FAIL" for e in orch.log.of_type(EventType.TASK_FAILED))
+
+
+def test_decompose_path_obeys_the_capability_depth_budget(tmp_path):
+    # The adversary's medium finding: the decompose spawn path ignored the capability budget. A
+    # tight depth must hard-stop the decompose chain, surfaced as CAPABILITY_EXHAUSTED.
+    def r(ctx):
+        if ctx.get("request") == "decompose":
+            dw = ctx.get("done_when") or []
+            return {"decompose": {"children": [
+                {"id": f"leaf-{len(dw)}", "goal": "leaf", "done_when": [dw[0]]},
+                {"id": f"tail-{len(dw)}", "goal": "tail", "done_when": dw[1:]},
+            ]}}
+        return _SOLO  # never satisfies → always wants to decompose deeper
+    cap = Capability(tools=frozenset(), can_delegate=True, depth=1, spawn_quota=8)  # one level of split
+    orch = Orchestrator(Roster([Agent("w", "worker", FakeLLM(r))]), tools=build_fs_tools(),
+                        sandbox=FsSandbox(str(tmp_path)), capability=cap)
+    orch.start("root", agent=orch.roster.by_role_or_id("worker"), done_when=[FE(f"f{i}.txt") for i in range(4)])
+    orch.run_until_idle()
+    assert orch.log.of_type(EventType.CAPABILITY_EXHAUSTED)  # depth budget fired ON the decompose path
+    assert min(rc.capability.depth for rc in orch._recs.values()) >= -1  # children stayed a subset, didn't run away
 
 
 def test_delegation_only_runs_are_unchanged(tmp_path):

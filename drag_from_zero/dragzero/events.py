@@ -32,6 +32,11 @@ class EventType(str, Enum):
     DECOMPOSITION_PROPOSED = "decomposition_proposed"  # worker proposed children
     DECOMPOSITION_ACCEPTED = "decomposition_accepted"  # Gate-2 accepted (mu shrank, covered)
     DECOMPOSITION_REJECTED = "decomposition_rejected"  # Gate-2 rejected (reasons in payload)
+    # Slice D1 — input triage + task-box (additive entrypoint; never on the start()/run() path)
+    INPUT_CLASSIFIED = "input_classified"   # worker classified raw input: {kind: answer|task, reasoning}
+    ANSWER_PRODUCED = "answer_produced"     # answer branch: {text}
+    TASK_BOX_CREATED = "task_box_created"   # task branch, done_when adjudicated OK: {goal, done_when}
+    TASK_BOX_REJECTED = "task_box_rejected"  # task branch, done_when forged/path-jailed: {reason, goal}
 
 
 @dataclass(frozen=True)
@@ -57,9 +62,9 @@ class EventLog:
 
     def append(self, event: Event) -> Event:
         stamped = replace(event, seq=len(self._events))
-        self._events.append(stamped)
         if self._ledger is not None:
-            self._ledger.append(stamped)  # durable BEFORE subscribers see it
+            self._ledger.append(stamped)  # durable FIRST — a non-serializable payload raises here,
+        self._events.append(stamped)      # before memory is mutated, so disk never falls behind RAM
         for sub in self._subs:
             sub(stamped)
         return stamped
