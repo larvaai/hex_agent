@@ -13,6 +13,7 @@ from typing import Any
 from core.session import KernelSession
 from discipline import Budget
 from supervisor.contracts import OrchestratorDecision
+from supervisor.command_bridge import apply_pending_commands, enqueue_commands
 from supervisor.evidence import record_ac_report
 from supervisor.graph import (
     SupervisorContext,
@@ -40,9 +41,17 @@ def _criteria(items: list[Any]) -> list[AcceptanceCheck]:
 
 
 def _decision_signature(decision: OrchestratorDecision) -> str:
-    agents = ",".join(sorted(a.agent_id for a in decision.next_agent_calls))
+    # Include target_kind (so an agent call and a department call read as different
+    # decisions) and the commands (so two rounds admitting different members are NOT
+    # seen as a repeat). Without this, the repeat-guard could falsely BLOCK a
+    # department that is legitimately admitting members across rounds (red-team FM1).
+    agents = ",".join(sorted(f"{a.target_kind}:{a.agent_id}" for a in decision.next_agent_calls))
     tools = ",".join(sorted(str(t.get("tool") or t.get("name") or "") for t in decision.tool_requests))
-    return f"{decision.decision}|{agents}|{tools}"
+    commands = ",".join(sorted(
+        f"{c.get('command_type', '')}:{c.get('payload', {}).get('agent_id', '')}"
+        for c in decision.commands
+    ))
+    return f"{decision.decision}|{agents}|{tools}|{commands}"
 
 
 def _make_ctx(
@@ -164,6 +173,10 @@ def _drive(
             _terminate(state, ctx, TaskLoopStatus.FAILED, "parse-error budget exceeded")
             break
 
+        # Queue O's explicit commands; run_round (below) may queue more (department
+        # admits). They are all applied together at the end-of-round checkpoint.
+        enqueue_commands(state, decision)
+
         signature = _decision_signature(decision)
         repeat_count = repeat_count + 1 if signature == last_signature else 0
         last_signature = signature
@@ -187,10 +200,37 @@ def _drive(
             _terminate(state, ctx, status, decision.reason or decision.decision)
             break
 
+        # ── safe checkpoint (red-team FM2/FM6) ───────────────────────────────
+        # Apply queued commands, then advance the round and save ONCE. Roster +
+        # applied_command_keys + (cleared) pending_commands + round_no all land in
+        # the SAME checkpoint — never two separate saves — so a crash here cannot
+        # leave a half-applied state that double-applies on resume.
+        pending_before_apply = len(state.pending_commands)
+        applied = apply_pending_commands(
+            state,
+            ctx,
+            registry=ctx.command_registry_loaded(),
+            catalog={row["agent_id"] for row in ctx.role_catalog()},
+        )
+        if applied > 0:
+            repeat_count = 0  # a round that grew the roster is not a stuck repeat
         state.round_no += 1
-        ctx.save(state)  # checkpoint at each round boundary (S10.10)
+        ctx.save(state)
 
-        progressed = len(state.artifacts) > before_artifacts or state.acceptance_snapshot() != before_acceptance
+        # Diagnostic: roster still growing but rounds are nearly spent (red-team FM2).
+        if pending_before_apply and state.round_no >= state.max_rounds - 1 and not state.is_terminal:
+            ctx.emit("loop.roster_growth_starved", {
+                "pending": pending_before_apply,
+                "rounds_left": max(0, state.max_rounds - state.round_no),
+            })
+
+        # A round that only grew the roster (0 turns, applied > 0) still counts as
+        # progress, so an admit-only round is not falsely BLOCKED (red-team FM1).
+        progressed = (
+            len(state.artifacts) > before_artifacts
+            or state.acceptance_snapshot() != before_acceptance
+            or applied > 0
+        )
         if not progressed:
             _terminate(state, ctx, TaskLoopStatus.BLOCKED, "no progress this round")
             break

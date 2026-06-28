@@ -91,6 +91,11 @@ class TaskLoopState:
     tool_results: dict[str, dict[str, Any]] = field(default_factory=dict)
     final_output: dict[str, Any] | None = None
     reason: str = ""
+    # Control-plane command queue (E21). pending_commands holds O-issued intents
+    # waiting for the end-of-round checkpoint; applied_command_keys records the
+    # idempotency_keys already applied so a resume never double-applies.
+    pending_commands: list[dict[str, Any]] = field(default_factory=list)
+    applied_command_keys: list[str] = field(default_factory=list)
 
     # ── helpers ──────────────────────────────────────────────────────────────
     def add_artifact(self, artifact_id: str, payload: dict[str, Any]) -> None:
@@ -125,6 +130,8 @@ def encode_taskloop_state(state: TaskLoopState) -> dict[str, Any]:
         "tool_results": {k: dict(v) for k, v in state.tool_results.items()},
         "final_output": dict(state.final_output) if state.final_output else None,
         "reason": state.reason,
+        "pending_commands": [dict(c) for c in state.pending_commands],
+        "applied_command_keys": list(state.applied_command_keys),
     }
 
 
@@ -142,4 +149,8 @@ def decode_taskloop_state(data: dict[str, Any]) -> TaskLoopState:
         tool_results={k: dict(v) for k, v in (data.get("tool_results") or {}).items()},
         final_output=dict(data["final_output"]) if data.get("final_output") else None,
         reason=str(data.get("reason", "")),
+        # .get(..., []) so an old checkpoint that predates these keys decodes
+        # to empty queues instead of raising KeyError.
+        pending_commands=[dict(c) for c in (data.get("pending_commands") or [])],
+        applied_command_keys=list(data.get("applied_command_keys") or []),
     )

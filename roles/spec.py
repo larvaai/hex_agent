@@ -36,6 +36,7 @@ class RoleView:
     role: str
     system_prompt: str
     default_scope: frozenset[str]
+    department: str = ""          # E21: lets O see/target departments; default keeps old callers working
 
 
 @dataclass(frozen=True)

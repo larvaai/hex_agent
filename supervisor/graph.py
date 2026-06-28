@@ -12,10 +12,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from control import Actor, EventEmitter, TraceContext
+from control.command_registry import load_command_registry
 from core.schemas import DelegationPolicy
 from core.session import KernelSession
 from discipline import Budget, JsonGateError
 from supervisor.broker import BrokerPort
+from supervisor.command_bridge import enqueue_commands
 from supervisor.contracts import (
     AgentAssignment,
     OrchestratorDecision,
@@ -47,11 +49,29 @@ class SupervisorContext:
     checkpoint: Callable[[TaskLoopState], None] | None = None  # SQLite save (S10.10)
     emitter: EventEmitter | None = None  # E21 B1: route events through the RuntimeEvent envelope
     trace: TraceContext | None = None    # root trace for this session's events (lazily created)
+    command_registry: Any | None = None  # E21: CommandTypeRegistry, lazily loaded + cached
 
     def role_catalog(self) -> tuple[dict[str, Any], ...]:
         if self.agent_registry is None:
             return ()
-        return tuple({"agent_id": v.agent_id, "role": v.role} for v in self.agent_registry.list_roles())
+        # agent_registry is duck-typed (Any); read department with the RoleView
+        # default so a role view that predates the field still projects cleanly.
+        return tuple(
+            {"agent_id": v.agent_id, "role": v.role, "department": getattr(v, "department", "")}
+            for v in self.agent_registry.list_roles()
+        )
+
+    def departments_view(self) -> dict[str, list[str]]:
+        """Departments → member ids, for O's state view. Empty without a registry."""
+        if self.agent_registry is None:
+            return {}
+        return {dept: list(members) for dept, members in self.agent_registry.departments().items()}
+
+    def command_registry_loaded(self):
+        """The CommandTypeRegistry, loaded from YAML once and cached (E21)."""
+        if self.command_registry is None:
+            self.command_registry = load_command_registry()
+        return self.command_registry
 
     def emit(self, topic: str, payload: dict[str, Any]) -> None:
         # E21 B1: when an emitter is wired, every supervisor event flows through the
@@ -109,7 +129,7 @@ def o_decide(state: TaskLoopState, ctx: SupervisorContext, *, budget: Budget) ->
     """Parse one O decision, repairing/re-prompting on bad JSON. Returns None when
     the parse-error budget is exhausted (driver routes that to `failed`)."""
     while True:
-        raw = ctx.orchestrator.decide(state_view=_state_view(state))
+        raw = ctx.orchestrator.decide(state_view=_state_view(state, ctx))
         try:
             decision = parse_decision(raw)
         except JsonGateError:
@@ -123,14 +143,75 @@ def o_decide(state: TaskLoopState, ctx: SupervisorContext, *, budget: Budget) ->
         return decision
 
 
-def _state_view(state: TaskLoopState) -> dict[str, Any]:
+def _state_view(state: TaskLoopState, ctx: SupervisorContext) -> dict[str, Any]:
     return {
         "round_no": state.round_no,
         "selected_agents": list(state.selected_agents),
         "acceptance": [c.as_dict() for c in state.acceptance_checks],
         "recent_turns": [t.as_dict() for t in state.turns[-len(state.selected_agents or [1]) :]],
         "artifact_ids": list(state.artifacts),
+        # Slim view of queued commands — just the intent, not the random
+        # command_id/created_at, which would only be prompt noise for O.
+        "pending_commands": [
+            {"command_type": c["command_type"], "agent_id": c.get("payload", {}).get("agent_id")}
+            for c in state.pending_commands
+        ],
+        "departments": ctx.departments_view(),
     }
+
+
+# ── department expansion (E21: department-targeted delegation) ───────────────
+_DEPT_UNRESOLVED_REASON = (
+    "department {dept!r} is empty or does not exist; "
+    "if you meant a single agent, use target_kind='agent'"
+)
+
+
+def expand_departments(
+    decision: OrchestratorDecision,
+    *,
+    members_of: Callable[[str], tuple[str, ...]],
+    selected: set[str],
+) -> tuple[list[AgentAssignment], list[str], list[tuple[str, str]]]:
+    """Turn department-targeted calls into one agent-level call per member.
+
+    Pure — no emit, no state mutation; the caller (Phase 4) wires side effects.
+    Returns ``(expanded, to_admit, rejected)``:
+      - expanded:  agent-level AgentAssignments to run THIS round — members already
+                   in ``selected`` plus every ``target_kind="agent"`` call untouched.
+      - to_admit:  member ids not yet in the roster — caller enqueues an
+                   AddAgentToLoop so they join next round (same-round admit would
+                   break the "apply only at checkpoint" guardrail).
+      - rejected:  ``(department, reason)`` for targets that didn't resolve. We
+                   never raise: one unresolved target must not kill the round.
+    Scope never widens — each member carries the department call's exact
+    ``allowed_capabilities`` (granted by O).
+    """
+    expanded: list[AgentAssignment] = []
+    to_admit: list[str] = []
+    rejected: list[tuple[str, str]] = []
+    for assignment in decision.next_agent_calls:
+        if assignment.target_kind != "department":
+            expanded.append(assignment)          # plain agent call — pass through
+            continue
+        members = members_of(assignment.agent_id)
+        if not members:
+            rejected.append((assignment.agent_id, _DEPT_UNRESOLVED_REASON.format(dept=assignment.agent_id)))
+            continue
+        for member in members:
+            if member in selected:
+                expanded.append(
+                    AgentAssignment(
+                        agent_id=member,
+                        objective=assignment.objective,
+                        scope_of_work=assignment.scope_of_work,
+                        allowed_capabilities=assignment.allowed_capabilities,
+                        target_kind="agent",
+                    )
+                )
+            else:
+                to_admit.append(member)
+    return expanded, to_admit, rejected
 
 
 # ── run_round (S10.2/S10.3/S10.5/S10.14) ─────────────────────────────────────
@@ -139,17 +220,58 @@ def run_round(state: TaskLoopState, ctx: SupervisorContext, decision: Orchestrat
 
     On resume, an agent that already produced a turn this round is skipped — a
     completed worker turn is never re-run (S10.10)."""
-    # Authority check first: every assignment must target an agent the composition
-    # selected. Validate the whole batch before any packet/delegation side effect.
     selected = set(state.selected_agents)
-    for assignment in decision.next_agent_calls:
+
+    # Expand department targets into agent-level calls BEFORE the authority gate.
+    # A not-yet-composed member is deferred (enqueued as AddAgentToLoop) so it
+    # joins the roster next round — never admitted mid-round.
+    dept_aliases = [a.agent_id for a in decision.next_agent_calls if a.target_kind == "department"]
+    if ctx.agent_registry is None:
+        # Degrade without a registry: keep agent calls, reject department targets.
+        calls = []
+        for a in decision.next_agent_calls:
+            if a.target_kind == "department":
+                ctx.emit("command.rejected", {
+                    "department": a.agent_id,
+                    "reason": "department targeting requires an agent_registry",
+                })
+            else:
+                calls.append(a)
+        to_admit: list[str] = []
+        rejected: list[tuple[str, str]] = []
+    else:
+        calls, to_admit, rejected = expand_departments(
+            decision, members_of=ctx.agent_registry.members_of, selected=selected
+        )
+    for dept, reason in rejected:
+        ctx.emit("command.rejected", {"department": dept, "reason": reason})
+    if dept_aliases:
+        for member in to_admit:
+            enqueue_commands(
+                state,
+                OrchestratorDecision(
+                    decision="continue",
+                    commands=({"command_type": "AddAgentToLoop", "payload": {"agent_id": member}},),
+                ),
+            )
+        ctx.emit("loop.department_expanded", {
+            "departments": dept_aliases,
+            "expanded": [a.agent_id for a in calls],
+            "admitted": list(to_admit),
+        })
+
+    # Authority check: every (expanded) assignment must target a selected agent.
+    # Validate the whole batch before any packet/delegation side effect.
+    for assignment in calls:
         if assignment.agent_id not in selected:
             raise PermissionError(
                 f"Assignment targets agent '{assignment.agent_id}' that was not selected by composition."
             )
 
+    # Seeded from turns already completed this round (so resume never re-runs a
+    # finished turn) and kept live as each turn completes below.
     done_this_round = {t.agent_id for t in state.turns if t.round_no == state.round_no}
-    for assignment in decision.next_agent_calls:
+    for assignment in calls:
         if assignment.agent_id in done_this_round:
             continue
         store_slice = ctx.store_slice_provider(assignment, state)
@@ -208,6 +330,10 @@ def run_round(state: TaskLoopState, ctx: SupervisorContext, decision: Orchestrat
         )
         ctx.emit("loop.turn", {"agent_id": assignment.agent_id, "outcome": result.outcome})
         ctx.save(state)  # checkpoint after each completed turn (S10.10)
+        # One delegation per member per round: mark this agent done so a second
+        # mention in `calls` (e.g. a department expanded twice, or a department
+        # member also named directly) is skipped instead of run again.
+        done_this_round.add(assignment.agent_id)
     state.status = TaskLoopStatus.IN_DISCUSSION.value
 
 

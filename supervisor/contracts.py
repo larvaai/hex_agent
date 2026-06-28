@@ -36,12 +36,19 @@ class SessionPlan:
 
 
 # ── orchestrator decision (S10.6/S10.8) ─────────────────────────────────────
+# A call can target a single agent (default) or a whole department. Department
+# targets get expanded into one agent-level call per member later (Phase 3); the
+# default "agent" keeps every existing decision backward-compatible.
+VALID_TARGET_KINDS = frozenset({"agent", "department"})
+
+
 @dataclass(frozen=True)
 class AgentAssignment:
     agent_id: str
     objective: str
     scope_of_work: str = ""
     allowed_capabilities: tuple[str, ...] = ()
+    target_kind: str = "agent"          # "agent" | "department"
 
 
 @dataclass(frozen=True)
@@ -53,6 +60,9 @@ class OrchestratorDecision:
     progress_made: bool = False
     reason: str = ""
     final_output: dict[str, Any] | None = None
+    # Control-plane intents O wants applied at the next checkpoint (e.g.
+    # AddAgentToLoop). Inert here — the loop translates + applies them (Phase 4).
+    commands: tuple[dict[str, Any], ...] = ()
 
 
 # ── context packet (S10.3/S10.4/S10.14) ─────────────────────────────────────
@@ -122,12 +132,19 @@ def parse_decision(raw: str) -> OrchestratorDecision:
             raise JsonGateError("next_agent_call requires a non-empty 'agent_id'.", stage="schema")
         if not objective:
             raise JsonGateError("next_agent_call requires a non-empty 'objective'.", stage="schema")
+        target_kind = str(c.get("target_kind", "agent"))
+        if target_kind not in VALID_TARGET_KINDS:
+            raise JsonGateError(
+                f"target_kind must be one of {sorted(VALID_TARGET_KINDS)}, got {target_kind!r}.",
+                stage="schema",
+            )
         calls_list.append(
             AgentAssignment(
                 agent_id=agent_id,
                 objective=objective,
                 scope_of_work=str(c.get("scope_of_work", "")),
                 allowed_capabilities=_as_str_tuple(c.get("allowed_capabilities")),
+                target_kind=target_kind,
             )
         )
 
@@ -142,6 +159,17 @@ def parse_decision(raw: str) -> OrchestratorDecision:
         tools_list.append(t)
 
     acceptance = tuple(a for a in _require_list(obj, "acceptance_status") if isinstance(a, dict))
+
+    # Validate command *shape* only (a dict carrying a non-empty command_type).
+    # Resolving / applying happens later — Phase 1 keeps these inert.
+    commands_list = []
+    for cmd in _require_list(obj, "commands"):
+        if not isinstance(cmd, dict):
+            raise JsonGateError("each command must be an object.", stage="schema")
+        if not str(cmd.get("command_type", "")).strip():
+            raise JsonGateError("command requires a non-empty 'command_type'.", stage="schema")
+        commands_list.append(cmd)
+
     return OrchestratorDecision(
         decision=decision,
         next_agent_calls=tuple(calls_list),
@@ -150,4 +178,5 @@ def parse_decision(raw: str) -> OrchestratorDecision:
         progress_made=bool(obj.get("progress_made", False)),
         reason=str(obj.get("reason", "")),
         final_output=obj.get("final_output") if isinstance(obj.get("final_output"), dict) else None,
+        commands=tuple(commands_list),
     )
