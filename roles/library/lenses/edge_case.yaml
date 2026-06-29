@@ -1,0 +1,15 @@
+name: edge_case
+purpose: Find boundary values, unusual inputs, empty data, timeout, and malformed
+  state cases.
+allowed_tools:
+- fs_read
+- code_index
+- lint_compile
+- ruff_check
+- pytest_run
+forbidden_tools:
+- fs_write
+- fs_str_replace
+output_schema:
+  lens: edge_case
+  edge_cases: list

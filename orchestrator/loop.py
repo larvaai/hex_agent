@@ -38,9 +38,13 @@ def _delegation_prompt(service: DelegationServicePort | None) -> str:
 
 
 def _config(run_id: str, budget: Budget) -> dict[str, Any]:
+    # Parse errors now gate on the CONSECUTIVE streak (reset on every good parse), so a run can
+    # legitimately absorb up to max_parse_errors retries BEFORE EACH of its max_steps actions.
+    # The graph node budget must cover that worst case or recursion_limit trips before the loop's
+    # own budget does. Per real step: guard+agent (2) + up to max_parse_errors*(agent+guard) + tool+guard.
     return {
         "configurable": {"thread_id": run_id},
-        "recursion_limit": max(100, budget.max_steps * 4 + budget.max_parse_errors * 3 + 20),
+        "recursion_limit": max(150, budget.max_steps * (2 * budget.max_parse_errors + 4) + 40),
     }
 
 
@@ -111,7 +115,7 @@ def run(
         raise ValueError("Provided session does not own the requested task.")
     if run_id is not None and active_session.identity.run_id != run_id:
         raise ValueError("Provided session run_id does not match the requested run_id.")
-    active_budget = budget or Budget()
+    active_budget = budget or Budget.from_env()
     rid = active_session.identity.run_id
     prompt = system_prompt + _delegation_prompt(delegation_service)
     initial = new_agent_state(

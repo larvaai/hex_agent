@@ -1,0 +1,16 @@
+{
+  "schema": "plan-approval/v1",
+  "plan": "260626-0237-s2133-ac-evidence-types",
+  "plan_hash": "95ab85868953",
+  "file_hashes": {
+    "plan.md": "a4537446c660",
+    "phase-01-evidence-type-gate.md": "77c69e22ec75",
+    "phase-02-ac-report.md": "5a5eddc17b8e",
+    "phase-03-adversarial-regression.md": "227d4038387b"
+  },
+  "author": "namson.nguyen102@gmail.com",
+  "reviewer": "user:uspro",
+  "verdict": "APPROVED",
+  "rationale": "Red-team PASS_WITH_RISK (all findings applied) + revalidator PASS (6 load-bearing claims confirmed); DEC quantifier >=1 + trust-worker signed off by reviewer.",
+  "ts": "2026-06-25T20:06:12.745322+00:00"
+}

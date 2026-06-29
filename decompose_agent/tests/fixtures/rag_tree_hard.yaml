@@ -1,0 +1,30 @@
+# Hand-baked tree with one deliberately TOO-HARD node, for the phase-4 __main__ demo.
+#
+# ai.rag.hard is structural (done_when = all_children_done ×2, dwc=2) with no children yet:
+# its leaf attempts can't satisfy it, so it decomposes (ScriptedWorker satisfy=tree synthesizes a
+# 2-way split), the children pass, and it closes via DEC-D4 — then ai.rag closes.
+# Demonstrates: decompose → children done → parent done, deterministically with no LLM.
+
+- id: ai.rag
+  parent: null
+  kind: work
+  status: decomposed
+  done_when:
+    - { check: all_children_done }
+
+- id: ai.rag.easy
+  parent: ai.rag
+  kind: work
+  status: pending
+  depends_on: []
+  done_when:
+    - { check: file_exists, artifact: easy.txt }
+
+- id: ai.rag.hard            # too-hard: structural, decomposes at runtime
+  parent: ai.rag
+  kind: work
+  status: pending
+  depends_on: []
+  done_when:
+    - { check: all_children_done }
+    - { check: all_children_done }

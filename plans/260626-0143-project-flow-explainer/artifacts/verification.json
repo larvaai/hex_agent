@@ -1,0 +1,49 @@
+{
+  "stage": "ship",
+  "plan": "260626-0143-project-flow-explainer",
+  "actor": "user:uspro/agent:hs:cook",
+  "ts": "2026-06-25T20:05:47.928793+00:00",
+  "verdict": "PASS",
+  "checks": [
+    {
+      "name": "self-contained-no-cdn",
+      "status": "PASS",
+      "detail": "grep src=/<link/cdn/http(s):// across 4 html → only the literal comment line; 0 external resources. Internal relative links only."
+    },
+    {
+      "name": "console-clean",
+      "status": "PASS",
+      "detail": "Preview MCP loaded all 4 pages via http://localhost:4173; preview_console_logs(all) = 'No console logs' on every page (0 errors/warnings)."
+    },
+    {
+      "name": "interactions-work",
+      "status": "PASS",
+      "detail": "Exercised in-browser: flip-answer (ch3 has 2 independent flips), Play/Step/Reset token engine, ch0 layer-click, ch3 mode-toggle. Token sequences correct: ch0 caller>door>env>deleg; ch1 6-step k1..k6 w/ scope-branch lit at step2; ch2 lifecycle s1..s5 w/ inactive-branch lit at execute; ch3 onion PASS timing>policy>log>core>log>policy>timing and BLOCK timing>policy#block>timing (short-circuit, core never reached)."
+    },
+    {
+      "name": "field-tables-accurate",
+      "status": "PASS",
+      "detail": "AgentKernel 5 fields (registry,events,config,_middlewares,_frozen) + explicit NO state/accept_task; KernelSession 5; SessionIdentity 7; onion concepts 4. Cross-checked vs core/kernel.py:42-46, core/session.py:15-23,49-57, core/kernel.py:57-61,136-138."
+    },
+    {
+      "name": "citations-verified-independent",
+      "status": "PASS",
+      "detail": "hs:independent-revalidator re-derived from primary source: 27 file:line citations checked, 0 unverifiable, ZERO drift findings. Verdict PASS."
+    },
+    {
+      "name": "runnable-snippets-real",
+      "status": "PASS",
+      "detail": "Ran python3: ch1 MappingProxyType -> 'TypeError: mappingproxy object does not support item assignment'; ch3 late-binding wrong=['C','C','C'] right=['A','B','C']. Pasted outputs match exactly (re-run by revalidator too)."
+    },
+    {
+      "name": "map-altitude-discipline",
+      "status": "PASS",
+      "detail": "chapter-0 grep for private field names (_frozen/_closed/session_id/registry...) = empty. Stays at component/layer/directory altitude (AC#4)."
+    },
+    {
+      "name": "readme-index-complete",
+      "status": "PASS",
+      "detail": "README.md links all 4 chapters with working relative paths; documents the per-chapter pedagogical rhythm + self-contained constraint."
+    }
+  ]
+}

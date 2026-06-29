@@ -1,0 +1,5 @@
+{
+  "name": "hs-meta",
+  "description": "SDLC harness — harness tự quản (hs-meta:find-skills / voice / context-engineering / project-organization). Sibling của plugin hs (spine).",
+  "version": "2.0.0"
+}

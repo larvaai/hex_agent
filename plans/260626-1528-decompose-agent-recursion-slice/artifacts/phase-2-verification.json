@@ -1,0 +1,54 @@
+{
+  "stage": "cook",
+  "mode": "afk-native-host",
+  "plan": "260626-1528-decompose-agent-recursion-slice",
+  "phase": "phase-2-done-gate",
+  "actor": "user:uspro/agent:claude-opus-4-8",
+  "ts": "2026-06-26T09:42:34Z",
+  "tdd": {
+    "red": "python -m pytest decompose_agent/tests/test_gates.py -q → ImportError (cannot import name 'gates') before implementation.",
+    "green": "python -m pytest decompose_agent/tests/test_gates.py → 28 passed. Full suite (phase 1+2): 104 passed in 0.17s, exit 0."
+  },
+  "checks": [
+    {
+      "name": "closed_vocab_no_raise",
+      "status": "PASS",
+      "detail": "Unknown check → CriterionVerdict(ok=False, reason='unknown check ...'), node FAIL, no exception. CHECK_VOCAB = {file_exists, file_nonempty_lines, row_count_gte, grep_matches, grep_absent, json_field_equals, json_field_exists, json_field_in_range, json_len_gte} + structural all_children_done."
+    },
+    {
+      "name": "artifact_assertion_before_predicate",
+      "status": "PASS",
+      "detail": "_assert_artifact runs first: missing→FAIL, size 0→FAIL 'empty' (even file_exists), mtime<activated_at→FAIL 'stale', escape→FAIL 'unsafe' (resolve_in_workspace jail). spec.md:48,96,110."
+    },
+    {
+      "name": "per_check_pass_fail",
+      "status": "PASS",
+      "detail": "Each check tested with a temp artifact. json_field_in_range boundaries: =min PASS, <min FAIL, >max FAIL, =max PASS. row_count/len/grep_matches min thresholds; grep_absent presence→FAIL; json_field_equals/exists via minimal JSON-pointer (RFC6901 subset, ~0/~1 unescape)."
+    },
+    {
+      "name": "and_semantics_and_verdict_integrity",
+      "status": "PASS",
+      "detail": "node_verdict = PASS iff results non-empty AND every result.ok (no partial credit). Verdict + CriterionVerdict are frozen dataclasses — FrozenInstanceError on set; run_checks is the only constructor (no worker-writable ok)."
+    },
+    {
+      "name": "all_children_done_F1",
+      "status": "PASS",
+      "detail": "PASS iff len(children)>=1 AND all status=='done'; mixed→FAIL; 0 children OR child_statuses=None → FAIL 'no children' (blocks Python all([])==True vacuous-done)."
+    },
+    {
+      "name": "totality_property",
+      "status": "PASS",
+      "detail": "json_field_in_range over junk artifacts {not json, {}, [..], string field, null, whitespace, truncated} → always PASS|FAIL, never raises."
+    },
+    {
+      "name": "regression",
+      "status": "PASS",
+      "detail": "Full decompose_agent/tests = 104 passed (phase 1: 76 + phase 2: 28). Net-new file gates.py; no existing repo file touched."
+    }
+  ],
+  "verdict": "PASS",
+  "notes": [
+    "run_checks signature is (node, workspace, *, child_statuses=None): workspace is the node's artifact base Path (workspace.py manager arrives phase 3); all_children_done reads child_statuses threaded by the caller, keeping gates decoupled from Tree.",
+    "A node with empty done_when → FAIL (cannot be vacuously done)."
+  ]
+}

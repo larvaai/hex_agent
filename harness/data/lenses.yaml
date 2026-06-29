@@ -1,0 +1,34 @@
+# Multi-lens advisory — sample catalog (INERT seed).
+#
+# This file is a COPY-ME template, not a default. Nothing in drag_from_zero loads it
+# automatically: empty-by-default holds (a run with no LensRegistry is byte-identical).
+# To use it: parse this YAML to a dict and pass it to `dragzero.lens.load_lenses(data)`,
+# then hand the registry to `build_runtime(..., lenses=reg)` or `Orchestrator(..., lenses=reg)`.
+#
+# Laws (enforced in code, not here):
+#   - A lens ADVISES; it returns ONE prose line and NEVER a verdict key. The agent + verifier.py
+#     stay the sole verdict authority.
+#   - A combo `stages` list is ordered; a stage's `reads` may reference ONLY lenses produced by an
+#     EARLIER stage (back-ref → acyclic by construction). Cycles/forward-refs are rejected at load.
+#   - An hệ with `enabled: true` MANDATES its combo at task entry (code-forced; the agent can't skip).
+#     Toggle `enabled` here — the agent has no path to flip it at run time.
+
+catalog:
+  risk:
+    prompt: "What is the single most likely way this goes wrong? Name it in one line."
+  evidence:
+    prompt: "What concrete evidence in the task supports or contradicts the plan? One line."
+  synth:
+    prompt: "Given the risk and evidence notes, what is the one thing to watch? One line."
+
+combos:
+  inspect_v1:
+    stages:
+      - {lens: risk}
+      - {lens: evidence}
+      - {lens: synth, reads: [risk, evidence]}   # cascade: synth reads the two raw lines
+
+he:
+  thanh_tra:
+    combo: inspect_v1
+    enabled: true

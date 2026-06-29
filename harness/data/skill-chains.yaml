@@ -1,0 +1,30 @@
+# skill-chains.yaml — the DECLARED SDLC pipeline (human-edited config, YAML).
+#
+# Each chain is an ordered pair/sequence of skill invoke names: "after the
+# first, the second is the expected next step". The workflow-chains lens
+# compares these declarations against ACTUAL per-session telemetry and flags
+# deviations — drift between how the pipeline is documented and how it is
+# really used becomes data, not folklore.
+#
+# This file is ON-DEMAND data owned by the harness (loaded by the lens),
+# never always-on prompt context.
+chains:
+  - [hs:plan, hs:cook]    # plan approved → implement
+  - [hs:cook, hs:test]    # implementation done → verify
+  - [hs:test, hs:cook]    # failed verification → back to fix loop
+  - [hs-research:techstack, hs:test]  # non-Python target: detect the real test_cmd before testing (not assumed pytest)
+  - [hs:plan, hs-flow:afk]     # plan approved → run it unattended (AFK) instead of cook
+  - [hs-flow:afk, hs:test]     # unattended run done → human-verify before ship
+  - [hs-research:discover, hs:plan]    # discovery brief → plan (pre-plan shaping)
+  - [hs:understand, hs:plan]  # codebase map → plan (comprehension before design)
+  - [hs:triage, hs:fix]       # triaged defect → fast-path fix
+  - [hs:triage, hs:plan]      # architecture-affecting defect → escalate to full plan
+  - [hs:cook, hs:code-review]      # implementation done → review before ship
+  - [hs:code-review, hs:git]       # review PASS → commit/push
+  - [hs-research:security-scan, hs:code-review]  # security findings → review their fixes
+  - [hs-research:discover, hs-think:bakeoff]      # ≥2 measurable directions undecidable by reasoning → bake-off before choosing
+  - [hs-think:bakeoff, hs:plan]          # bake-off winner → plan the winning direction
+  - [hs-think:bakeoff, hs:cook]          # bake-off winner is a code direction → cook it directly
+  - [hs:plan, hs-think:critique]         # plan written → multi-lens critique before cook
+  - [hs-research:discover, hs-think:critique]     # chosen direction → multi-lens critique before planning
+  # chỉ top-level hop mới khai chain — bước con (vd triage→scout/debug) không khai

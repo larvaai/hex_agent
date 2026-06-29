@@ -1,0 +1,5 @@
+{
+  "name": "mind",
+  "description": "Backstage thinker — decompose a hard problem, dispatch reasoning agents, consolidate to conclusion.json. Deep reasoning lives here and never reaches the user raw.",
+  "version": "0.1.0"
+}

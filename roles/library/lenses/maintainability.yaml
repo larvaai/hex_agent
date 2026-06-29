@@ -1,0 +1,15 @@
+name: maintainability
+purpose: Judge readability, module boundaries, duplication, and future maintenance
+  cost.
+allowed_tools:
+- fs_read
+- code_index
+- code_find_references
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: maintainability
+  concerns: list
+  score: string

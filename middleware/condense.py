@@ -9,6 +9,8 @@ from discipline import condense
 
 
 class CondenseResult:
+    fail_open = True  # advisory shrink — a condense failure must not fail an ok tool call
+
     def __init__(self, *, max_chars: int = 2000, max_list: int = 10,
                  on_condense: Callable[[ToolRequest], None] | None = None) -> None:
         self.max_chars = max_chars

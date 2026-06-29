@@ -1,0 +1,13 @@
+name: risk_manager
+purpose: Identify technical risk, scope creep, missing tests, and dependency risk.
+allowed_tools:
+- fs_read
+- code_index
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: risk_manager
+  risks: list
+  mitigations: list

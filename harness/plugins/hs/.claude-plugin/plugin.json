@@ -1,0 +1,5 @@
+{
+  "name": "hs",
+  "description": "SDLC harness — skill quy trình có kiểm chứng (hs:plan / hs:cook / hs:test / hs-flow:afk), neo vào gate hook fail-closed của harness.",
+  "version": "1.1.0"
+}

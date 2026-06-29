@@ -1,0 +1,39 @@
+{
+  "stage": "verification",
+  "plan": "260626-1334-llm-connection-error-actionable",
+  "actor": "claude-opus-4-8",
+  "ts": "2026-06-26T13:42:00+07:00",
+  "checks": [
+    {
+      "name": "root-cause-evidence",
+      "status": "PASS",
+      "detail": "lsof -iTCP:1234 -sTCP:LISTEN → nothing listening; curl localhost/127.0.0.1/[::1]:1234 → http=000 refused in ~0.2ms; adapter __cause__ = ConnectError('[Errno 61] Connection refused'). The LM Studio API server was not started — environmental, not a code bug."
+    },
+    {
+      "name": "regression-test-red",
+      "status": "PASS",
+      "detail": "test_connection_failure_message_is_actionable failed pre-fix: message was bare 'Connection error.' with no URL/cause/hint"
+    },
+    {
+      "name": "regression-test-green",
+      "status": "PASS",
+      "detail": "post-fix message names the endpoint, surfaces '[Errno 61] Connection refused', and hints 'is the server running?'"
+    },
+    {
+      "name": "adapter-suite",
+      "status": "PASS",
+      "detail": "tests/test_llm_adapter.py 6/6 (no regression; boom/json-mode/downgrade paths intact)"
+    },
+    {
+      "name": "pytest-offline",
+      "status": "PASS",
+      "detail": "347 passed, 1 skipped (python3 -m pytest -m 'not integration_llm' -p no:randomly)"
+    },
+    {
+      "name": "ruff",
+      "status": "PASS",
+      "detail": "ruff check llm/adapter.py tests/test_llm_adapter.py — clean"
+    }
+  ],
+  "verdict": "PASS"
+}

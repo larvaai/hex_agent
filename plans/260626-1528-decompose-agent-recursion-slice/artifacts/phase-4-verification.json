@@ -1,0 +1,50 @@
+{
+  "stage": "cook",
+  "mode": "afk-native-host",
+  "plan": "260626-1528-decompose-agent-recursion-slice",
+  "phase": "phase-4-decompose-recursion",
+  "actor": "user:uspro/agent:claude-opus-4-8",
+  "ts": "2026-06-26T10:18:50Z",
+  "tdd": {
+    "red": "python -m pytest test_accept.py test_store.py test_solve_recurse.py -q → ImportError (no 'store') before implementation.",
+    "green": "32 new unit tests green. Full suite: 154 passed, 2 deselected (unit) in 1.49s; +2 real-35B integration."
+  },
+  "checks": [
+    {
+      "name": "gate2_accept_decomposition",
+      "status": "PASS",
+      "detail": "accept.py PURE gate before any mutation: SINGLETON/FANOUT, child==parent, dup id/title, NOT_SMALLER (μ=done_when_count strict <, DEC-D1), PROSE_CHILD/unknown-check/missing-or-unsafe-artifact/verdict-field, self-dep/unknown-dep/cycle. Coverage by IMPLICATION (check-kind+params), not artifact-name (F5: rename covers)."
+    },
+    {
+      "name": "mu_termination_property",
+      "status": "PASS",
+      "detail": "Hypothesis (derandomize, 200 ex): every ACCEPTED decomposition has all children len(done_when) < parent — the convergence proof is a test, not a hope."
+    },
+    {
+      "name": "content_addressed_transactional_store",
+      "status": "PASS",
+      "detail": "store.py: decomp_id=sha256(id‖canonical_spec‖version) stable; staging file IS the cache (get reads decompositions/<id>.yaml verbatim, no re-validate); commit = stage then attach children + flip status=decomposed then ONE os.replace of tree_state.yaml. Crash-before-replace → tree old + cache hits (no re-sample); crash-after → parent decomposed + children present (F4)."
+    },
+    {
+      "name": "decompose_recursion_and_detectors",
+      "status": "PASS",
+      "detail": "solve.py decompose path via the cursor walk. D2 NOT_SMALLER (one charged re-decompose then BLOCKED); D4 STUCK_DECOMP (identical sig → block immediately); D8 MAX_DEPTH; D10 BUDGET in recursion + F3 (every worker.decompose() charges a step); CHILD_BLOCKED propagates to decomposed ancestors."
+    },
+    {
+      "name": "DEC_D4_compose_F1_F2",
+      "status": "PASS",
+      "detail": "Parent done = all_children_done (len>=1, F1: 0 children → not vacuous-done) ∧ re-assert ORIGINAL done_when in parent dir. Structural parent completes; substantive-metric parent with no reduce → BLOCKED(COMPOSE_FAIL) (D12/F2), no re-decompose. reduce node stays fenced — the slice surfaces the hole, doesn't hide it."
+    },
+    {
+      "name": "regression_and_demo",
+      "status": "PASS",
+      "detail": "Full decompose_agent unit suite 154 passed. python -m decompose_agent rag_tree_hard.yaml --root ai.rag → decompose → children done → parent done, exit 0. +2 real-35B integration (trivial leaf + decompose path) pass when LM Studio reachable."
+    }
+  ],
+  "verdict": "PASS",
+  "notes": [
+    "Phase 4 completes the 4-phase recursion slice: leaf-attempt + decompose + Gate-2 + μ + transactional cache, all gates code-owned, no worker-writable verdict.",
+    "tree.py gained rebuild_children() for runtime child attachment; worker.py gained ScriptedWorker.decompose (scripts/satisfy) + LocalLLMWorker.decompose (text-mode, temp-0).",
+    "FENCED next round: real reduce node (closes COMPOSE_FAIL), inputs/outputs dataflow wiring, detectors D3/D5/D6-nuance, cmd_*/test_passes checks, cross-tree needs."
+  ]
+}

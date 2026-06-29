@@ -1,0 +1,15 @@
+name: experienced_qa
+purpose: 'Choose high-value practical tests: happy path, failure path, integration,
+  and dirty data.'
+allowed_tools:
+- fs_read
+- code_index
+- lint_compile
+- ruff_check
+- pytest_run
+forbidden_tools:
+- fs_write
+- fs_str_replace
+output_schema:
+  lens: experienced_qa
+  test_plan: list

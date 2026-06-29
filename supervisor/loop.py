@@ -14,6 +14,7 @@ from core.session import KernelSession
 from discipline import Budget
 from supervisor.contracts import OrchestratorDecision
 from supervisor.command_bridge import apply_pending_commands, enqueue_commands
+from supervisor.evidence import record_ac_report
 from supervisor.graph import (
     SupervisorContext,
     compose_team,
@@ -184,6 +185,7 @@ def _drive(
             judge_acceptance(state, ctx, decision)
             if state.all_accepted():
                 state.final_output = decision.final_output or {}
+                record_ac_report(state)  # S21.33: snapshot AC state before terminate persists it
                 _terminate(state, ctx, TaskLoopStatus.FINISHED, decision.reason or "all criteria passed")
                 break
             state.reason = "finish denied: acceptance criteria incomplete"

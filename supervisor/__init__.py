@@ -3,7 +3,7 @@
 A thin layer ABOVE the frozen kernel (not inside it): Agent O composes a team and
 emits structured decisions; the Context Broker writes scoped briefings; worker
 turns run as isolated child sessions via the delegation chokepoint. Core stays
-minimal. See docs/rebuild_from_zero/E10_multi_agent_graph/.
+minimal. See docs/spec/done/E10-multi-agent-graph/.
 """
 from __future__ import annotations
 

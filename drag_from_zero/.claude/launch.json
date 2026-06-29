@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dragzero-ui",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["run_server.py", "--port", "8732", "--pace", "0.18"],
+      "port": 8732
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+# decomposition-map.yaml — canonical skill -> plugin-group map (human-edited).
+#
+# The 2.0.0 decomposition splits the single core `hs` plugin into a spine plus six
+# themed sibling plugins. This file is the ONE source of truth the migrator
+# (migrate_decomposition.py) reads to decide where each skill lives and how every
+# `hs:<skill>` reference is rewritten.
+#
+#   group "hs"  -> SPINE: stays in harness/plugins/hs/, invoke name unchanged.
+#   group "<g>" -> moves to harness/plugins/hs-<g>/, invoke name becomes hs-<g>:<skill>.
+#
+# Every core skill dir under harness/plugins/hs/skills/ MUST appear here exactly once.
+# Spine = always-on SDLC loop; the six themed groups are opt-in at install time.
+
+skills:
+  # --- spine (always-on, 13) -------------------------------------------------
+  plan: hs
+  cook: hs
+  test: hs
+  ship: hs
+  fix: hs
+  debug: hs
+  code-review: hs
+  review-pr: hs
+  git: hs
+  scout: hs
+  understand: hs
+  setup: hs
+  triage: hs
+
+  # --- hs-flow: orchestration / long-running / team (8) ----------------------
+  loop: flow
+  afk: flow
+  autonomous-bell: flow
+  team: flow
+  worktree: flow
+  compound: flow
+  project-management: flow
+  plans-kanban: flow
+
+  # --- hs-think: reasoning / debate / decision (7) ---------------------------
+  brainstorm: think
+  predict: think
+  scenario: think
+  sequential-thinking: think
+  problem-solving: think
+  critique: think
+  bakeoff: think
+
+  # --- hs-research: investigate / survey / scan (6) --------------------------
+  research: research
+  autoresearch: research
+  discover: research
+  repomix: research
+  techstack: research
+  security-scan: research
+
+  # --- hs-create: build new harness artifacts (6) ----------------------------
+  skill-creator: create
+  harness-creator: create
+  mcp-builder: create
+  agentize: create
+  port: create
+  bootstrap: create
+
+  # --- hs-mem: memory / knowledge / docs (7) ---------------------------------
+  remember: mem
+  insights: mem
+  journal: mem
+  retro: mem
+  docs: mem
+  docs-seeker: mem
+  document-skills: mem
+
+  # --- hs-meta: skill-system meta / self-config (4) --------------------------
+  find-skills: meta
+  voice: meta
+  context-engineering: meta
+  project-organization: meta

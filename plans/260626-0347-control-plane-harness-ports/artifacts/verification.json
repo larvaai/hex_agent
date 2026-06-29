@@ -1,0 +1,44 @@
+{
+  "stage": "ship",
+  "plan": "260626-0347-control-plane-harness-ports",
+  "actor": "user:uspro/agent:claude-opus-4-8",
+  "ts": "2026-06-26T05:35:14Z",
+  "checks": [
+    {
+      "name": "full_suite",
+      "status": "PASS",
+      "detail": "python -m pytest → 345 passed, 1 skipped, exit 0. Run twice consecutively (kernel.py fragile-file gate, plan §Phase2)."
+    },
+    {
+      "name": "smoke",
+      "status": "PASS",
+      "detail": "python run_smoke.py → CORE_AGENT_SMOKE_OK run_id=20260626_123309_823e2ccd"
+    },
+    {
+      "name": "lint_ruff",
+      "status": "PASS",
+      "detail": "python -m ruff check on all changed files (control/, core/, middleware/, supervisor/evidence.py, tests/) → All checks passed."
+    },
+    {
+      "name": "phase1_authz_attribution",
+      "status": "PASS",
+      "detail": "control/authz.py predicates + docs/explanation/authz-vs-attribution.md; tests/test_authz_attribution.py 7 green; commands.py docstring authz→audit/attribution; MAP regenerated. Commit 3f31c7f."
+    },
+    {
+      "name": "phase3_ac_report_verdict",
+      "status": "PASS",
+      "detail": "ac_report.verdict ∈ {passed,passed_with_risk,pending}, policy in evidence._overall_verdict; 8 prior acceptance tests still green + new verdict tests; all_accepted (FINISHED gate) unchanged. Commit 52f1e27."
+    },
+    {
+      "name": "phase2_middleware_posture",
+      "status": "PASS",
+      "detail": "fail-open advisory / fail-closed blocking; FM-HIGH no-double-exec proven (latched nxt, executor ran once); §1.1 boundary try/except intact; outer→inner ordering + PolicyGate-deny unchanged (test_middleware_exact_semantics green). Commit 3932b8f."
+    },
+    {
+      "name": "commits_scoped_off_ide_worker",
+      "status": "PASS",
+      "detail": "3 phase commits staged by explicit file list (no git add -A). IDE opencode-parity worker's uncommitted ui/**, ui/ide/**, tests/test_ide_backend.py, tools/fake_control_server.py left untouched."
+    }
+  ],
+  "verdict": "PASS"
+}

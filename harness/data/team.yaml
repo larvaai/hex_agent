@@ -1,0 +1,11 @@
+# team.yaml — roster duyệt + tham số claims (KHÁC ownership.yaml: file đó là
+# zone table của fs_guard, không trộn semantic). Loader duy nhất:
+# harness/scripts/team_config.py — KHÔNG env override (gate input phải là
+# file tracked; đổi roster luôn lộ diff git).
+#
+# DEV repo = solo-mode (chủ repo tự duyệt). Đây là giá trị TRACKED của repo dev;
+# release pack.py (_scrub_team_yaml) reset về default an-toàn trong tarball.
+reviewers: ["user:namson.nguyen102@gmail.com", "user:uspro"]  # role check đọc ở gate pr/ship/deploy
+allow_self_review: true      # solo-mode: chủ repo tự review (lộ diff git là chủ đích)
+claims:
+  lease_s: 14400             # 4h ; copy vào claim lúc tạo, không đọc live

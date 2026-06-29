@@ -1,0 +1,16 @@
+name: test_logic
+purpose: Find invariants, impossible states, boundary cases, and state-transition
+  bugs.
+allowed_tools:
+- fs_read
+- code_index
+- lint_compile
+- ruff_check
+- pytest_run
+forbidden_tools:
+- fs_write
+- fs_str_replace
+output_schema:
+  lens: test_logic
+  invariants: list
+  suspected_bugs: list

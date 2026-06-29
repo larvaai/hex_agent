@@ -1,0 +1,13 @@
+name: knowledge_curator
+purpose: Decide what is worth ingesting into durable knowledge and avoid noisy or
+  stale notes.
+allowed_tools:
+- fs_read
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: knowledge_curator
+  keep: list
+  discard: list

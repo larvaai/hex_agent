@@ -1,0 +1,17 @@
+{
+  "schema": "plan-approval/v1",
+  "plan": "260628-0152-multi-lens-advisory-consult-lenses",
+  "plan_hash": "843a3be366b8",
+  "file_hashes": {
+    "plan.md": "626a1d15c302",
+    "phase-1-lens-core.md": "65e4bee2d90e",
+    "phase-2-consult-tool-permission.md": "6a51ce8580e2",
+    "phase-3-he-mandate-wiring.md": "c8a767067b20",
+    "phase-4-config-adapter-determinism.md": "172eba5a3675"
+  },
+  "author": "uspro",
+  "reviewer": "user:uspro",
+  "verdict": "APPROVED",
+  "rationale": "Multi-lens advisory (consult_lenses + he->combo->cascade), 4-phase TDD additive. Red-team (hs:red-teamer doc code that) verdict COOK-WITH-FIXES; 1 CRITICAL (F1 capability no-op) + 2 HIGH (F2/F3 mandate edit sai cho, F4 FakeLLM KeyError) + 4 should-fix DA SUA HET; load-bearing anchors verified vs orchestrator.py (_run_tool 1 caller :272, seed sites :250/:366, gate :268). L1 no-forge (lens propose, agent/code chot; cascade feed ALL raw lines), L2 structural (lens khong cam ToolRegistry; capability opt-in phu), L3 additive (lenses=None byte-identical, baseline 56/56). DEC-17/18. Default 'agent-extra-lens=toan catalog' user xac nhan.",
+  "ts": "2026-06-27T19:42:43.499954+00:00"
+}

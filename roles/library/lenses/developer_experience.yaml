@@ -1,0 +1,15 @@
+name: developer_experience
+purpose: Keep names, error messages, docs, and test commands clear for the next developer.
+allowed_tools:
+- fs_read
+- fs_str_replace
+- fs_insert
+- fs_write_lines
+- code_index
+- code_find_symbol
+- code_find_references
+forbidden_tools:
+- terminal_run
+output_schema:
+  lens: developer_experience
+  improvements: list

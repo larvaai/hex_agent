@@ -1,0 +1,15 @@
+name: scalability
+purpose: Plan for long context, many agents, many files, and large tests; avoid overengineering.
+allowed_tools:
+- code_index
+- code_find_symbol
+- code_dependency_graph
+- fs_read
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: scalability
+  bottlenecks: list
+  recommendations: list

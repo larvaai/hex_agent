@@ -1,0 +1,13 @@
+name: handoff_readiness
+purpose: 'Check whether the planner can use the output: stories, pass/fail AC, risks,
+  dependencies.'
+allowed_tools:
+- fs_read
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: handoff_readiness
+  ready: string
+  gaps: list

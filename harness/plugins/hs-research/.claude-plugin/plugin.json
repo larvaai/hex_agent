@@ -1,0 +1,5 @@
+{
+  "name": "hs-research",
+  "description": "SDLC harness — điều tra / khám phá / quét (hs-research:research / autoresearch / discover / repomix / techstack / security-scan). Sibling của plugin hs (spine).",
+  "version": "2.0.0"
+}

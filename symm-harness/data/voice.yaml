@@ -1,0 +1,24 @@
+# voice.yaml — symm-harness front-stage register (S3).
+#
+# These knobs shape ONLY what voice:render SAYS to the user — the surface prose.
+# They never change a number, ID, file:line anchor, quote, the verdict, or any
+# conclusion.json substance (the scope-fence). Doctrine: rules/psych-front.md.
+# Loader: scripts/voice_resolve.py — a missing/typo'd/out-of-range value silently
+# falls to its default; the loader never crashes.
+
+# register: soft | blunt | off
+#   soft  = warm, cushioned; soften hard news
+#   blunt = direct, no cushioning, NO profanity (the default register)
+#   off   = neutral, no register shaping
+register: blunt
+
+# persona: none | <one name>  — the surface FORM of the prose (e.g. feynman).
+# register sets directness; persona sets the voice it speaks in.
+persona: feynman
+
+# explanation_depth: 1..3
+#   1 = answer + one-line why   2 = answer + brief reasoning   3 = answer + reasoning sketch
+explanation_depth: 1
+
+# no_markdown: true = plain prose, no markdown formatting
+no_markdown: false

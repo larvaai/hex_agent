@@ -58,6 +58,56 @@ def test_budget_parse_does_not_consume_steps():
     assert b.steps == 0
 
 
+def test_normalize_flattened_tool_args():
+    """The exact shape the live local model emitted: params at the top level, args empty.
+    Without normalization fs_write received {} and wrote to the workspace dir."""
+    a = parse_action('{"action":"tool","tool":"fs_write","path":"text_stats.py","content":"x=1"}')
+    assert a["action"] == "tool" and a["tool"] == "fs_write"
+    assert a["args"] == {"path": "text_stats.py", "content": "x=1"}
+    assert "path" not in a and "content" not in a  # leftovers moved under args
+
+
+def test_normalize_action_name_as_action():
+    """Tool name used as the 'action' value, params flattened."""
+    a = parse_action('{"action":"fs_read","path":"notes.md"}')
+    assert a["action"] == "tool" and a["tool"] == "fs_read"
+    assert a["args"] == {"path": "notes.md"}
+
+
+def test_normalize_args_double_encoded_string():
+    a = parse_action('{"action":"tool","tool":"fs_list","args":"{\\"path\\":\\".\\"}"}')
+    assert a["args"] == {"path": "."}
+
+
+def test_normalize_leaves_canonical_and_final_untouched():
+    canonical = parse_action('{"action":"tool","tool":"echo","args":{"msg":"hi"}}')
+    assert canonical == {"action": "tool", "tool": "echo", "args": {"msg": "hi"}}
+    final = parse_action('{"action":"final","message":"done","finish_reason":"done"}')
+    assert final["action"] == "final" and "args" not in final
+
+
+def test_budget_resets_consecutive_parse_errors_on_progress():
+    """The gate trips on the CONSECUTIVE streak, not the lifetime total. A fumble the model
+    recovers from must not count against a later, unrelated fumble."""
+    b = Budget(max_parse_errors=2)
+    b.record_parse_error()
+    assert b.consecutive_parse_errors == 1 and b.parse_exceeded() is False
+    b.record_step()  # progress clears the streak
+    assert b.consecutive_parse_errors == 0
+    b.record_parse_error()  # an isolated later fumble — lifetime total is now 2…
+    assert b.parse_errors == 2 and b.parse_exceeded() is False  # …but not 2 in a row
+    b.record_parse_error()  # now two in a row
+    assert b.parse_exceeded() is True
+
+
+def test_budget_record_parse_success_clears_streak():
+    """The supervisor loop recovers without consuming a step, so it clears the streak explicitly."""
+    b = Budget(max_parse_errors=2)
+    b.record_parse_error()
+    b.record_parse_success()
+    assert b.consecutive_parse_errors == 0 and b.parse_errors == 1
+
+
 def test_budget_same_tool():
     b = Budget(max_same_tool_calls=2)
     key = Budget.tool_key("echo", {"a": 1})

@@ -1,0 +1,12 @@
+name: fact_check
+purpose: Compare claims across sources, find conflicts, and avoid weak-evidence conclusions.
+allowed_tools:
+- fs_read
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: fact_check
+  verified: list
+  conflicts: list

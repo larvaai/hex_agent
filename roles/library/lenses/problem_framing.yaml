@@ -1,0 +1,14 @@
+name: problem_framing
+purpose: Turn a vague request into a clear problem statement, goal, value, and success
+  signal.
+allowed_tools:
+- fs_read
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: problem_framing
+  problem: string
+  goal: string
+  success_signal: string

@@ -1,0 +1,5 @@
+{
+  "name": "hs-viz",
+  "description": "SDLC harness — skill trực quan hoá (hs-viz:excalidraw / mermaidjs / graphify / tech-graph / preview): sơ đồ, knowledge graph, preview hình ảnh. Sibling của plugin hs.",
+  "version": "1.0.0"
+}

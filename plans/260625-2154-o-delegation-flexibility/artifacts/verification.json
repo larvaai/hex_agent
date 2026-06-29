@@ -1,0 +1,79 @@
+{
+  "stage": "ship",
+  "plan": "260625-2154-o-delegation-flexibility",
+  "actor": "user:uspro",
+  "ts": "2026-06-25T19:30:20.815647+00:00",
+  "verdict": "PASS",
+  "checks": [
+    {
+      "name": "phase-01-tests",
+      "status": "PASS",
+      "detail": "tests/test_supervisor_contracts_commands.py \u2014 9 passed (commands/target_kind/state round-trip/old-checkpoint decode)"
+    },
+    {
+      "name": "phase-01-regression",
+      "status": "PASS",
+      "detail": "tests/test_supervisor_*.py tests/test_roles.py tests_audit/test_supervisor_*.py \u2014 67 passed; new fields default-empty, no regression"
+    },
+    {
+      "name": "phase-02-tests",
+      "status": "PASS",
+      "detail": "tests/test_supervisor_command_bridge.py \u2014 13 passed (to_runtime_command stable key, enqueue dedup-by-key, apply idempotent/catalog-bound/trust-O/skip-unsupported)"
+    },
+    {
+      "name": "phase-02-regression",
+      "status": "PASS",
+      "detail": "supervisor+roles+audit suites \u2014 80 passed; command_bridge not wired, no loop behavior change"
+    },
+    {
+      "name": "phase-03-tests",
+      "status": "PASS",
+      "detail": "tests/test_supervisor_department_expand.py \u2014 8 passed (members_of/departments group-by, expand member-selected/to_admit, agent pass-through, empty-dept soft reject, scope-no-widen)"
+    },
+    {
+      "name": "phase-03-regression",
+      "status": "PASS",
+      "detail": "supervisor+roles+audit suites \u2014 88 passed; helper pure, not wired"
+    },
+    {
+      "name": "phase-04-tests",
+      "status": "PASS",
+      "detail": "tests/test_supervisor_roster_growth.py \u2014 7 passed (AddAgentToLoop grows roster+runs, reject outside catalog, dept member-selected runs, admit-only round=progress no false BLOCK, admit-different-members no repeat-BLOCK, slim state-view, role_catalog department)"
+    },
+    {
+      "name": "phase-04-regression",
+      "status": "PASS",
+      "detail": "FULL tests/ suite \u2014 232 passed; run_smoke.py CORE_AGENT_SMOKE_OK; _state_view(ctx)/run_round expansion wired with single-atomic-save ordering, no other regression"
+    },
+    {
+      "name": "audit-known-windows-path",
+      "status": "SKIP",
+      "detail": "tests_audit/test_security_boundaries.py 2 params (..\\escape, C:/Windows) fail on macOS \u2014 pre-existing Windows-path artifact, NOT from this plan (documented in phase-05 risks); all other audit tests pass"
+    },
+    {
+      "name": "phase-05-adversarial",
+      "status": "PASS",
+      "detail": "tests_audit/test_supervisor_roster_growth_adversarial.py \u2014 9 passed (resume no-double-apply, atomic checkpoint FM6, idempotency-under-repeat, unknown role/dept surfaced, scope-no-widen + ceiling enforced via rejected-result, authority gate raises, trust-O human boundary)"
+    },
+    {
+      "name": "dod-full-suite",
+      "status": "PASS",
+      "detail": "tests/ + tests_audit/ \u2014 440 passed, 1 skipped, 2 FAILED = pre-existing Windows-path artifacts in test_security_boundaries.py (safety/ untouched, documented in plan); run_smoke.py CORE_AGENT_SMOKE_OK"
+    },
+    {
+      "name": "ac6-no-change-invariant",
+      "status": "PASS",
+      "detail": "git diff empty for delegation/, control/commands.py, control/command_registry.py, config/runtime_command_types.yaml \u2014 seam/control/config unchanged"
+    },
+    {
+      "name": "post-commit-reverify",
+      "status": "PASS",
+      "detail": "re-ran DoD targeted suite (104 passed) + run_smoke.py CORE_AGENT_SMOKE_OK at HEAD e0d850e (feat/o-delegation-flexibility) \u2014 artifact matches the committed diff"
+    },
+    {
+      "name": "review-fix-I1-reverify",
+      "status": "PASS",
+      "detail": "hs:code-review found Important [I1] (duplicate delegation via stale done_this_round); fixed at feat/o-delegation-flexibility commit ff9121e (live done_this_round) + regression test test_department_member_delegated_at_most_once_per_round. Evidence: DoD suite 105 passed + smoke OK on the feature branch, independently RE-CONFIRMED by hs:independent-revalidator against ff9121e blobs (105 passed). NOTE: working tree was concurrently switched to feat/docs-diataxis-restructure@593a931 by another session; feature lives only on ff9121e."
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "schema": "plan-approval/v1",
+  "plan": "260625-2123-docs-diataxis-restructure",
+  "plan_hash": "2463e48e56a3",
+  "file_hashes": {
+    "plan.md": "0e6940b08c5b",
+    "phase-1-taxonomy-moves.md": "ddeeca78f44e",
+    "phase-2-spec-roadmap.md": "60de5faa4102",
+    "phase-3-prune-dedup.md": "011823eec6c3",
+    "phase-4-index-root-sync.md": "b6bdfb3f5b14",
+    "phase-5-verify-gate.md": "b8f86556ea19"
+  },
+  "author": "user:namson.nguyen102@gmail.com",
+  "reviewer": "user:namson.nguyen102@gmail.com",
+  "verdict": "APPROVED",
+  "rationale": "Approved qua Plannotator annotate (status: approved). Reorg docs/ Diátaxis-hybrid + roadmap sống (5 living note + Thaw Protocol + THRESHOLDS); standards giữ root DEC-3; E15 gộp E21 DEC-4; routing-cluster boundary DEC-5. Rủi ro thấp (file move git-tracked), gate phase-5 smoke+pytest+link audit.",
+  "ts": "2026-06-25T17:33:10.241930+00:00"
+}

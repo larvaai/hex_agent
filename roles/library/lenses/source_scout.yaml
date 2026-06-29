@@ -1,0 +1,13 @@
+name: source_scout
+purpose: Find candidate sources, search queries, official docs, papers, issues, and
+  repos.
+allowed_tools:
+- fs_read
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: source_scout
+  sources: list
+  queries: list

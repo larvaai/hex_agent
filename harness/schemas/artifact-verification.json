@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "artifact-verification",
+  "description": "Machine-written proof that the verification step ran for a stage. Presence gate input: proves the step ran, not who ran it — actor is attribution, never authorization. Written to plans/<active-plan>/artifacts/verification.json.",
+  "type": "object",
+  "required": ["stage", "plan", "actor", "ts", "checks", "verdict"],
+  "properties": {
+    "stage": {
+      "type": "string",
+      "description": "Stage this verification covers (push|pr|merge|ship|deploy); descriptive only, not enum-validated"
+    },
+    "plan": {
+      "type": "string",
+      "description": "Plan dir name this verification belongs to"
+    },
+    "actor": {
+      "type": "string",
+      "description": "resolve_actor() output: user:<u>[/agent:<a>] | ci"
+    },
+    "ts": {
+      "type": "string",
+      "description": "ISO-8601 timestamp"
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "status"],
+        "properties": {
+          "name": {"type": "string"},
+          "status": {"enum": ["PASS", "FAIL", "SKIP"]},
+          "detail": {"type": "string"}
+        }
+      },
+      "description": "Named checks; any FAIL blocks hard stages"
+    },
+    "verdict": {
+      "enum": ["PASS", "PASS_WITH_RISK", "BLOCKED"],
+      "description": "Overall verdict of the verification run"
+    },
+    "ticket_id": {
+      "type": "string",
+      "description": "Seam for the task-store issue/MR link; optional"
+    }
+  }
+}

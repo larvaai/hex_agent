@@ -1,0 +1,14 @@
+name: scope_diff
+purpose: Compare changed files against the requested scope and flag unrelated edits.
+allowed_tools:
+- fs_read
+- code_index
+- code_find_references
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: scope_diff
+  in_scope_changes: list
+  out_of_scope_changes: list

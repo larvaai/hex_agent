@@ -1,0 +1,5 @@
+{
+  "name": "hs-flow",
+  "description": "SDLC harness — điều phối / tự động hoá / chạy song song (hs-flow:loop / afk / autonomous-bell / team / worktree / compound / project-management / plans-kanban). Sibling của plugin hs (spine).",
+  "version": "2.0.0"
+}

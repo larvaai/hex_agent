@@ -49,3 +49,34 @@ def test_error_returns_structured_final():
     action = parse_action(adapter.call_llm([{"role": "user", "content": "hi"}], client=fake))
     assert action["action"] == "final"
     assert action["finish_reason"] == "error"
+
+
+class _DeadClient:
+    """A client whose endpoint is unreachable — mimics openai.APIConnectionError (no HTTP status,
+    type name carries 'connection', wraps a refused-socket cause)."""
+
+    def __init__(self) -> None:
+        class APIConnectionError(Exception):
+            pass
+
+        class _Completions:
+            def create(self, **kwargs):
+                exc = APIConnectionError("Connection error.")
+                exc.__cause__ = OSError("[Errno 61] Connection refused")
+                raise exc
+
+        self.chat = type("C", (), {"completions": _Completions()})()
+
+
+def test_connection_failure_message_is_actionable(monkeypatch):
+    """An unreachable endpoint (server down / wrong port — the #1 local-LLM failure) must produce an
+    ACTIONABLE error: name the endpoint it tried + hint the server may be down + surface the cause,
+    not an opaque 'Connection error.' the user cannot debug."""
+    monkeypatch.setenv("LLM_BASE_URL", "http://localhost:1234/v1")
+    monkeypatch.setattr(adapter, "_sleep", lambda *_a, **_k: None)  # no backoff in the test
+    action = parse_action(adapter.call_llm([{"role": "user", "content": "hi"}], client=_DeadClient()))
+    assert action["finish_reason"] == "error"
+    msg = action["message"].lower()
+    assert "http://localhost:1234/v1" in action["message"]  # names the endpoint it dialled
+    assert "is the server running" in msg  # actionable hint
+    assert "refused" in msg  # surfaces the underlying cause

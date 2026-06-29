@@ -1,0 +1,40 @@
+{
+  "direction": "higher",
+  "noise": "low",
+  "rel_band": 0.05,
+  "candidates": [
+    {
+      "candidate": "zerodep",
+      "trials": [
+        1.0
+      ],
+      "rep": 1.0,
+      "spread": 0.0,
+      "n": 1
+    },
+    {
+      "candidate": "langgraph",
+      "trials": [
+        0.0
+      ],
+      "rep": 0.0,
+      "spread": 0.0,
+      "n": 1
+    }
+  ],
+  "ranking": [
+    "zerodep",
+    "langgraph"
+  ],
+  "observed_spread_floor": 0.0,
+  "band": 0.05,
+  "gap": 1.0,
+  "verdict": "winner",
+  "winner": "zerodep",
+  "rationale": "gap 1 > band 0.05 -> zerodep wins",
+  "schema": "artifact-bakeoff-verdict",
+  "run": "substrate-bakeoff-zl-real",
+  "actor": "user:uspro",
+  "ts": "2026-06-27T04:46:30.096842+00:00",
+  "over_budget": []
+}

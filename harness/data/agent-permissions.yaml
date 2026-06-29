@@ -1,0 +1,65 @@
+# agent-permissions.yaml — per-agent_type write-lane table for agent_rbac_guard.
+#
+# The gate reads `agent_type` (the subagent's frontmatter name) from the PreToolUse
+# payload and refuses a Write/Edit/MultiEdit whose target falls outside the role's
+# declared globs. The top-level agent (role `_parent`) is unrestricted UNLESS an
+# explicit `_parent` entry appears below.
+#
+# SHIPS INERT: with no roles declared the gate is a NO-OP (additive-skip) — a fresh
+# install never blocks. Declare roles below to activate. Globs are fnmatch,
+# repo-relative; `*` spans `/`, so `plans/**` matches anything under plans/.
+#
+# KEYS ARE BARE agent names (the agent frontmatter `name:`, e.g. `developer`). The
+# runtime `agent_type` is invocation-path-dependent: a plugin-qualified spawn arrives
+# `hs:developer`, a bare `/hs-flow:team` spawn arrives `developer`. The gate de-namespaces
+# (`hs:developer` → key `developer`) so both land in the same lane — so key by the
+# BARE name. An exact key (incl. an `hs:`-prefixed one) still wins if you add it.
+#
+# LANE GLOBS MUST BE MULTI-SEGMENT for containment. A slash-free glob (e.g. `*.md`)
+# matches by basename and therefore spans the WHOLE tree — it is NOT a directory
+# lane. Every lane below is multi-segment (`harness/**`, `plans/**`, `docs/**`).
+#
+# TRUST: `agent_type` is a platform-set ATTRIBUTION label, not a credential — this
+# disciplines a cooperative fleet on a TRUSTED host; it is NOT insider-proof and
+# does not judge intent. It sees tool Writes, not Bash-spelled writes. Hostile
+# multi-tenant authz stays on the separate server-issued-token path.
+#
+# `default_deny: true` => a role not listed here may write nothing (deny-by-default).
+# A present-but-MALFORMED table fails closed (the gate blocks loudly), softened to a
+# warn under the lenient guard policy (registered _ENFORCE).
+#
+# Example (uncomment + tune to activate):
+# default_deny: true
+# roles:
+#   _parent: ["**"]                          # top-level agent: unrestricted
+#   general-purpose: ["plans/**", "docs/**"]
+#   cook: ["harness/**", "plans/**", "tests/**"]
+#   code-review: []                          # read-only role: no write lane
+#   scout: []
+
+# ACTIVE table (ratified). default_deny:true → an agent_type not listed below may
+# write nothing. Read-only agents (Explore/Plan/claude-code-guide carry no Write
+# tool) never reach this gate, so deny-by-default does not affect them. The lanes:
+# builders write under harness/**, advisory/review agents write only under plans/**,
+# the top-level agent (_parent) is unrestricted. Keyed by BARE agent name (the gate
+# de-namespaces an hs:-prefixed runtime role onto these keys).
+default_deny: true
+roles:
+  _parent: ["**"]                          # top-level agent: unrestricted
+  developer: ["harness/**"]                # builder: product code + tests
+  code-simplifier: ["harness/**"]
+  debugger: ["harness/**", "plans/**"]
+  tester: ["harness/tests/**"]             # tests only
+  docs-manager: ["docs/**", "plans/**"]
+  planner: ["plans/**"]
+  researcher: ["plans/**"]
+  project-manager: ["plans/**"]
+  journal-writer: ["plans/**", "docs/**"]
+  code-reviewer: ["plans/**"]              # review artifacts under plans/ only
+  red-teamer: ["plans/**"]
+  independent-revalidator: ["plans/**"]
+  critique-consolidator: ["plans/**"]
+  brainstormer: ["plans/**"]
+  git-manager: []                          # git ops only — no file writes
+  general-purpose: ["harness/**", "plans/**"]
+  claude: ["harness/**", "plans/**"]

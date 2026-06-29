@@ -1,0 +1,66 @@
+{
+  "stage": "cook",
+  "mode": "afk-native-host",
+  "plan": "260626-1528-decompose-agent-recursion-slice",
+  "phase": "phase-3-leaf-attempt-loop",
+  "actor": "user:uspro/agent:claude-opus-4-8",
+  "ts": "2026-06-26T09:54:59Z",
+  "tdd": {
+    "red": "python -m pytest decompose_agent/tests/test_worker.py test_solve_leaf.py -q → ImportError (cannot import 'worker') before implementation.",
+    "green": "18 new unit tests green. Full unit suite: 122 passed, 1 deselected in 0.20s. With integration: 123 passed in 3.28s."
+  },
+  "checks": [
+    {
+      "name": "four_cell_no_graph_leak",
+      "status": "PASS",
+      "detail": "assemble_4cell → FourCell(identity, breadcrumb root→node, node cell with done_when checks+artifacts, journal tail of THIS node). Sibling ids absent from render(); journal tail is per-node (other node's marker absent)."
+    },
+    {
+      "name": "scripted_worker_spine",
+      "status": "PASS",
+      "detail": "ScriptedWorker returns scripted dict actions; raw strings parse through the repair ladder (fenced recovered; garbage → JsonGateError, exercising the fumble path). decompose() raises NotImplementedError (phase 4)."
+    },
+    {
+      "name": "local_llm_text_mode_F6",
+      "status": "PASS",
+      "detail": "LocalLLMWorker (self-contained, NO import of llm.adapter — isolation kept). Fake-client test asserts create() kwargs carry NO response_format (DEC-D3/F6: LM Studio 400s on json_object). Dirty output repaired via parse_object+normalize_action."
+    },
+    {
+      "name": "F7_write_jailed_to_active_node",
+      "status": "PASS",
+      "detail": "write_artifact resolves under var/decompose/<root>/artifacts/<node_id>/; an escape into a sibling's dir raises UnsafeArtifactPath and writes nothing — a worker cannot pre-satisfy another node's gate."
+    },
+    {
+      "name": "solve_leaf_lifecycle",
+      "status": "PASS",
+      "detail": "activate stamps activated_at (→ fresh artifacts) → propose → run → Gate-1 → DONE | retry-K | BLOCKED. dwc==1 fail → K_leaf=5 attempts → BLOCKED(UNSOLVABLE_LEAF) (budget.steps==5). Parent closes via all_children_done only when its child is done."
+    },
+    {
+      "name": "budget_rules",
+      "status": "PASS",
+      "detail": "Parse fumble: ParseBudget streak++, NO step charged (budget.steps==1 after one good attempt), recovers. D10: max_steps=1 → BLOCKED(BUDGET) mid-leaf before K exhausted."
+    },
+    {
+      "name": "journal",
+      "status": "PASS",
+      "detail": "Append-only JSONL per node; every attempt records {node, action, verdict}; reader skips a torn final line (crash mid-write) without raising."
+    },
+    {
+      "name": "dfs_cursor_demo",
+      "status": "PASS",
+      "detail": "python -m decompose_agent decompose_agent/tests/fixtures/rag_tree.yaml --root ai.rag → all 5 nodes done, exit 0 (ScriptedWorker satisfy=tree synthesizes passing artifacts; cursor walks leftmost-pending-deps-done; ai.rag closes via all_children_done)."
+    },
+    {
+      "name": "real_35b_integration",
+      "status": "PASS",
+      "detail": "test_integration_llm: real local-35B at LLM_BASE_URL solved a trivial leaf (json_field_equals /ok==true on out.json) → done in 3.34s. Skip-if-unreachable; LM Studio was live this run."
+    }
+  ],
+  "verdict": "PASS",
+  "notes": [
+    "Action vocabulary is a single write_artifacts tool-call (YAGNI — no tool registry); the runner forces the target into the active node's dir (F7).",
+    "A dwc>1 leaf that exhausts K is parked as BLOCKED(NEEDS_DECOMPOSE) — phase 4 replaces that branch with the real decompose() recursion.",
+    "conftest.py registers the `integration` marker; default gate runs with -m 'not integration'.",
+    "Freshness relies on file mtime >= activated_at (APFS nanosecond mtime); single-machine assumption per plan Open risks."
+  ]
+}

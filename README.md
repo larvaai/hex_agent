@@ -1,13 +1,14 @@
 # core_agent
 
-Clean rebuild of the agent system. **Sprint 0** implements the foundation (P0):
+Clean rebuild of a hexagonal (microkernel) multi-agent system, một epic mỗi đợt. Trạng thái hiện tại:
 
-- **E01 Kernel** — `core/`: hexagonal kernel, capability registry (+ null fallback), `CapabilityResult` envelope, feature plugins from `config/features.yaml`.
-- **E02 Output Discipline** — `discipline/`: JSON parse + repair, condense, finish-gate, budgets (shared module).
-- **E03 LLM Adapter** — `llm/`: OpenAI-compatible, JSON-mode, **lazy-init**, injectable client.
-- **E04 Observability** — `observability/`: event log (JSONL) + summary + inspect CLI.
+- **Nền tảng (P0) — done**: E01 Kernel (`core/`), E02 Output Discipline (`discipline/`), E03 LLM Adapter (`llm/`), E04 Observability (`observability/`).
+- **Single-agent + tools (P1–P2) — done**: E05 Graph (`graph/`), E06 Safety/Toolbox (`safety/`, `toolbox/`, `middleware/`), E07 Skills (`skills/`), E08 RAG (`rag/`, Qdrant + memory offline).
+- **Multi-agent (P3) — done**: E09 Roles (`roles/`), E10 Delegation + TaskLoop (`supervisor/`, `delegation/`, `adapters/`).
+- **Realtime control (P4, cross) — active**: E21 Realtime Control Plane (`control/`) — Phase A (contracts) + Phase B B1 (EventEmitter) shipped; transport / Control-Tower UI / reliability pending.
+- **Cross**: E19 Test Harness (`tests/`, `tests_audit/`).
 
-Spec: see `docs/rebuild_from_zero/` (E01–E04 PRD/stories/acceptance) and `docs/rebuild_from_zero/NEW_REPO_BUILD_GUIDE.md`.
+Tài liệu: bắt đầu ở **[docs/README.md](docs/README.md)** (bản đồ) + [docs/getting-started.md](docs/getting-started.md). Spec epic ở [docs/spec/](docs/spec/); roadmap tương lai ở [docs/roadmap/](docs/roadmap/).
 
 ## Requirements
 Python 3.11+.
@@ -54,6 +55,8 @@ One compiled LangGraph substrate; `AgentKernel` is shared/frozen while `KernelSe
 
 ## Design docs
 
-- [Runtime flow — how a task runs input → output (current reality)](docs/RUNTIME_FLOW.md)
-- [Known risks — dangerous files & behavioral footguns (read before editing)](docs/KNOWN_RISKS.md)
-- [MCP tool architecture, scaling and safety](docs/MCP_TOOLS.md) — *proposal, not yet implemented*
+- [docs/README.md](docs/README.md) — bản đồ toàn bộ tài liệu (4 trục Diátaxis + spec + roadmap).
+- [Runtime flow — how a task runs input → output (current reality)](docs/reference/runtime-flow.md)
+- [Known risks — dangerous files & behavioral footguns (read before editing)](docs/reference/known-risks.md)
+- [MCP tool architecture, scaling and safety](docs/reference/mcp-tools.md) — *proposal, not yet implemented*
+- [System architecture](docs/system-architecture.md) · [Code standards](docs/code-standards.md) · [Decision register](docs/decisions.md)

@@ -1,0 +1,92 @@
+{
+  "name": "hs-local",
+  "owner": {
+    "name": "SDLC Harness"
+  },
+  "plugins": [
+    {
+      "name": "hs",
+      "source": "./hs",
+      "description": "SDLC harness skills: hs:plan / hs:cook / hs:test / hs-flow:afk.",
+      "version": "1.1.0"
+    },
+    {
+      "name": "hs-viz",
+      "source": "./hs-viz",
+      "description": "SDLC harness visualization skills: hs-viz:excalidraw / mermaidjs / graphify / tech-graph / preview.",
+      "version": "1.0.0"
+    },
+    {
+      "name": "hs-uiux",
+      "source": "./hs-uiux",
+      "description": "SDLC harness UI/UX skills: hs-uiux:web-design-guidelines / design / frontend-design / ui-ux-pro-max / ui-styling / show-off + agent ui-ux-designer.",
+      "version": "1.0.0"
+    },
+    {
+      "name": "hs-devops",
+      "source": "./hs-devops",
+      "description": "SDLC harness DevOps skills: hs-devops:deploy / devops / web-testing / agent-browser / chrome-profile.",
+      "version": "1.0.0"
+    },
+    {
+      "name": "hs-ai",
+      "source": "./hs-ai",
+      "description": "SDLC harness AI/media skills: hs-ai:ai-multimodal / ai-artist / stitch / shader / threejs / html-video / remotion / media-processing.",
+      "version": "1.0.0"
+    },
+    {
+      "name": "hs-stack",
+      "source": "./hs-stack",
+      "description": "SDLC harness full-stack skills: hs-stack:backend-development / frontend-development / mobile-development / databases / react-best-practices / web-frameworks / tanstack / better-auth.",
+      "version": "1.0.0"
+    },
+    {
+      "name": "hs-integrations",
+      "source": "./hs-integrations",
+      "description": "SDLC harness third-party integration skills: hs-integrations:payment-integration / shopify / google-adk-python / use-mcp / gkg.",
+      "version": "1.0.0"
+    },
+    {
+      "name": "hs-extra",
+      "source": "./hs-extra",
+      "description": "SDLC harness misc/content/PM skills: hs-extra:ask / llms / watzup / copywriting / ghpm / mintlify / markdown-novel-viewer / cti-expert.",
+      "version": "1.0.0"
+    },
+    {
+      "name": "hs-flow",
+      "source": "./hs-flow",
+      "description": "SDLC harness workflow/orchestration skills: hs-flow:loop / afk / autonomous-bell / team / worktree / compound / project-management / plans-kanban.",
+      "version": "2.0.0"
+    },
+    {
+      "name": "hs-think",
+      "source": "./hs-think",
+      "description": "SDLC harness reasoning/decision skills: hs-think:brainstorm / predict / scenario / sequential-thinking / problem-solving / critique / bakeoff.",
+      "version": "2.0.0"
+    },
+    {
+      "name": "hs-research",
+      "source": "./hs-research",
+      "description": "SDLC harness investigation skills: hs-research:research / autoresearch / discover / repomix / techstack / security-scan.",
+      "version": "2.0.0"
+    },
+    {
+      "name": "hs-create",
+      "source": "./hs-create",
+      "description": "SDLC harness authoring skills: hs-create:skill-creator / harness-creator / mcp-builder / agentize / port / bootstrap.",
+      "version": "2.0.0"
+    },
+    {
+      "name": "hs-mem",
+      "source": "./hs-mem",
+      "description": "SDLC harness memory/docs skills: hs-mem:remember / insights / journal / retro / docs / docs-seeker / document-skills.",
+      "version": "2.0.0"
+    },
+    {
+      "name": "hs-meta",
+      "source": "./hs-meta",
+      "description": "SDLC harness self-management skills: hs-meta:find-skills / voice / context-engineering / project-organization.",
+      "version": "2.0.0"
+    }
+  ]
+}

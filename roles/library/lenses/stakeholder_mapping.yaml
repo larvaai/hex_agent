@@ -1,0 +1,12 @@
+name: stakeholder_mapping
+purpose: Identify requesters, users, approvers, operators, and external dependencies.
+allowed_tools:
+- fs_read
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: stakeholder_mapping
+  stakeholders: list
+  dependencies: list

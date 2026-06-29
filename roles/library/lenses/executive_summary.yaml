@@ -1,0 +1,13 @@
+name: executive_summary
+purpose: Summarize what happened, pass/fail status, key results, and remaining risk.
+allowed_tools:
+- fs_read
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: executive_summary
+  summary: string
+  status: string
+  remaining_risk: list

@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<!--
+  Chương 0 — Bản đồ "quốc gia" hex_agent.
+  TEMPLATE GỐC: file này định nghĩa design-system + "animation engine" mà Chương 1–3 copy lại.
+  Tự chứa hoàn toàn: chỉ có <style> + <script> inline. KHÔNG src/href ngoài, KHÔNG CDN.
+  Mở file://.../chapter-0-ban-do.html bằng browser là chạy — không build step.
+
+  Vì sao tự chứa? Tài liệu phải mở được offline, trên GitHub, không phụ thuộc mạng.
+  Cái giá phải trả: CSS lặp giữa 4 file. Đây là đánh đổi đã chốt trong plan (Decisions#1) —
+  về sau một "generator" sẽ tái sinh các file, không sửa tay từng cái.
+-->
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chương 0 · Bản đồ — hex_agent</title>
+<style>
+  /* ───────────────────────────────────────────────────────────────────────
+     DESIGN TOKENS — đặt màu/typo vào CSS variables để mọi chương dùng chung
+     một bảng màu. Muốn đổi tông cả trang? Sửa ở đây một chỗ.
+     ─────────────────────────────────────────────────────────────────────── */
+  :root {
+    --bg: #0f1419;          /* nền slate sâu — "bầu trời đêm" của bản đồ */
+    --panel: #161d29;       /* nền khối nội dung */
+    --panel-2: #1d2735;     /* nền khối nhấn nhẹ */
+    --ink: #e6edf3;         /* chữ chính */
+    --muted: #93a1b0;       /* chữ phụ / chú thích */
+    --line: #2b3645;        /* đường kẻ / viền */
+    --accent: #f5a623;      /* VÀNG = cánh cửa duy nhất (chokepoint 1) */
+    --accent-2: #4ea1ff;    /* XANH = delegation (chokepoint 2, đường riêng) */
+    --token: #6ee7a8;       /* XANH LÁ = "token" chạy qua luồng */
+    --ok: #3fb950;
+    --warn: #d29922;
+    --bad: #f85149;
+    --radius: 10px;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.65;
+    font-size: 16px;
+  }
+  main { max-width: 880px; margin: 0 auto; padding: 32px 20px 80px; }
+
+  /* ── Header: tên chương + 1 dòng "Nhu cầu" ── */
+  header.chapter { border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 28px; }
+  header.chapter .kicker { color: var(--accent); font-family: var(--mono); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+  header.chapter h1 { margin: 6px 0 10px; font-size: 28px; line-height: 1.2; }
+  header.chapter .need {
+    background: var(--panel); border-left: 3px solid var(--accent);
+    padding: 10px 14px; border-radius: 0 var(--radius) var(--radius) 0; color: var(--muted);
+  }
+  header.chapter .need b { color: var(--ink); }
+
+  section { margin: 30px 0; }
+  h2 { font-size: 20px; margin: 0 0 12px; }
+  h2 .num { color: var(--muted); font-family: var(--mono); font-size: 15px; margin-right: 8px; }
+  p { margin: 10px 0; }
+  code { font-family: var(--mono); background: var(--panel-2); padding: 1px 6px; border-radius: 5px; font-size: .9em; color: #ffd9a0; }
+  a { color: var(--accent-2); }
+
+  /* ── Hộp câu đố: hỏi trước, đáp án ẩn sau nút "Lật" ──
+     Vì sao? User học theo lối "câu đố trước, đáp án sau" — ép não đoán rồi mới
+     thấy đáp, nhớ lâu hơn là đọc thẳng kết luận. ── */
+  .puzzle { background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
+  .puzzle .q { font-size: 17px; }
+  .puzzle .q .tag { display: inline-block; font-family: var(--mono); font-size: 12px; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 10px; margin-bottom: 8px; }
+  .flip-btn { margin-top: 14px; background: var(--accent); color: #1a1206; border: none; font-weight: 700; font-family: var(--sans); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+  .flip-btn:hover { filter: brightness(1.08); }
+  .answer { margin-top: 14px; padding: 14px 16px; border-radius: 8px; background: rgba(63,185,80,.08); border: 1px solid rgba(63,185,80,.35); }
+  .answer[hidden] { display: none; }
+  .answer b { color: var(--token); }
+
+  /* ── Sân khấu (stage): SVG luồng + nút điều khiển ── */
+  .stage { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .stage svg { width: 100%; height: auto; display: block; }
+  .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .controls button { background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); padding: 7px 14px; border-radius: 8px; cursor: pointer; font-family: var(--sans); font-size: 14px; }
+  .controls button:hover { border-color: var(--accent); }
+  .controls button:disabled { opacity: .4; cursor: not-allowed; }
+  .caption { margin-top: 12px; min-height: 44px; background: var(--panel-2); border-radius: 8px; padding: 10px 14px; font-size: 14px; color: var(--muted); border-left: 3px solid var(--token); }
+  .caption b { color: var(--ink); }
+
+  /* Khối SVG: trạng thái mặc định mờ, khi "active" thì sáng lên */
+  .node rect { fill: var(--panel-2); stroke: var(--line); stroke-width: 1.5; transition: fill .25s, stroke .25s; }
+  .node text { fill: var(--muted); font-family: var(--mono); font-size: 13px; transition: fill .25s; }
+  .node.active rect { fill: #2a2417; stroke: var(--accent); stroke-width: 2.5; }
+  .node.active text { fill: var(--ink); }
+  .node.door rect { fill: #2a2417; stroke: var(--accent); stroke-width: 2.5; }   /* cánh cửa luôn nổi bật */
+  .node.door text { fill: var(--accent); font-weight: 700; }
+  .flow-arrow { stroke: var(--line); stroke-width: 2; fill: none; }
+  .flow-arrow.deleg { stroke: var(--accent-2); stroke-dasharray: 6 5; }            /* mũi tên delegation: nét đứt, màu khác */
+  .token-dot { fill: var(--token); filter: drop-shadow(0 0 6px var(--token)); transition: transform .6s cubic-bezier(.5,.05,.3,1); }
+
+  /* ── Layer stack: các lớp kiến trúc, bấm để highlight + xem vai trò ── */
+  .layers { display: grid; grid-template-columns: 1fr; gap: 6px; margin-top: 8px; }
+  .layer-btn { text-align: left; background: var(--panel); border: 1px solid var(--line); color: var(--muted); border-radius: 8px; padding: 8px 12px; cursor: pointer; font-family: var(--mono); font-size: 13px; display: flex; justify-content: space-between; gap: 10px; }
+  .layer-btn:hover { border-color: var(--accent-2); }
+  .layer-btn.on { border-color: var(--accent); background: #221c10; color: var(--ink); }
+  .layer-btn .epic { color: var(--accent-2); font-size: 11px; }
+  .layer-role { margin-top: 8px; min-height: 24px; font-size: 14px; color: var(--muted); padding-left: 4px; }
+  .layer-role b { color: var(--ink); }
+
+  /* ── Lộ trình 13 chương ── */
+  .roadmap { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .ch { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--panel); }
+  .ch.dim { opacity: .42; }
+  .ch .n { font-family: var(--mono); color: var(--accent); font-size: 12px; }
+  .ch.dim .n { color: var(--muted); }
+  .ch .t { font-size: 13px; margin-top: 2px; }
+  .ch .soon { font-size: 11px; color: var(--muted); }
+
+  /* ── Footer: bằng chứng file:line ── */
+  footer.evidence { margin-top: 50px; border-top: 1px solid var(--line); padding-top: 16px; font-size: 13px; color: var(--muted); }
+  footer.evidence h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink); margin: 0 0 8px; }
+  footer.evidence ul { margin: 0; padding-left: 18px; }
+  footer.evidence code { font-size: 12px; }
+  .reverify { margin-top: 10px; color: var(--warn); }
+  .nav { margin-top: 24px; display: flex; gap: 14px; font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+
+  <!-- ══ 1. HEADER: tên chương + Nhu cầu ══ -->
+  <header class="chapter">
+    <div class="kicker">Chương 0 · Bản đồ</div>
+    <h1>Cả quốc gia đứng trên một cánh cửa</h1>
+    <div class="need">
+      <b>Nhu cầu:</b> trước khi xây từng căn phòng, phải nhìn thấy toàn bộ toà nhà đứng trên cái gì —
+      và vì sao mọi thứ khác chỉ là plugin gắn quanh.
+    </div>
+  </header>
+
+  <!-- ══ 2. CÂU ĐỐ: hỏi trước, lật đáp án sau ══ -->
+  <section>
+    <h2><span class="num">§</span>Câu đố mở màn</h2>
+    <div class="puzzle">
+      <div class="q">
+        <span class="tag">đoán trước khi lật</span><br>
+        Một agent phải <b>gọi LLM</b>, <b>đọc file</b>, <b>chạy lệnh</b>, <b>giao việc cho agent con</b> —
+        4 việc rất khác nhau. Nếu bạn là kiến trúc sư, bạn cho chúng đi qua <b>mấy</b> cánh cửa?
+      </div>
+      <button class="flip-btn" id="flip">Lật đáp án ↓</button>
+      <div class="answer" id="answer" hidden>
+        <b>Một.</b> Đúng một cánh cửa: <code>AgentKernel.execute_tool</code> — gọi là
+        <b>chokepoint</b> (<code>docs/GLOSSARY.md:7</code>, <code>core/kernel.py:63</code>).
+        Vì sao chỉ một? Để <b>safety, observability, envelope và trace-ID không bị bypass</b>:
+        mọi hành động bắt buộc đi qua đây nên không có hành động nào "lọt" mà không bị soi
+        (<code>docs/system-architecture.md:34</code>).
+        <br><br>
+        Ngoại lệ duy nhất: <b>delegation</b> (giao việc cho agent con) đi <b>cửa riêng</b> —
+        chokepoint thứ hai, tách khỏi kernel (<code>docs/system-architecture.md:36</code>).
+        Lý do tách: nó là RPC có request/response, semantic khác hẳn execute-and-return.
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 3. SÂN KHẤU: token chạy qua cánh cửa ══ -->
+  <section>
+    <h2><span class="num">▶</span>Sân khấu — một tool call đi qua cửa</h2>
+    <div class="stage">
+      <svg viewBox="0 0 760 300" role="img" aria-label="Luồng một tool call đi qua chokepoint execute_tool">
+        <!-- mũi tên: định nghĩa đầu mũi tên dùng lại ở mọi <path> -->
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#7d8a99"></path>
+          </marker>
+          <marker id="arrow-deleg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#4ea1ff"></path>
+          </marker>
+        </defs>
+
+        <!-- luồng chính: caller → cửa → envelope -->
+        <path class="flow-arrow" d="M150,110 L300,110" marker-end="url(#arrow)"></path>
+        <path class="flow-arrow" d="M470,110 L610,110" marker-end="url(#arrow)"></path>
+        <!-- luồng delegation: caller → delegate (đường riêng, nét đứt xanh) -->
+        <path class="flow-arrow deleg" d="M95,150 L95,235 L300,235" marker-end="url(#arrow-deleg)"></path>
+
+        <!-- các khối (node) — id để JS bật/tắt "active" -->
+        <g class="node" id="n-caller"><rect x="30" y="85" width="120" height="50" rx="8"></rect><text x="90" y="115" text-anchor="middle">caller</text></g>
+        <g class="node door" id="n-door"><rect x="300" y="78" width="170" height="64" rx="10"></rect><text x="385" y="106" text-anchor="middle">execute_tool</text><text x="385" y="124" text-anchor="middle" style="font-size:11px">CỬA DUY NHẤT</text></g>
+        <g class="node" id="n-env"><rect x="610" y="85" width="120" height="50" rx="8"></rect><text x="670" y="115" text-anchor="middle">envelope</text></g>
+        <!-- chokepoint 2: delegation, tách riêng -->
+        <g class="node" id="n-deleg"><rect x="300" y="212" width="200" height="46" rx="8" style="stroke:#4ea1ff"></rect><text x="400" y="232" text-anchor="middle" style="fill:#9cc6ff">delegate (cửa riêng)</text><text x="400" y="248" text-anchor="middle" style="font-size:11px;fill:#6f86a3">chokepoint 2</text></g>
+
+        <!-- token: cái chấm chạy. Dùng transform translate để CSS transition mượt -->
+        <g class="token-dot-wrap" id="token" transform="translate(90,110)"><circle class="token-dot" r="9"></circle></g>
+      </svg>
+
+      <div class="controls">
+        <button id="play">▶ Play</button>
+        <button id="step">⏭ Step</button>
+        <button id="reset">⏮ Reset</button>
+      </div>
+      <div class="caption" id="caption"><b>Bấm ▶ Play</b> để xem "một tool call" đi từ caller, qua cửa, ra envelope.</div>
+    </div>
+  </section>
+
+  <!-- ══ 4. LAYER STACK: các lớp kiến trúc, bấm để xem vai trò ══ -->
+  <section>
+    <h2><span class="num">◈</span>Các lớp gắn quanh cửa (ngoài → trong)</h2>
+    <p>Mọi epic chỉ là một lớp <b>gắn quanh</b> cánh cửa, không phải sửa cửa. Bấm một lớp để xem vai trò
+       (theo <code>docs/system-architecture.md:60-72</code>).</p>
+    <div class="layers" id="layers"></div>
+    <div class="layer-role" id="layer-role">— bấm một lớp ở trên —</div>
+  </section>
+
+  <!-- ══ 5. LỘ TRÌNH 13 chương ══ -->
+  <section>
+    <h2><span class="num">⌖</span>Lộ trình — nhu cầu nào sinh ra chương nào</h2>
+    <div class="roadmap" id="roadmap"></div>
+  </section>
+
+  <!-- ══ 6. FOOTER: bằng chứng ══ -->
+  <footer class="evidence">
+    <h3>Bằng chứng (verify được)</h3>
+    <ul>
+      <li>chokepoint = <code>execute_tool</code>: <code>docs/GLOSSARY.md:7</code>, <code>core/kernel.py:63</code></li>
+      <li>vì sao một cửa (không bypass safety/observability): <code>docs/system-architecture.md:34</code></li>
+      <li>delegation = cửa riêng (chokepoint 2): <code>docs/system-architecture.md:36,123</code></li>
+      <li>bảng các lớp kiến trúc: <code>docs/system-architecture.md:60-72</code></li>
+    </ul>
+    <div class="reverify">⟳ Verify lại nếu sửa <code>core/kernel.py</code> hoặc <code>docs/system-architecture.md</code>.</div>
+    <div class="nav"><a href="README.md">← Mục lục</a><a href="chapter-1-kernel.html">Chương 1 — Kernel →</a></div>
+  </footer>
+
+</main>
+
+<script>
+  // ════════════════════════════════════════════════════════════════════════
+  // ENGINE TÁI DÙNG #1 — "Lật đáp án": toggle thuộc tính hidden.
+  // Đơn giản nhất có thể: 1 nút bật/tắt 1 khối. Không thư viện.
+  // ════════════════════════════════════════════════════════════════════════
+  const flipBtn = document.getElementById('flip');
+  const answer = document.getElementById('answer');
+  flipBtn.addEventListener('click', () => {
+    const showing = !answer.hasAttribute('hidden');
+    if (showing) { answer.setAttribute('hidden', ''); flipBtn.textContent = 'Lật đáp án ↓'; }
+    else { answer.removeAttribute('hidden'); flipBtn.textContent = 'Ẩn đáp án ↑'; }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  // ENGINE TÁI DÙNG #2 — "Sân khấu": cho một mảng STEPS khai báo,
+  // di chuyển token qua từng trạm + highlight khối + hiện caption.
+  // Chương 1–3 chỉ cần thay mảng STEPS, không sửa engine.
+  //   step = { node: id-khối-để-sáng, x, y: vị trí token, caption: lời giải }
+  // ════════════════════════════════════════════════════════════════════════
+  const STEPS = [
+    { node: 'n-caller', x: 90,  y: 110, caption: '<b>caller</b> muốn gọi một tool (đọc file, gọi LLM, chạy lệnh...).' },
+    { node: 'n-door',   x: 385, y: 110, caption: 'Mọi call đều phải qua <b>một cửa</b> — <code>execute_tool</code>. Không có đường tắt nên safety/observability/trace không bị bỏ qua.' },
+    { node: 'n-env',    x: 670, y: 110, caption: 'Cửa trả ra một <b>envelope</b> chuẩn hoá — kết quả của tool call nào cũng cùng một hình dạng.' },
+    { node: 'n-deleg',  x: 400, y: 235, caption: 'Riêng <b>giao việc cho agent con</b> đi <b>cửa khác</b> (chokepoint 2) — không phải method của kernel.' },
+  ];
+
+  const token = document.getElementById('token');
+  const caption = document.getElementById('caption');
+  const playBtn = document.getElementById('play');
+  const stepBtn = document.getElementById('step');
+  const resetBtn = document.getElementById('reset');
+  let idx = -1;            // trạm hiện tại (-1 = chưa bắt đầu)
+  let timer = null;        // handle setInterval khi đang Play
+
+  function clearActive() {
+    document.querySelectorAll('.node.active').forEach(n => n.classList.remove('active'));
+  }
+  function goto(i) {
+    idx = i;
+    const s = STEPS[i];
+    token.setAttribute('transform', `translate(${s.x},${s.y})`);  // token trượt tới trạm
+    clearActive();
+    const n = document.getElementById(s.node);   // trạm vừa tới sáng lên (cửa vốn đã luôn nổi bật)
+    if (n) n.classList.add('active');
+    caption.innerHTML = s.caption;
+  }
+  function stepForward() {
+    if (idx >= STEPS.length - 1) { stopPlay(); return; }
+    goto(idx + 1);
+  }
+  function stopPlay() {
+    if (timer) { clearInterval(timer); timer = null; }
+    playBtn.textContent = '▶ Play';
+  }
+  function reset() {
+    stopPlay(); idx = -1; clearActive();
+    token.setAttribute('transform', 'translate(90,110)');
+    caption.innerHTML = '<b>Bấm ▶ Play</b> để xem "một tool call" đi từ caller, qua cửa, ra envelope.';
+  }
+  playBtn.addEventListener('click', () => {
+    if (timer) { stopPlay(); return; }
+    if (idx >= STEPS.length - 1) reset();
+    playBtn.textContent = '⏸ Tạm dừng';
+    stepForward();
+    timer = setInterval(() => {
+      if (idx >= STEPS.length - 1) stopPlay();
+      else stepForward();
+    }, 1300);
+  });
+  stepBtn.addEventListener('click', () => { stopPlay(); stepForward(); });
+  resetBtn.addEventListener('click', reset);
+
+  // ════════════════════════════════════════════════════════════════════════
+  // DỮ LIỆU: các lớp kiến trúc (docs/system-architecture.md:60-72).
+  // Render trung thực bảng hiện tại — gồm cả Control plane (E21) thêm gần đây.
+  // ════════════════════════════════════════════════════════════════════════
+  const LAYERS = [
+    ['Entry & orchestration', 'orchestrator/', 'E05', 'Façade run()/resume() công khai; checkpoint SQLite; task loop.'],
+    ['Đơn-agent graph', 'graph/', 'E05', 'LangGraph state, nodes, topology; lệnh định tuyến.'],
+    ['Multi-agent task loop', 'supervisor/', 'E10', 'Agent-O round-based blackboard; delegation policy; judge.'],
+    ['Delegation (chokepoint 2)', 'delegation/', 'E10', 'Manager, policy validate, store, scope enforce.'],
+    ['Delegation adapters', 'adapters/', 'E10', 'Bản scripted và LangGraph của delegation.'],
+    ['Control plane', 'control/', 'E21', 'RuntimeEvent envelope, EventEmitter, redaction.'],
+    ['Observability', 'observability/', 'E04', 'EventLogger → JSONL/summary/metrics, inspect CLI.'],
+    ['Tools & safety', 'toolbox/ safety/ middleware/', 'E06', 'SafeToolPort, ToolPolicy, workspace jail, fs/terminal tools.'],
+    ['Discipline', 'discipline/', 'E02', 'JSON gate, finish gate, budget, condense.'],
+    ['LLM adapter', 'llm/', 'E03', 'OpenAI-compatible, JSON-mode, retry, lazy client.'],
+    ['Microkernel (chokepoint 1)', 'core/', 'E01', 'Registry, EventBus, session factory, middleware, freeze — cánh cửa nằm ở đây.'],
+  ];
+  const layersEl = document.getElementById('layers');
+  const layerRole = document.getElementById('layer-role');
+  LAYERS.forEach(([name, dir, epic, role]) => {
+    const b = document.createElement('button');
+    b.className = 'layer-btn';
+    b.innerHTML = `<span>${name} <span style="color:#6f86a3">· ${dir}</span></span><span class="epic">${epic}</span>`;
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.layer-btn.on').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+      layerRole.innerHTML = `<b>${name}</b> — ${role}`;
+    });
+    layersEl.appendChild(b);
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  // DỮ LIỆU: lộ trình 13 chương. Đợt này 0–3 sáng, 4–12 mờ ("sắp tới").
+  // ════════════════════════════════════════════════════════════════════════
+  const CHAPTERS = [
+    [0, 'Bản đồ', false], [1, 'Kernel + execute_tool', false], [2, 'Session + state', false], [3, 'Middleware onion', false],
+    [4, 'LLM là một capability', true], [5, 'Discipline (gate/budget)', true], [6, 'Observability', true], [7, 'Safety hai lớp', true],
+    [8, 'Task loop (graph)', true], [9, 'Delegation', true], [10, 'Multi-agent', true], [11, 'Control plane', true], [12, 'Resume / persistence', true],
+  ];
+  const roadmap = document.getElementById('roadmap');
+  CHAPTERS.forEach(([n, t, dim]) => {
+    const d = document.createElement('div');
+    d.className = 'ch' + (dim ? ' dim' : '');
+    d.innerHTML = `<div class="n">Chương ${n}</div><div class="t">${t}</div>` + (dim ? '<div class="soon">sắp tới</div>' : '');
+    roadmap.appendChild(d);
+  });
+</script>
+</body>
+</html>

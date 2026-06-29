@@ -1,0 +1,45 @@
+{
+  "stage": "cook",
+  "mode": "afk-native-host",
+  "plan": "260626-1528-decompose-agent-recursion-slice",
+  "phase": "phase-1-skeleton-loader",
+  "actor": "user:uspro/agent:claude-opus-4-8",
+  "ts": "2026-06-26T09:35:59Z",
+  "tdd": {
+    "red": "python -m pytest decompose_agent/tests -q → 4 collection errors (ModuleNotFoundError: decompose_agent.node/tree/json_repair/budget) before implementation.",
+    "green": "python -m pytest decompose_agent/tests → 76 passed in 0.12s, exit 0."
+  },
+  "checks": [
+    {
+      "name": "node_invariants",
+      "status": "PASS",
+      "detail": "node.py Node/DoneWhen frozen; __post_init__ rejects verdict keys {verdict,passed,status,score,done} on a criterion, non-triple shape, missing 'check', data-check missing 'artifact', unsafe artifact path (abs/../~), bad status, bad kind (reduce fenced). all_children_done allowed artifactless. test_node.py 14 green."
+    },
+    {
+      "name": "tree_loader_cursor",
+      "status": "PASS",
+      "detail": "tree.py load_tree validates referential integrity (parent + depends_on resolve), duplicate-id, parent-cycle and depends_on-cycle (Kahn). children derived from parent pointers (single source of truth). next_node = leftmost pending with deps done by (depth, order). test_tree.py 7 green; fixtures/rag_tree.yaml loads."
+    },
+    {
+      "name": "json_repair_ladder",
+      "status": "PASS",
+      "detail": "json_repair.py ported raw-wins ladder (lift json_gate.py:305-394). Recovers fenced/prose/Python-literals/unquoted-keys/single-quote-dict/truncation. normalize_action: flattened-params→args, tool-name-as-action, args-as-string. parse_children for decompose array. build_retry_message per call_type (propose object / decompose array skeleton). Totality: fuzz over arbitrary bytes never raises. test_json_repair.py 32 green."
+    },
+    {
+      "name": "budgets_independent",
+      "status": "PASS",
+      "detail": "budget.py RootBudget (step, strict-> trip), ParseBudget (consecutive streak gate, lifetime telemetry, reset on success), AttemptBudget (per-node K, >=). Parse errors do not advance steps; attempts independent of steps. test_budget.py 4 green. Mirrors local-model-quirks memory + lift budget.py:11-67."
+    },
+    {
+      "name": "regression_no_blast_radius",
+      "status": "PASS",
+      "detail": "Net-new isolated package; touches no existing repo file. `python -m pytest --collect-only -q` (repo-wide) → no collection errors; `import decompose_agent.*` clean."
+    }
+  ],
+  "verdict": "PASS",
+  "notes": [
+    "DEC-D2: package follows code-standards §3/§4/§5, NOT §1 microkernel invariants.",
+    "Divergence from spec fixture (logged): artifact path lifted out of params into a dedicated DoneWhen.artifact field for uniform Gate-1 assertion; `children` derived from parent pointers, not listed.",
+    "RootBudget.step_exceeded keeps the lifted strict-`>` semantics (at-limit allowed, next step trips) — flagged for human review vs a `>=` reading of the phase doc."
+  ]
+}

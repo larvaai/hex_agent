@@ -2,6 +2,33 @@
 
 Mỗi mục = một đợt thêm/sửa, gắn với **Sprint + Epic**, để theo dõi "thêm gì, vì sao". Mục mới nhất ở trên.
 
+## E21/E06 — Port kỷ luật harness vào control plane (DEC-8) · 2026-06-26
+
+- **Doctrine attribution≠authz + predicate** (`control/authz.py` MỚI; `docs/explanation/authz-vs-attribution.md` MỚI): `issued_by`/`Actor` = attribution tự khai (audit/trail), KHÔNG phải authz. `is_permission_escalating` bắt cờ `can_*` False→True; `command_needs_human_checkpoint` ép `UpdateAgentPermission`→`can_modify_permissions` cần human `RuntimeCheckpoint` kể cả dưới trust-O. Enforcement (`command_bridge`) hoãn (DEC-7) — doc đặt tên call-site MUST gọi predicate trước khi áp. Sửa docstring `commands.py` "authz"→"audit/attribution". `feat(E21): authz≠attribution doctrine + predicate`.
+- **Overall verdict trên ac_report** (`supervisor/evidence.py::_overall_verdict` + `STRONG_EVIDENCE_TYPES`): thêm field annotation `verdict ∈ {passed, passed_with_risk, pending}` lên `ac_report` — `passed_with_risk` khi mọi AC passed nhưng ≥1 AC chỉ dựa evidence `artifact` generic (không loại mạnh). Policy thuần trong code, **không** đổi gate FINISHED (`all_accepted` nguyên vẹn); chỉ là read-model. `feat(E21): overall verdict (passed/passed_with_risk/pending) on ac_report`.
+- **Posture thất bại của middleware** (`core/kernel.py` `_wrap`/`_LatchedNext`; `core/middleware.py` Protocol docstring): middleware mặc định **fail-closed** (raise → boundary ok=False, giữ nguyên §1.1 try/except). Middleware opt-in `fail_open=True` (advisory: `TimingLog`/`CondenseResult`) → khi raise thì **bị skip**, chain chạy tiếp với inner result; `nxt` của nhánh fail-open được **latch one-shot** nên raise sau khi đã gọi `nxt` KHÔNG chạy lại tool (FM-HIGH double-exec). Skip phát event `middleware.skipped` (observability). `PolicyGate`/`Retry` giữ fail-closed. `feat(E06): explicit middleware failure posture (fail-open advisory)`.
+
+## E21 — S21.33 evidence types + AC report · 2026-06-26
+
+- **Siết acceptance gate theo loại evidence** (`supervisor/evidence.py` MỚI; `supervisor/graph.py:238`): `evidence_type_of(artifact)` suy loại từ `artifact.kind`; `judge_acceptance` honor `passed` chỉ khi **mọi** id cited resolve trên Blackboard **và ≥1** id là evidence thật (≥1-valid, KHÔNG all-valid). Scaffolding (`session_plan`/`context_packet`/`ac_report` ∈ `NON_EVIDENCE_KINDS`) hoặc kind rỗng → không tính. Chặn O "pass" AC bằng cách trỏ vào scaffolding.
+- **AC report khi FINISHED** (`supervisor/evidence.py::record_ac_report`; `supervisor/loop.py:173`): loop đạt FINISHED sinh đúng một artifact `kind=ac_report` (id `ac_report-{session_id}` → idempotent qua resume, AC6) chụp `{session_id, task_id, checks[{status, evidence_ids, evidence_types}]}`. Finish-denied KHÔNG sinh.
+- **Phòng thủ adversarial** (`tests_audit/test_acceptance_evidence_adversarial.py` MỚI): ac_report không tự làm evidence (AC5), resume sau finish không nhân đôi report (AC6), property hypothesis ghim bất biến cổng (passed ⇒ all-exist + ≥1-typed).
+- Backward-compatible: `AcceptanceCheck` **không đổi** (evidence_type derive, không lưu) → 0 migration; `control/*` + `config/runtime_*_types.yaml` không đổi (artifact-only, no emit). Quyết định: **DEC-7**.
+
+## E21 — Realtime Control Plane (Phase A + Phase B B1) · 2026-06-25
+
+- **Phase A — S-CONTRACT** (commit `7998c27`): contracts + 2 registry trong `control/` — `RuntimeEvent` envelope, `RuntimeCommand`, `RuntimeCheckpoint`, `Permission`, `Redactor` (mask 14 secret keys, không mutate gốc), `event_registry` + `command_registry` allowlist. Lớp ABOVE kernel (như `supervisor`), no I/O.
+- **Phase B B1 — EventEmitter canonical path** (commit `f73d377`): `control/emitter.py` publish envelope qua `EventSinkPort`; `BusEventSink` bridge → EventBus/EventLogger. Luồng: gate → seq → redact → fan-out.
+- **Gộp E16+E17+E18** thành E21 (review gate + live control + UI dashboard). **PENDING**: transport (POST /api/commands + SSE redaction), Control-Tower UI, command lifecycle, approval-checkpoint, reliability. Chưa wire vào live runtime/UI (supervisor emitter opt-in, default None — `supervisor/graph.py:47`).
+- Thiết kế đầy đủ: `docs/spec/active/E21-realtime-control-plane/`.
+
+## E10 — Multi-agent + Delegation · 2026-06-25
+
+- **TaskLoop (Agent O)** (`supervisor/`): vòng lặp round-based trên blackboard — Agent O compose team + scoped context, phát structured decisions, `_drive` lặp tới terminal; `judge_acceptance` gate (honor-system, evidence resolve trên artifacts).
+- **DelegationManager** (`delegation/`): chokepoint RIÊNG (không phải method kernel — `delegation/manager.py:63`), policy engine, in-memory store, scripted + LangGraph adapter (`adapters/`); session con scope ⊆ parent.
+- Consolidate Sprint 3/4 (commit `4377daa`): KernelSession + EventBus concurrency. Xây trên nền delegation Sprint 4.
+- Thiết kế đầy đủ: `docs/spec/done/E10-multi-agent-graph/`.
+
 ## E08 — RAG (Qdrant + fastembed), slices S2/S3 · 2026-06-25
 
 - **S2 prod adapter** — `rag/stores_qdrant.py::QdrantVectorStore` hiện thực `VectorStorePort` thật trên qdrant-client: collection tạo lười theo dim của vector ở lần `upsert` đầu, point id = `uuid5(source::chunk_index)` (re-upsert ghi đè đúng chỗ), `delete_by_source` lọc theo payload `source` (đã đánh index keyword), search qua `query_points` với `score_threshold` server-side. `health()` không ném: server không reachable → `{"ok": False}` để giữ cổng dependency-failure (S08.1) là control-flow thường.

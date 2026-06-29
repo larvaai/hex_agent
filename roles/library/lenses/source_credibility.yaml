@@ -1,0 +1,11 @@
+name: source_credibility
+purpose: Score whether sources are official, current, and trustworthy or merely opinion.
+allowed_tools:
+- fs_read
+forbidden_tools:
+- fs_write
+- fs_str_replace
+- terminal_run
+output_schema:
+  lens: source_credibility
+  scored_sources: list

@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; height:100%; background:#15171a; }
+  ::selection{ background:rgba(91,157,255,.28); }
+  ::-webkit-scrollbar{ width:11px; height:11px; }
+  ::-webkit-scrollbar-thumb{ background:rgba(128,140,160,.22); border-radius:7px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover{ background:rgba(128,140,160,.4); background-clip:padding-box; }
+  ::-webkit-scrollbar-track{ background:transparent; }
+  textarea{ font-family:'JetBrains Mono',ui-monospace,monospace; }
+  @keyframes pulse{ 0%,100%{opacity:1} 50%{opacity:.25} }
+  @keyframes glow{ 0%,100%{ box-shadow:0 0 0 1px var(--accent),0 0 12px var(--accentbg) } 50%{ box-shadow:0 0 0 1px var(--accent),0 0 28px var(--accentbg) } }
+  @keyframes spin{ to{ transform:rotate(360deg) } }
+  @keyframes dash{ to{ stroke-dashoffset:-26 } }
+  @keyframes rise{ from{ transform:translateY(5px) } to{ transform:none } }
+  @keyframes chip{ from{ opacity:0; transform:translate(-50%,-50%) scale(.8) } to{ opacity:1; transform:translate(-50%,-50%) scale(1) } }
+  /* canvas toolbar: the idle/active/done legend is decorative — drop it before it can shove Run/Reset off the bar on a narrow window */
+  @media (max-width:900px){ .dz-legend{ display:none !important; } }
+</style>
+</helmet>
+
+<div ref="{{ rootRef }}" style="--app:#15171a;--bg0:#0f1114;--bg1:#16181c;--bg2:#1a1d21;--bg3:#1c2026;--hover:#1d2127;--sel:#202b3a;--bd:#21252b;--bd2:#2a2f37;--tx:#cdd3de;--txb:#eef1f6;--txd:#8a92a0;--txm:#6b7280;--txf:#4d545e;--accent:#5b9dff;--accent2:#2862cf;--accentbg:rgba(91,157,255,0.14);--ok:#3fb9a6;--s-cmt:#5f6b78;--s-str:#cd9178;--s-num:#b5cea8;--s-kw:#c191e0;--s-fn:#dcdcaa;--s-typ:#5fc2c0;--s-def:#cdd3de;--s-pun:#8a93a0; display:flex; flex-direction:column; height:100vh; background:var(--app); color:var(--tx); font-family:system-ui,-apple-system,'Segoe UI',sans-serif; overflow:hidden;">
+
+  <!-- ===================== TITLE BAR ===================== -->
+  <div style="height:38px; flex:none; display:flex; align-items:center; gap:14px; padding:0 12px 0 14px; background:var(--bg0); border-bottom:1px solid var(--bd);">
+    <div style="display:flex; gap:7px;">
+      <span style="width:11px; height:11px; border-radius:50%; background:#ec6a5f;"></span>
+      <span style="width:11px; height:11px; border-radius:50%; background:#f4bf50;"></span>
+      <span style="width:11px; height:11px; border-radius:50%; background:#61c554;"></span>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--txd);">
+      <span style="color:var(--txb); font-weight:600;">taskflow</span>
+      <span style="opacity:.5;">—</span>
+      <span style="display:inline-flex; align-items:center; gap:5px; padding:1px 8px; border-radius:5px; background:var(--bg1); border:1px solid var(--bd2); color:var(--txd); font-family:'JetBrains Mono',monospace; font-size:11px;">
+        <span style="width:6px; height:6px; border-radius:50%; background:var(--accent);"></span>feat/auth-orchestrated
+      </span>
+    </div>
+    <div style="flex:1;"></div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span style="font-size:10.5px; letter-spacing:.05em; color:var(--txf); font-weight:600;">THEME</span>
+      <div style="display:flex; gap:2px; padding:2px; background:var(--bg1); border:1px solid var(--bd); border-radius:8px;">
+        <sc-for list="{{ themes }}" as="th" hint-placeholder-count="3">
+          <button onClick="{{ th.onClick }}" style="{{ th.style }}">{{ th.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex:1; display:flex; min-height:0;">
+
+    <!-- ===================== ACTIVITY RAIL (LEFT TABS) ===================== -->
+    <div style="width:60px; flex:none; background:var(--bg0); border-right:1px solid var(--bd); display:flex; flex-direction:column; align-items:center; padding:10px 0; gap:4px;">
+      <div style="width:30px; height:30px; border-radius:9px; background:linear-gradient(150deg,var(--ok),var(--accent)); display:flex; align-items:center; justify-content:center; color:#0b0d10; font-weight:800; font-size:14px; margin-bottom:10px;">O</div>
+
+      <button onClick="{{ setCode }}" title="Workspace — files &amp; code" style="{{ codeTabStyle }}">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V8"></path><path d="M13 4h6a1 1 0 0 1 1 1v3"></path><path d="M8 12h7M8 16h5"></path></svg>
+        <span style="font-size:8.5px; letter-spacing:.04em; margin-top:3px;">Files</span>
+      </button>
+
+      <button onClick="{{ setAgents }}" title="Agents — orchestration graph" style="{{ agentsTabStyle }}">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2.4"></circle><circle cx="5.5" cy="18" r="2.4"></circle><circle cx="18.5" cy="18" r="2.4"></circle><path d="M11 7 6.7 15.8M13 7l4.3 8.8M8 18h8"></path></svg>
+        <span style="font-size:8.5px; letter-spacing:.04em; margin-top:3px;">Agents</span>
+      </button>
+
+      <div style="flex:1;"></div>
+      <div style="display:flex; flex-direction:column; align-items:center; gap:6px; color:var(--txf);">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.2-3.2"></path></svg>
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"></path></svg>
+      </div>
+    </div>
+
+    <!-- ===================== MAIN COLUMN ===================== -->
+    <div style="flex:1; display:flex; flex-direction:column; min-width:0; min-height:0;">
+
+      <div style="flex:1; display:flex; min-height:0;">
+
+        <!-- ---------- WORKSPACE TAB ---------- -->
+        <sc-if value="{{ isCode }}" hint-placeholder-val="{{ true }}">
+        <div style="flex:1; display:flex; min-height:0; width:100%;">
+
+          <div style="width:258px; flex:none; background:var(--bg1); border-right:1px solid var(--bd); display:flex; flex-direction:column; min-height:0;">
+            <div style="height:36px; flex:none; display:flex; align-items:center; padding:0 14px; font-size:10.5px; letter-spacing:.09em; color:var(--txm); font-weight:700;">EXPLORER</div>
+            <div style="display:flex; align-items:center; gap:6px; padding:3px 12px 7px; font-size:11px; color:var(--txd); font-weight:700; letter-spacing:.02em;">
+              <span style="transform:rotate(90deg); color:var(--txm);">›</span>TASKFLOW
+            </div>
+            <div style="flex:1; overflow:auto; padding-bottom:12px;">
+              <sc-for list="{{ tree }}" as="row" hint-placeholder-count="9">
+                <div onClick="{{ row.onClick }}" style="{{ row.style }}" style-hover="background:var(--hover);">
+                  <span style="{{ row.chevStyle }}">{{ row.chev }}</span>
+                  <span style="{{ row.dotStyle }}"></span>
+                  <span style="{{ row.nameStyle }}">{{ row.name }}</span>
+                  <span style="{{ row.modStyle }}"></span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="flex:1; display:flex; flex-direction:column; min-width:0; background:var(--bg2);">
+
+            <div style="height:40px; flex:none; display:flex; align-items:stretch; background:var(--bg1); border-bottom:1px solid var(--bd); overflow-x:auto;">
+              <sc-for list="{{ openTabs }}" as="t" hint-placeholder-count="2">
+                <div onClick="{{ t.onClick }}" style="{{ t.style }}" style-hover="background:var(--bg3);">
+                  <span style="{{ t.dotStyle }}"></span>
+                  <span>{{ t.name }}</span>
+                  <span onClick="{{ t.onClose }}" style="margin-left:4px; width:16px; height:16px; display:inline-flex; align-items:center; justify-content:center; border-radius:4px; color:var(--txm); font-size:13px;" style-hover="background:var(--bd2); color:var(--tx);">×</span>
+                </div>
+              </sc-for>
+            </div>
+
+            <sc-if value="{{ hasActive }}" hint-placeholder-val="{{ true }}">
+            <div style="flex:1; display:flex; min-height:0; position:relative;">
+              <div style="width:54px; flex:none; overflow:hidden; background:var(--bg2); border-right:1px solid var(--bd);">
+                <div ref="{{ gutRef }}" style="padding:10px 12px 10px 0; text-align:right; color:var(--txf); font:13px/20px 'JetBrains Mono',monospace; user-select:none; will-change:transform;">
+                  <sc-for list="{{ lineNumbers }}" as="n" hint-placeholder-count="14"><div>{{ n }}</div></sc-for>
+                </div>
+              </div>
+              <div style="flex:1; position:relative; min-width:0; overflow:hidden;">
+                <pre ref="{{ preRef }}" style="position:absolute; inset:0; margin:0; overflow:auto; padding:10px 16px; font:13px/20px 'JetBrains Mono',monospace; color:var(--tx); white-space:pre; tab-size:2; pointer-events:none;">{{ hl }}</pre>
+                <textarea ref="{{ taRef }}" value="{{ activeCode }}" onChange="{{ onCodeInput }}" onScroll="{{ onEditorScroll }}" spellcheck="false" style="position:absolute; inset:0; margin:0; overflow:auto; padding:10px 16px; font:13px/20px 'JetBrains Mono',monospace; color:transparent; caret-color:var(--accent); background:transparent; border:0; outline:0; resize:none; white-space:pre; tab-size:2;"></textarea>
+              </div>
+            </div>
+            </sc-if>
+
+            <div style="height:26px; flex:none; display:flex; align-items:center; gap:16px; padding:0 14px; background:var(--bg0); border-top:1px solid var(--bd); font:11px 'JetBrains Mono',monospace; color:var(--txm);">
+              <span style="color:var(--accent);">{{ activePath }}</span>
+              <div style="flex:1;"></div>
+              <span>{{ activeLang }}</span>
+              <span>{{ lineCount }} lines</span>
+              <span>UTF-8</span>
+            </div>
+          </div>
+        </div>
+        </sc-if>
+
+        <!-- ---------- AGENTS TAB ---------- -->
+        <sc-if value="{{ isAgents }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:1; display:flex; min-height:0; width:100%;">
+
+          <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
+
+            <div style="height:46px; flex:none; display:flex; align-items:center; gap:10px; padding:0 16px; min-width:0; overflow:hidden; background:var(--bg1); border-bottom:1px solid var(--bd);">
+              <div onClick="{{ openConfig }}" style="display:flex; align-items:center; gap:8px; cursor:pointer; min-width:0; overflow:hidden; flex:0 1 auto;" title="Open the live decomposition spec">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none;"><circle cx="12" cy="5" r="2.2"></circle><circle cx="5.5" cy="18" r="2.2"></circle><circle cx="18.5" cy="18" r="2.2"></circle><path d="M11 7 6.7 15.8M13 7l4.3 8.8M8 18h8"></path></svg>
+                <span style="font:600 12.5px 'JetBrains Mono',monospace; color:var(--tx); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;">decompose · tree.json</span>
+              </div>
+              <div style="flex:1; min-width:8px;"></div>
+              <div class="dz-legend" style="flex:none; display:flex; align-items:center; gap:11px; font:11px 'JetBrains Mono',monospace; color:var(--txd);">
+                <span style="display:inline-flex; align-items:center; gap:5px;"><span style="width:8px; height:8px; border-radius:50%; background:var(--txf);"></span>idle</span>
+                <span style="display:inline-flex; align-items:center; gap:5px;"><span style="width:8px; height:8px; border-radius:50%; background:var(--accent);"></span>active</span>
+                <span style="display:inline-flex; align-items:center; gap:5px;"><span style="width:8px; height:8px; border-radius:50%; background:var(--ok);"></span>done</span>
+              </div>
+              <button onClick="{{ resetRun }}" style="height:30px; padding:0 12px; flex:none; display:inline-flex; align-items:center; gap:6px; border-radius:7px; border:1px solid var(--bd2); background:transparent; color:var(--txd); font:600 12px system-ui; cursor:pointer;" style-hover="color:var(--tx); border-color:var(--txd);">Reset</button>
+              <button onClick="{{ runDemo }}" style="{{ runBtnStyle }}">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5v14l11-7z"></path></svg>{{ runBtnLabel }}
+              </button>
+            </div>
+
+            <div ref="{{ graphWrapRef }}" style="flex:1; overflow:hidden; position:relative; display:flex; align-items:center; justify-content:center; background:var(--bg2); background-image:radial-gradient(var(--bd) 1px, transparent 1px); background-size:22px 22px;">
+              <div ref="{{ graphCanvasRef }}" style="position:relative; flex:none; width:720px; height:360px; transform-origin:center center;">
+
+                <svg width="720" height="360" style="position:absolute; left:0; top:0; overflow:visible; pointer-events:none;">
+                  <defs>
+                    <marker id="ahA" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--accent);"></path></marker>
+                    <marker id="ahF" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--txd);"></path></marker>
+                    <marker id="ahD" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--bd2);"></path></marker>
+                  </defs>
+                  <sc-for list="{{ edges }}" as="e" hint-placeholder-count="7">
+                    <path d="{{ e.d }}" fill="none" stroke="{{ e.stroke }}" stroke-width="{{ e.sw }}" stroke-dasharray="{{ e.dash }}" stroke-linecap="round" stroke-linejoin="round" marker-end="{{ e.marker }}" style="{{ e.css }}"></path>
+                  </sc-for>
+                </svg>
+
+                <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="5">
+                  <div onClick="{{ n.onClick }}" style="{{ n.style }}">
+                    <div style="display:flex; align-items:center; gap:9px;">
+                      <span style="{{ n.avatarStyle }}">{{ n.letter }}</span>
+                      <div style="flex:1; min-width:0;">
+                        <div style="font-size:13.5px; font-weight:700; color:var(--txb); line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ n.name }}</div>
+                        <div style="font-size:10.5px; color:var(--txd); line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ n.role }}</div>
+                      </div>
+                      <span style="{{ n.statusStyle }}"></span>
+                    </div>
+                    <div style="display:flex; flex-wrap:wrap; gap:5px; margin-top:9px;">
+                      <span style="padding:2px 6px; border-radius:5px; background:var(--bg2); border:1px solid var(--bd); font:600 9px 'JetBrains Mono',monospace; color:var(--txd);">{{ n.statSkills }}</span>
+                      <span style="padding:2px 6px; border-radius:5px; background:var(--bg2); border:1px solid var(--bd); font:600 9px 'JetBrains Mono',monospace; color:var(--txd);">{{ n.statHooks }}</span>
+                      <span style="padding:2px 6px; border-radius:5px; background:var(--bg2); border:1px solid var(--bd); font:600 9px 'JetBrains Mono',monospace; color:var(--txd);">{{ n.statRules }}</span>
+                    </div>
+                  </div>
+                </sc-for>
+
+                <sc-for list="{{ chips }}" as="c" hint-placeholder-count="5">
+                  <div onClick="{{ c.onClick }}" style="{{ c.style }}" title="open {{ c.name }}">
+                    <span style="{{ c.iconStyle }}">{{ c.iconLabel }}</span>
+                    <span style="{{ c.nameStyle }}">{{ c.name }}</span>
+                    <span style="{{ c.extraStyle }}">{{ c.extra }}</span>
+                  </div>
+                </sc-for>
+
+              </div>
+            </div>
+          </div>
+
+          <!-- ---------- AGENT DETAIL DRAWER ---------- -->
+          <div style="width:284px; flex:none; background:var(--bg1); border-left:1px solid var(--bd); display:flex; flex-direction:column; min-height:0;">
+            <sc-if value="{{ hasSel }}" hint-placeholder-val="{{ true }}">
+            <div style="flex:none; padding:16px 18px 14px; border-bottom:1px solid var(--bd);">
+              <div style="display:flex; align-items:center; gap:12px;">
+                <span style="{{ sel.avatarStyle }}">{{ sel.letter }}</span>
+                <div style="flex:1; min-width:0;">
+                  <div style="font-size:16px; font-weight:700; color:var(--txb);">{{ sel.name }}</div>
+                  <div style="font-size:12px; color:var(--txd);">{{ sel.role }}</div>
+                </div>
+                <span style="{{ sel.statusStyle }}"><span style="{{ sel.statusDot }}"></span>{{ sel.statusLabel }}</span>
+              </div>
+              <p style="margin:12px 0 0; font-size:12.5px; line-height:1.55; color:var(--txd);">{{ sel.summary }}</p>
+            </div>
+            <div style="flex:1; overflow:auto; padding:16px 18px 22px; display:flex; flex-direction:column; gap:18px;">
+
+              <div>
+                <div style="font-size:10px; letter-spacing:.1em; color:var(--txm); font-weight:700; margin-bottom:8px;">SYSTEM PROMPT</div>
+                <div style="font:12px/1.55 'JetBrains Mono',monospace; color:var(--tx); background:var(--bg2); border:1px solid var(--bd); border-radius:9px; padding:11px 13px;">{{ sel.prompt }}</div>
+              </div>
+
+              <div>
+                <div style="font-size:10px; letter-spacing:.1em; color:var(--txm); font-weight:700; margin-bottom:8px;">SKILLS</div>
+                <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                  <sc-for list="{{ sel.skills }}" as="sk" hint-placeholder-count="3">
+                    <span style="display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:6px; background:var(--bg2); border:1px solid var(--bd2); font:600 11px 'JetBrains Mono',monospace; color:var(--tx);"><span style="width:5px; height:5px; border-radius:50%; background:var(--accent);"></span>{{ sk }}</span>
+                  </sc-for>
+                </div>
+              </div>
+
+              <div>
+                <div style="font-size:10px; letter-spacing:.1em; color:var(--txm); font-weight:700; margin-bottom:8px;">HOOKS</div>
+                <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                  <sc-for list="{{ sel.hooks }}" as="hk" hint-placeholder-count="2">
+                    <span style="display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:6px; background:var(--bg2); border:1px solid var(--bd2); font:600 11px 'JetBrains Mono',monospace; color:var(--ok);"><span style="width:5px; height:5px; border-radius:50%; background:var(--ok);"></span>{{ hk }}</span>
+                  </sc-for>
+                </div>
+              </div>
+
+              <div>
+                <div style="font-size:10px; letter-spacing:.1em; color:var(--txm); font-weight:700; margin-bottom:8px;">RULES</div>
+                <div style="display:flex; flex-direction:column; gap:6px;">
+                  <sc-for list="{{ sel.rules }}" as="rl" hint-placeholder-count="2">
+                    <div style="display:flex; gap:8px; align-items:flex-start; font-size:12.5px; line-height:1.45; color:var(--tx);"><span style="color:var(--accent); flex:none;">§</span><span>{{ rl }}</span></div>
+                  </sc-for>
+                </div>
+              </div>
+
+              <div>
+                <div style="font-size:10px; letter-spacing:.1em; color:var(--txm); font-weight:700; margin-bottom:8px;">CONTEXT LOADED</div>
+                <div style="display:flex; flex-direction:column; gap:5px;">
+                  <sc-for list="{{ sel.loads }}" as="ld" hint-placeholder-count="2">
+                    <div onClick="{{ ld.onClick }}" style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px; background:var(--bg2); border:1px solid var(--bd); cursor:pointer;" style-hover="border-color:var(--bd2); background:var(--bg3);">
+                      <span style="{{ ld.iconStyle }}">{{ ld.iconLabel }}</span>
+                      <span style="font:500 12px 'JetBrains Mono',monospace; color:var(--tx); flex:1;">{{ ld.name }}</span>
+                      <span style="color:var(--txm); font-size:13px;">›</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+
+            </div>
+            </sc-if>
+          </div>
+
+        </div>
+        </sc-if>
+
+      </div>
+
+      <!-- ===================== CHAT DOCK ===================== -->
+      <div style="height:176px; flex:none; display:flex; flex-direction:column; background:var(--bg0); border-top:1px solid var(--bd);">
+        <div style="height:34px; flex:none; display:flex; align-items:center; gap:10px; padding:0 16px; border-bottom:1px solid var(--bd);">
+          <span style="font-size:10.5px; letter-spacing:.09em; color:var(--txm); font-weight:700;">CHAT</span>
+          <span style="display:inline-flex; align-items:center; gap:6px; padding:1px 8px; border-radius:5px; background:var(--bg1); border:1px solid var(--bd2); color:var(--ok); font:600 10px 'JetBrains Mono',monospace;"><span style="width:6px; height:6px; border-radius:50%; background:var(--ok);"></span>orchestrator</span>
+          <div style="flex:1;"></div>
+          <span style="display:inline-flex; align-items:center; gap:6px; font:11px 'JetBrains Mono',monospace; color:var(--txd);"><span style="{{ runDotStyle }}"></span>{{ runStatus }}</span>
+        </div>
+
+        <div ref="{{ chatRef }}" style="flex:1; min-height:0; overflow:auto; padding:12px 16px; display:flex; flex-direction:column; gap:9px;">
+          <sc-for list="{{ messages }}" as="m" hint-placeholder-count="2">
+            <div style="display:flex; gap:9px; align-items:flex-start; animation:rise .25s ease both;">
+              <span style="{{ m.tagStyle }}">{{ m.label }}</span>
+              <span style="flex:1; font:13px/1.5 system-ui; color:var(--tx); padding-top:1px;">{{ m.text }}</span>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="flex:none; padding:10px 14px 14px; display:flex; gap:10px; align-items:flex-end;">
+          <textarea value="{{ draft }}" onChange="{{ onDraft }}" onKeyDown="{{ onDraftKey }}" placeholder="Ask the orchestrator to plan, build, review, or test…" rows="1" style="flex:1; height:42px; max-height:120px; padding:11px 14px; background:var(--bg1); border:1px solid var(--bd2); border-radius:9px; color:var(--tx); font:13px/1.4 system-ui; outline:none; resize:none;" style-focus="border-color:var(--accent);"></textarea>
+          <button onClick="{{ send }}" style="height:42px; flex:none; padding:0 18px; display:inline-flex; align-items:center; gap:8px; background:var(--accent); color:#0b1120; border:0; border-radius:9px; font:700 13px system-ui; cursor:pointer;" style-hover="background:var(--accent2);">Send
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"></path></svg>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;100%&quot;,&quot;height&quot;:&quot;100%&quot;},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;vscode&quot;,&quot;terminal&quot;,&quot;midnight&quot;],&quot;default&quot;:&quot;vscode&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;defaultTab&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;code&quot;,&quot;agents&quot;],&quot;default&quot;:&quot;code&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;reduceMotion&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      tab: "agents",
+      theme: props.theme || "vscode",
+      runId: null,
+      title: "session",
+      status: "created",
+      graph: null,            // { root, nodes:[...], edges:[...] } from the backend
+      live: {},               // nodeId -> runtime override streamed over the WS
+      selected: null,
+      running: false,
+      messages: [{ label: "sys", color: "#5a626f", text: "Connecting to the orchestrator…" }],
+      draft: "",
+      open: [], active: null, edits: {}, cache: {}, artifacts: [],
+    };
+    this._lastMsgLen = 1; this._lastActive = null; this._ws = null; this._busy = false;
+    this.PALETTE = ["#5b9dff", "#c792ea", "#4ec9a3", "#e0a04a", "#5fc77e", "#5fc2c0"];
+  }
+
+  TH = {
+    vscode: { "--app": "#15171a", "--bg0": "#0f1114", "--bg1": "#16181c", "--bg2": "#1a1d21", "--bg3": "#1c2026", "--hover": "#1d2127", "--sel": "#202b3a", "--bd": "#21252b", "--bd2": "#2a2f37", "--tx": "#cdd3de", "--txb": "#eef1f6", "--txd": "#8a92a0", "--txm": "#6b7280", "--txf": "#4d545e", "--accent": "#5b9dff", "--accent2": "#2862cf", "--accentbg": "rgba(91,157,255,0.14)", "--ok": "#3fb9a6", "--s-cmt": "#5f6b78", "--s-str": "#cd9178", "--s-num": "#b5cea8", "--s-kw": "#c191e0", "--s-fn": "#dcdcaa", "--s-typ": "#5fc2c0", "--s-def": "#cdd3de", "--s-pun": "#8a93a0" },
+    terminal: { "--app": "#080b08", "--bg0": "#060806", "--bg1": "#0a0d0a", "--bg2": "#0c100c", "--bg3": "#121712", "--hover": "#141b14", "--sel": "#13251a", "--bd": "#18201a", "--bd2": "#243024", "--tx": "#c2e0c2", "--txb": "#e8ffe8", "--txd": "#6f966f", "--txm": "#557355", "--txf": "#3c503c", "--accent": "#4ee07a", "--accent2": "#36b85f", "--accentbg": "rgba(78,224,122,0.12)", "--ok": "#4ee07a", "--s-cmt": "#4f694f", "--s-str": "#cfe89a", "--s-num": "#a6e7c6", "--s-kw": "#8fe0a8", "--s-fn": "#e0e89a", "--s-typ": "#79d8ad", "--s-def": "#c2e0c2", "--s-pun": "#6f966f" },
+    midnight: { "--app": "#14141c", "--bg0": "#16161e", "--bg1": "#1a1b26", "--bg2": "#1e2030", "--bg3": "#24283b", "--hover": "#2a2e42", "--sel": "#2c3152", "--bd": "#2a2e42", "--bd2": "#3b4261", "--tx": "#c0caf5", "--txb": "#e6e9f8", "--txd": "#7e87b3", "--txm": "#565f89", "--txf": "#454d70", "--accent": "#bb9af7", "--accent2": "#9a78e0", "--accentbg": "rgba(187,154,247,0.14)", "--ok": "#9ece6a", "--s-cmt": "#565f89", "--s-str": "#9ece6a", "--s-num": "#ff9e64", "--s-kw": "#bb9af7", "--s-fn": "#7aa2f7", "--s-typ": "#2ac3de", "--s-def": "#c0caf5", "--s-pun": "#89ddff" },
+  };
+
+  // ---------- lifecycle ----------
+  componentDidMount() {
+    this.bootstrap();
+    this._fit = () => this.fitGraph();
+    window.addEventListener("resize", this._fit);
+  }
+  componentDidUpdate() {
+    try {
+      if (this.state.messages.length !== this._lastMsgLen) {
+        this._lastMsgLen = this.state.messages.length;
+        if (this._chat) { const c = this._chat; c.scrollTop = c.scrollHeight; requestAnimationFrame(() => { c.scrollTop = c.scrollHeight; }); }
+      }
+      if (this.state.active !== this._lastActive) {
+        this._lastActive = this.state.active;
+        if (this._ta) { this._ta.scrollTop = 0; if (this._pre) this._pre.scrollTop = 0; if (this._gut) this._gut.style.transform = "none"; }
+      }
+    } catch (e) { console.warn("cdu", e); }
+    this.fitGraph();
+  }
+  componentWillUnmount() { if (this._ws) { try { this._ws.close(); } catch (e) {} } if (this._fit) window.removeEventListener("resize", this._fit); if (this._ro) this._ro.disconnect(); }
+
+  // ---------- theme ----------
+  rootRef(el) { this._root = el; if (el) this.applyTheme(this.state.theme); }
+  applyTheme(key) { const t = this.TH[key]; if (!t || !this._root) return; for (const k in t) this._root.style.setProperty(k, t[k]); }
+  setTheme(key) { this.applyTheme(key); this.setState({ theme: key }); }
+
+  // ---------- backend ----------
+  async getJSON(url, opts) {
+    const r = await fetch(url, Object.assign({ headers: { "Content-Type": "application/json" } }, opts || {}));
+    if (!r.ok) { let d = r.statusText; try { d = (await r.json()).detail || d; } catch (e) {} throw new Error(d); }
+    return r.json();
+  }
+  async bootstrap() {
+    try {
+      const s = await this.getJSON("/api/session");
+      this.setState({ runId: s.id, status: s.status, title: s.title, graph: s.graph, selected: s.graph.root, live: {} });
+      this.pushMsg({ label: "orchestrator", color: "#3fb9a6", text: 'Loaded "' + s.title + '". Press Run — watch the tree decompose until every leaf is trivial.' });
+      this.loadArtifacts();
+    } catch (e) { this.pushMsg({ label: "sys", color: "#e5688a", text: "backend offline: " + e.message }); }
+  }
+  async loadGraph() {
+    if (!this.state.runId) return;
+    try { const r = await this.getJSON("/api/runs/" + this.state.runId); this.setState({ graph: r.graph, status: r.status }); } catch (e) {}
+  }
+  async loadArtifacts() {
+    if (!this.state.runId) return;
+    try { const a = await this.getJSON("/api/runs/" + this.state.runId + "/artifacts"); this.setState({ artifacts: a }); } catch (e) {}
+  }
+  async openFile(path) {
+    if (!path) return;
+    this.setState((s) => ({ active: path, tab: "code", open: s.open.includes(path) ? s.open : [...s.open, path] }));
+    if (path === "tree.json") return;
+    if (this.state.cache[path] != null) return;
+    try {
+      const r = await this.getJSON("/api/runs/" + this.state.runId + "/artifact?path=" + encodeURIComponent(path));
+      this.setState((s) => ({ cache: { ...s.cache, [path]: r.content } }));
+    } catch (e) { this.setState((s) => ({ cache: { ...s.cache, [path]: "// could not load: " + e.message } })); }
+  }
+  closeTab(p, e) {
+    e.stopPropagation();
+    this.setState((s) => { const open = s.open.filter((x) => x !== p); return { open, active: s.active === p ? (open[open.length - 1] || null) : s.active }; });
+  }
+  fileCode(p) { if (!p) return ""; if (p === "tree.json") return this.specText(); return this.state.edits[p] ?? this.state.cache[p] ?? "// loading…"; }
+  onCodeInput(e) { const p = this.state.active, v = e.target.value; this.setState((s) => ({ edits: { ...s.edits, [p]: v } })); }
+  specText() {
+    const g = this.state.graph; if (!g) return "{}";
+    return JSON.stringify({ root: g.root, nodes: g.nodes.map((n) => ({ id: n.id, goal: n.goal, mu: n.mu, done_when: n.done_when, children: n.children, depends_on: n.depends_on })) }, null, 2);
+  }
+
+  // ---------- run / websocket ----------
+  reset() {
+    if (!this.state.runId || this._busy) return;
+    this.getJSON("/api/runs/" + this.state.runId + "/reset", { method: "POST" })
+      .then(() => { this.setState({ live: {}, status: "created", running: false }); this.loadGraph(); this.loadArtifacts(); })
+      .catch(() => {});
+  }
+  run() {
+    // Synchronous re-entrancy lock — setState is async, so guarding on
+    // this.state.running lets a fast double-submit slip two /start calls through.
+    if (!this.state.runId || this._busy) return;
+    this._busy = true;
+    this.getJSON("/api/runs/" + this.state.runId + "/reset", { method: "POST" })
+      .then(() => { this.setState({ live: {}, status: "running", running: true }); return this.loadGraph(); })
+      .then(() => this.getJSON("/api/runs/" + this.state.runId + "/start", { method: "POST" }))
+      .then(() => this.connect())
+      .catch((e) => { this._busy = false; this.setState({ running: false, status: "created" }); this.pushMsg({ label: "sys", color: "#e5688a", text: "run failed: " + e.message }); });
+  }
+  connect() {
+    if (this._ws) { try { this._ws.close(); } catch (e) {} }
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(proto + "://" + location.host + "/api/runs/" + this.state.runId + "/events");
+    ws.onmessage = (ev) => { try { this.onMsg(JSON.parse(ev.data)); } catch (e) {} };
+    this._ws = ws;
+  }
+  onMsg(m) {
+    if (m.type === "snapshot") { this.setState({ graph: m.graph }); return; }
+    if (m.type === "run_finished") { this._busy = false; try { this._ws.close(); } catch (e) {} this.setState({ running: false }); this.loadGraph(); this.loadArtifacts(); return; }
+    if (m.type === "event") this.applyEvent(m.data);
+  }
+  rtOf(id) {
+    const g = this.state.graph;
+    return this.state.live[id] || (g && (g.nodes.find((n) => n.id === id) || {}).runtime) || { status: "pending" };
+  }
+  patchLive(id, patch) {
+    this.setState((s) => {
+      const g = s.graph;
+      const cur = s.live[id] || (g && (g.nodes.find((n) => n.id === id) || {}).runtime) || {};
+      return { live: { ...s.live, [id]: { ...cur, ...patch } } };
+    });
+  }
+  applyEvent(ev) {
+    const id = ev.node_id, p = ev.payload || {};
+    const short = (x) => (x || "").split("/").pop();
+    const head = (x) => (x || "").split("\n")[0];
+    switch (ev.type) {
+      case "run_start": this.pushMsg({ label: "orchestrator", color: "#3fb9a6", text: "routing the goal → solving the tree depth-first" }); break;
+      case "activate": if (id) { this.patchLive(id, { status: "active" }); this.setState({ selected: id }); } break;
+      case "propose": if (id) this.patchLive(id, { status: "active", last_action: p.action }); break;
+      case "verdict":
+        if (id) {
+          if (p.passed) { this.patchLive(id, { status: "done", verdict: "pass", evidence: p.evidence }); this.pushMsg({ label: short(id), color: "#5fc77e", text: "✓ " + (p.gate === "compose" ? "reduced — children done" : "passed") + " · " + head(p.evidence) }); }
+          else { this.patchLive(id, { verdict: "fail", evidence: p.evidence }); this.pushMsg({ label: short(id), color: "#e0a04a", text: "✗ attempt failed · " + head(p.evidence) }); }
+        }
+        break;
+      case "decompose":
+      case "decompose_cache_hit":
+        if (id) this.patchLive(id, { status: "decomposed" });
+        this.pushMsg({ label: short(id), color: "#c792ea", text: "too big → decomposed into " + (p.children || []).map(short).join(" → ") });
+        this.loadGraph();
+        break;
+      case "block": if (id) this.patchLive(id, { status: "blocked", block_reason: p.reason, evidence: p.detail }); this.pushMsg({ label: short(id), color: "#e5688a", text: "blocked · " + p.reason }); break;
+      case "run_end": this.pushMsg({ label: "orchestrator", color: "#3fb9a6", text: "run finished · " + p.status + " · " + p.steps_spent + " steps" }); this.setState({ status: p.status }); break;
+    }
+  }
+
+  // ---------- chat ----------
+  pushMsg(m) { this.setState((s) => ({ messages: [...s.messages, m] })); }
+  onDraft(e) { this.setState({ draft: e.target.value }); }
+  onDraftKey(e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); this.send(); } }
+  send() {
+    const t = this.state.draft.trim(); if (!t) return;
+    this.pushMsg({ label: "you", color: "#5b9dff", text: t });
+    this.setState({ draft: "" });
+    if (this._busy) { this.pushMsg({ label: "sys", color: "#5a626f", text: "still running — wait for the current run to finish." }); return; }
+    this.run();
+  }
+
+  // ---------- editor helpers ----------
+  ext(p) { return (p || "").split(".").pop(); }
+  langName(p) { const e = this.ext(p); return ({ ts: "TypeScript", tsx: "TypeScript JSX", js: "JavaScript", py: "Python", json: "JSON", md: "Markdown", yaml: "YAML", yml: "YAML" })[e] || "Plain Text"; }
+  dotColor(p) { const e = this.ext(p); return ({ ts: "#5b9dff", tsx: "#5b9dff", js: "#d6a64a", py: "#4ec9a3", json: "#d6a64a", md: "#6f7782", yaml: "#c792ea" })[e] || "#7c828d"; }
+  fileIcon(name) { const e = this.ext(name); if (e === "ts" || e === "tsx") return { label: "TS", color: "#5b9dff" }; if (e === "py") return { label: "PY", color: "#4ec9a3" }; if (e === "json") return { label: "{}", color: "#d6a64a" }; if (e === "md") return { label: "MD", color: "#6f7782" }; return { label: "•", color: "#7c828d" }; }
+  fileTree() {
+    const arts = this.state.artifacts || [];
+    const root = {};
+    for (const a of arts) {
+      const parts = a.path.split("/");
+      let cur = root;
+      parts.forEach((seg, i) => { if (i === parts.length - 1) { (cur.__files = cur.__files || []).push({ name: seg, path: a.path }); } else { cur[seg] = cur[seg] || {}; cur = cur[seg]; } });
+    }
+    const rows = [];
+    const walk = (obj, prefix, depth) => {
+      Object.keys(obj).filter((k) => k !== "__files").sort().forEach((folder) => {
+        const path = prefix ? prefix + "/" + folder : folder;
+        rows.push({ folder: true, name: folder, path, depth });
+        walk(obj[folder], path, depth + 1);
+      });
+      (obj.__files || []).sort((a, b) => a.name.localeCompare(b.name)).forEach((f) => rows.push({ folder: false, name: f.name, path: f.path, depth }));
+    };
+    walk(root, "", 0);
+    rows.push({ folder: false, name: "tree.json", path: "tree.json", depth: 0 });
+    return rows;
+  }
+
+  // ---------- syntax highlight ----------
+  highlight(code) {
+    const KW = new Set("const,let,var,function,return,if,else,for,while,do,switch,case,break,continue,import,export,from,default,async,await,class,extends,new,this,super,type,interface,enum,public,private,protected,readonly,void,null,undefined,true,false,throw,try,catch,finally,of,in,as,typeof,instanceof,yield,static,get,set".split(","));
+    const C = { cmt: "var(--s-cmt)", str: "var(--s-str)", num: "var(--s-num)", kw: "var(--s-kw)", fn: "var(--s-fn)", typ: "var(--s-typ)", def: "var(--s-def)", pun: "var(--s-pun)" };
+    const re = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|(`(?:\\[\s\S]|[^`\\])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(\b\d[\w.]*\b)|([A-Za-z_$][\w$]*)|(\s+)|([^\w\s])/g;
+    const out = []; let m, k = 0;
+    const push = (t, c) => out.push(React.createElement("span", { key: k++, style: c ? { color: c } : null }, t));
+    while ((m = re.exec(code))) {
+      if (m[1]) push(m[1], C.cmt);
+      else if (m[2]) push(m[2], C.str);
+      else if (m[3]) push(m[3], C.num);
+      else if (m[4]) {
+        const w = m[4], after = code[re.lastIndex];
+        if (KW.has(w)) push(w, C.kw);
+        else if (after === "(") push(w, C.fn);
+        else if (/^[A-Z]/.test(w)) push(w, C.typ);
+        else push(w, C.def);
+      } else if (m[5]) push(m[5]);
+      else push(m[6], C.pun);
+    }
+    return out;
+  }
+
+  // ---------- graph layout ----------
+  layout() {
+    const g = this.state.graph; if (!g) return {};
+    const childOf = {}; g.nodes.forEach((n) => (childOf[n.id] = []));
+    g.edges.forEach((e) => { if (e.kind === "child" && childOf[e.source]) childOf[e.source].push(e.target); });
+    const pos = {}; let cursor = 0; const SLOT = 188; const seen = new Set();
+    const place = (id, d) => {
+      if (seen.has(id)) return pos[id] ? pos[id].x : 0;
+      seen.add(id);
+      const kids = childOf[id] || []; let x;
+      if (!kids.length) { x = cursor * SLOT; cursor++; }
+      else { const xs = kids.map((k) => place(k, d + 1)); x = xs.reduce((a, b) => a + b, 0) / xs.length; }
+      pos[id] = { x, y: d * 116, depth: d }; return x;
+    };
+    if (g.nodes.some((n) => n.id === g.root)) place(g.root, 0);
+    g.nodes.forEach((n) => { if (!pos[n.id]) { pos[n.id] = { x: cursor * SLOT, y: 0, depth: 0 }; cursor++; } });
+    const ps = Object.values(pos);
+    const xs = ps.map((p) => p.x), ys = ps.map((p) => p.y);
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    const spanX = (maxX - minX) || 1, spanY = (maxY - minY) || 1;
+    if (ps.length === 1) { ps[0].x = 280; ps[0].y = 150; return pos; }
+    ps.forEach((p) => { p.x = 24 + (p.x - minX) / spanX * 540; p.y = 18 + (p.y - minY) / spanY * 260; });
+    return pos;
+  }
+
+  // ---------- refs / fit ----------
+  taRef(el) { this._ta = el; }
+  preRef(el) { this._pre = el; }
+  gutRef(el) { this._gut = el; }
+  chatRef(el) { this._chat = el; }
+  onEditorScroll() {
+    if (!this._ta) return; const t = this._ta.scrollTop, l = this._ta.scrollLeft;
+    if (this._pre) { this._pre.scrollTop = t; this._pre.scrollLeft = l; }
+    if (this._gut) this._gut.style.transform = "translateY(" + (-t) + "px)";
+  }
+  graphWrapRef(el) { if (this._ro) { this._ro.disconnect(); this._ro = null; } this._gwrap = el; if (el) { try { this._ro = new ResizeObserver(() => this.fitGraph()); this._ro.observe(el); } catch (e) {} [0, 60, 200, 450].forEach((d) => setTimeout(() => this.fitGraph(), d)); } }
+  graphCanvasRef(el) { this._gcanvas = el; if (el) requestAnimationFrame(() => this.fitGraph()); }
+  fitGraph() { const w = this._gwrap, c = this._gcanvas; if (!w || !c) return; const aw = w.clientWidth, ah = w.clientHeight; if (!aw || !ah) return; const sc = Math.min((aw - 22) / 720, (ah - 18) / 360, 1); c.style.transform = "scale(" + (sc > 0 ? sc : 1) + ")"; }
+
+  // ---------- display helpers ----------
+  dstat(rt) { const st = (rt || {}).status; if (st === "done") return "done"; if (st === "blocked") return "blocked"; if (st === "active" || st === "decomposed") return "active"; return "idle"; }
+
+  renderVals() {
+    const s = this.state;
+    const g = s.graph;
+    const W = 160, H = 66;
+
+    const activeBtn = "width:44px; height:44px; display:flex; flex-direction:column; align-items:center; justify-content:center; border:0; border-radius:9px; cursor:pointer; color:var(--txb); background:var(--bg3); box-shadow:inset 2px 0 0 0 var(--accent);";
+    const idleBtn = "width:44px; height:44px; display:flex; flex-direction:column; align-items:center; justify-content:center; border:0; border-radius:9px; cursor:pointer; color:var(--txf); background:transparent;";
+
+    const themes = [{ key: "vscode", label: "Dark" }, { key: "terminal", label: "Terminal" }, { key: "midnight", label: "Midnight" }].map((t) => ({
+      label: t.label, onClick: () => this.setTheme(t.key),
+      style: `padding:4px 11px; border-radius:6px; border:0; font:600 11px system-ui; cursor:pointer; color:${s.theme === t.key ? "var(--txb)" : "var(--txd)"}; background:${s.theme === t.key ? "var(--accentbg)" : "transparent"};`,
+    }));
+
+    // ---------- file explorer + editor ----------
+    const tree = this.fileTree().map((r) => {
+      const isActive = !r.folder && r.path === s.active;
+      const pad = 8 + r.depth * 13;
+      return {
+        name: r.name,
+        onClick: r.folder ? () => {} : () => this.openFile(r.path),
+        style: `display:flex; align-items:center; gap:7px; height:25px; padding:0 10px 0 ${pad}px; cursor:${r.folder ? "default" : "pointer"}; font-size:13px; user-select:none; ${isActive ? "background:var(--sel);" : ""}`,
+        chev: r.folder ? "▾" : "",
+        chevStyle: `width:11px; flex:none; color:var(--txm); font-size:9px; text-align:center; ${r.folder ? "" : "visibility:hidden;"}`,
+        dotStyle: r.folder ? "display:none;" : `width:7px; height:7px; border-radius:2px; flex:none; background:${this.dotColor(r.path)};`,
+        nameStyle: `flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:${r.folder ? "var(--tx)" : isActive ? "var(--txb)" : "var(--txd)"}; font-weight:${r.folder ? 600 : 400};`,
+        modStyle: "display:none;",
+      };
+    });
+    const openTabs = s.open.map((p) => {
+      const name = p.split("/").pop(); const isA = p === s.active;
+      return {
+        name, onClick: () => this.setState({ active: p }), onClose: (e) => this.closeTab(p, e),
+        dotStyle: `width:7px; height:7px; border-radius:2px; flex:none; background:${this.dotColor(p)};`,
+        style: `display:flex; align-items:center; gap:8px; padding:0 12px; height:100%; cursor:pointer; font-size:12.5px; white-space:nowrap; border-right:1px solid var(--bd); color:${isA ? "var(--txb)" : "var(--txd)"}; background:${isA ? "var(--bg2)" : "transparent"}; box-shadow:${isA ? "inset 0 -2px 0 0 var(--accent)" : "none"};`,
+      };
+    });
+    const activeCode = this.fileCode(s.active);
+    const lines = activeCode.split("\n");
+
+    // ---------- chat ----------
+    const messages = s.messages.map((m) => ({
+      text: m.text, label: m.label,
+      tagStyle: `display:inline-flex; align-items:center; height:19px; padding:0 8px; flex:none; border-radius:5px; font:600 10.5px 'JetBrains Mono',monospace; letter-spacing:.02em; color:${m.color}; background:${m.color}1c; border:1px solid ${m.color}44;`,
+    }));
+    const running = s.running;
+    const runStatus = running ? "running…" : s.status === "done" ? "done ✓" : s.status === "blocked" ? "blocked" : "idle";
+    const runDotStyle = `width:7px; height:7px; border-radius:50%; background:${running ? "var(--accent)" : s.status === "done" ? "var(--ok)" : s.status === "blocked" ? "#e5688a" : "var(--txf)"}; ${running ? "animation:pulse 1.1s infinite;" : ""}`;
+
+    // ---------- graph ----------
+    const pos = this.layout();
+    const colorOf = (depth) => this.PALETTE[depth % this.PALETTE.length];
+    const nodes = (g ? g.nodes : []).map((n) => {
+      const p = pos[n.id]; if (!p) return null;
+      const rt = this.rtOf(n.id); const st = this.dstat(rt); const isSel = s.selected === n.id;
+      const col = colorOf(p.depth);
+      const border = st === "active" ? "var(--accent)" : st === "done" ? "var(--ok)" : st === "blocked" ? "#e5688a" : isSel ? "var(--accent)" : "var(--bd2)";
+      const glow = st === "active" ? "animation:glow 1.4s ease-in-out infinite;" : isSel ? "box-shadow:0 0 0 1px var(--accent),0 10px 26px -14px rgba(0,0,0,.7);" : "box-shadow:0 8px 22px -16px rgba(0,0,0,.85);";
+      const dotc = st === "active" ? "var(--accent)" : st === "done" ? "var(--ok)" : st === "blocked" ? "#e5688a" : "var(--txf)";
+      const nm = n.id.split("/").pop();
+      return {
+        onClick: () => this.setState({ selected: n.id }),
+        letter: (nm[0] || "?").toUpperCase(), name: nm, role: (n.goal || "").slice(0, 44),
+        style: `position:absolute; left:${p.x}px; top:${p.y}px; width:${W}px; box-sizing:border-box; background:var(--bg1); border:1px solid ${border}; border-radius:12px; padding:11px 12px; cursor:pointer; ${glow} transition:border-color .2s;`,
+        avatarStyle: `width:28px; height:28px; border-radius:8px; flex:none; display:flex; align-items:center; justify-content:center; font:800 13px system-ui; color:${col}; background:${col}1f; box-shadow:inset 0 0 0 1px ${col}55;`,
+        statusStyle: `width:8px; height:8px; border-radius:50%; flex:none; background:${dotc}; ${st === "active" ? "animation:pulse 1.1s infinite;" : ""}`,
+        statSkills: `μ ${n.mu}`,
+        statHooks: `${n.done_when.length} ${n.done_when.length === 1 ? "check" : "checks"}`,
+        statRules: (rt.status || "pending"),
+      };
+    }).filter(Boolean);
+
+    const edges = (g ? g.edges : []).map((e) => {
+      const a = pos[e.source], b = pos[e.target]; if (!a || !b) return null;
+      const tstat = this.dstat(this.rtOf(e.target));
+      const active = tstat === "active";
+      let d;
+      if (e.kind === "child") {
+        const ax = a.x + W / 2, ay = a.y + H, bx = b.x + W / 2, by = b.y, my = (ay + by) / 2;
+        d = `M${ax},${ay} C${ax},${my} ${bx},${my} ${bx},${by}`;
+      } else {
+        const ax = a.x + W, ay = a.y + H / 2, bx = b.x, by = b.y + H / 2, mx = (ax + bx) / 2;
+        d = `M${ax},${ay} C${mx},${ay} ${mx},${by} ${bx},${by}`;
+      }
+      const stroke = active ? "var(--accent)" : e.kind === "child" ? "var(--bd2)" : "var(--txd)";
+      const marker = active ? "url(#ahA)" : e.kind === "child" ? "url(#ahD)" : "url(#ahF)";
+      const dash = e.kind === "child" ? "5 5" : (active ? "7 6" : "0");
+      const sw = active ? 2.4 : (e.kind === "child" ? 1.4 : 1.7);
+      const css = active ? "animation:dash .5s linear infinite;" : "";
+      return { d, stroke, sw, dash, marker, css };
+    }).filter(Boolean);
+
+    const chips = [];
+    (g ? g.nodes : []).forEach((n) => {
+      if (n.children && n.children.length) return;       // only leaves carry artifact chips
+      const p = pos[n.id]; if (!p) return;
+      const dw = (n.done_when || []).find((d) => d.artifact); if (!dw) return;
+      const ic = this.fileIcon(dw.artifact);
+      const active = this.dstat(this.rtOf(n.id)) === "active";
+      chips.push({
+        onClick: () => this.openFile(dw.artifact),
+        name: dw.artifact.split("/").pop(), iconLabel: ic.label, extra: "",
+        style: `position:absolute; left:${p.x + W / 2}px; top:${p.y + H + 16}px; transform:translate(-50%,0); display:flex; align-items:center; gap:6px; padding:3px 9px 3px 4px; border-radius:8px; cursor:pointer; white-space:nowrap; z-index:3; background:${active ? "var(--accentbg)" : "var(--bg1)"}; border:1px solid ${active ? "var(--accent)" : "var(--bd2)"}; box-shadow:0 5px 14px -8px rgba(0,0,0,.8);`,
+        iconStyle: `width:18px; height:18px; border-radius:5px; flex:none; display:flex; align-items:center; justify-content:center; font:700 8px 'JetBrains Mono',monospace; color:${ic.color}; background:${ic.color}26;`,
+        nameStyle: `font:500 11px 'JetBrains Mono',monospace; color:var(--txd);`,
+        extraStyle: "display:none;",
+      });
+    });
+
+    // ---------- drawer ----------
+    const node = g && g.nodes.find((n) => n.id === s.selected);
+    let sel = null;
+    if (node) {
+      const rt = this.rtOf(node.id); const st = this.dstat(rt);
+      const p = pos[node.id] || { depth: 0 };
+      const col = colorOf(p.depth);
+      const sc = st === "active" ? "var(--accent)" : st === "done" ? "var(--ok)" : st === "blocked" ? "#e5688a" : "var(--txd)";
+      const nm = node.id.split("/").pop();
+      const checkLabel = (d) => d.check + (d.artifact ? " " + d.artifact : "") + (d.params && d.params.field ? " ." + d.params.field : "");
+      const rules = rt.evidence ? rt.evidence.split("\n").filter(Boolean).slice(0, 6) : node.done_when.map(checkLabel);
+      sel = {
+        letter: (nm[0] || "?").toUpperCase(), name: nm, role: node.goal,
+        summary: `${st}${rt.verdict ? " · verdict " + rt.verdict : ""}${rt.block_reason ? " · " + rt.block_reason : ""} · μ=${node.mu} · ${rt.attempts || 0} attempt${(rt.attempts || 0) === 1 ? "" : "s"}`,
+        prompt: node.goal,
+        skills: node.done_when.map((d) => d.check),
+        hooks: node.depends_on,
+        rules,
+        avatarStyle: `width:42px; height:42px; border-radius:12px; flex:none; display:flex; align-items:center; justify-content:center; font:800 19px system-ui; color:${col}; background:${col}1f; box-shadow:inset 0 0 0 1px ${col}66;`,
+        statusLabel: st, statusDot: `width:6px; height:6px; border-radius:50%; background:${sc};`,
+        statusStyle: `display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:20px; font:600 10.5px 'JetBrains Mono',monospace; color:${sc}; background:var(--bg2); border:1px solid var(--bd2);`,
+        loads: node.done_when.filter((d) => d.artifact).map((d) => { const ic = this.fileIcon(d.artifact); return { name: d.artifact.split("/").pop(), iconLabel: ic.label, iconStyle: `width:18px; height:18px; border-radius:5px; flex:none; display:flex; align-items:center; justify-content:center; font:700 8px 'JetBrains Mono',monospace; color:${ic.color}; background:${ic.color}26;`, onClick: () => this.openFile(d.artifact) }; }),
+      };
+    }
+
+    return {
+      rootRef: this.rootRef.bind(this),
+      themes,
+      isCode: s.tab === "code", isAgents: s.tab === "agents",
+      setCode: () => this.setState({ tab: "code" }), setAgents: () => this.setState({ tab: "agents" }),
+      codeTabStyle: s.tab === "code" ? activeBtn : idleBtn,
+      agentsTabStyle: s.tab === "agents" ? activeBtn : idleBtn,
+      tree, openTabs,
+      hasActive: !!s.active,
+      hl: this.highlight(activeCode), activeCode,
+      lineNumbers: lines.map((_, i) => i + 1), lineCount: lines.length,
+      activePath: s.active || "—", activeLang: this.langName(s.active),
+      taRef: this.taRef.bind(this), preRef: this.preRef.bind(this), gutRef: this.gutRef.bind(this), chatRef: this.chatRef.bind(this),
+      onCodeInput: this.onCodeInput.bind(this), onEditorScroll: this.onEditorScroll.bind(this),
+      messages, draft: s.draft,
+      onDraft: this.onDraft.bind(this), onDraftKey: this.onDraftKey.bind(this), send: this.send.bind(this),
+      runStatus, runDotStyle,
+      nodes, edges, chips,
+      graphWrapRef: this.graphWrapRef.bind(this), graphCanvasRef: this.graphCanvasRef.bind(this),
+      hasSel: !!sel, sel: sel || {},
+      openConfig: () => this.openFile("tree.json"),
+      runDemo: () => this.run(),
+      resetRun: () => this.reset(),
+      runBtnStyle: `height:30px; padding:0 14px; flex:none; display:inline-flex; align-items:center; gap:7px; border-radius:7px; border:0; white-space:nowrap; font:700 12px system-ui; cursor:${running ? "default" : "pointer"}; color:${running ? "var(--txd)" : "#0b1120"}; background:${running ? "var(--bg3)" : "var(--accent)"};`,
+      runBtnLabel: running ? "running" : "Run",
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+{
+  "stage": "ship",
+  "plan": "260626-0212-e21-control-plane-ui-fake-backend",
+  "actor": "user:uspro/agent:hs:cook",
+  "ts": "2026-06-25T21:25:06.132409+00:00",
+  "checks": [
+    {
+      "name": "Phase 1 — TaskLoopSnapshot + CommandAck (S21.9/S21.15)",
+      "status": "PASS",
+      "detail": "commit 8a26f1b"
+    },
+    {
+      "name": "Phase 2 — TS contract gen + drift-guard (D2/R4)",
+      "status": "PASS",
+      "detail": "commit dfcfa6b; gen_ts_contracts.py --check exit 0"
+    },
+    {
+      "name": "Phase 3 — fake control server (replay/SSE/commands/authz/reality, S21.15/16/17)",
+      "status": "PASS",
+      "detail": "commit 48ea2ff; 12 server tests"
+    },
+    {
+      "name": "Phase 4 — frontend scaffold + transport adapter (S21.15/25, F8/F13)",
+      "status": "PASS",
+      "detail": "commit ba3ac21; vitest 5/5"
+    },
+    {
+      "name": "Phase 5 — Agent Graph + Event Timeline (S21.18/19)",
+      "status": "PASS",
+      "detail": "commit e7ac276; vitest 10/10"
+    },
+    {
+      "name": "Phase 6 — Inspector + Approval + Prompt/Send (S21.20/21/15)",
+      "status": "PASS",
+      "detail": "commit 108d432; vitest 17/17; +SubmitPrompt"
+    },
+    {
+      "name": "Phase 7 — contract-seam test (Done): UI reads ui_payload only, [REDACTED], real command, Last-Event-ID reconnect",
+      "status": "PASS",
+      "detail": "commit 8cc54d2; seam test drives real fake server child process"
+    },
+    {
+      "name": "Python full suite (no exclusions)",
+      "status": "PASS",
+      "detail": "python -m pytest tests/ tests_audit/ -q -> all pass (only intentional xfails); neighbor's test_evidence.py now green"
+    },
+    {
+      "name": "core smoke",
+      "status": "PASS",
+      "detail": "python run_smoke.py -> CORE_AGENT_SMOKE_OK"
+    },
+    {
+      "name": "frontend vitest",
+      "status": "PASS",
+      "detail": "npm --prefix ui/control-plane run test -> 20/20 (adapter+components+contract-seam)"
+    },
+    {
+      "name": "frontend build",
+      "status": "PASS",
+      "detail": "npm --prefix ui/control-plane run build -> tsc --noEmit + vite build clean (529 modules)"
+    },
+    {
+      "name": "interactive demo verified in-browser",
+      "status": "PASS",
+      "detail": "fake server :8800 + vite dev: Graph(O/A done/B done/C pending) + Timeline(9 events, loop.tool api_key=[REDACTED]) + Approval modal(waiting, Approve/Reject) + Inspector + Prompt/Send render the T1 scenario; 0 console errors"
+    },
+    {
+      "name": "post-review fixes (C1/I1/I3) re-verified",
+      "status": "PASS",
+      "detail": "commit 9b11783; full python suite + smoke green; frontend vitest 20/20; drift exit 0; ruff clean"
+    }
+  ],
+  "verdict": "PASS"
+}

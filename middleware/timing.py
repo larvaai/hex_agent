@@ -8,6 +8,8 @@ from core.schemas import ToolRequest
 
 
 class TimingLog:
+    fail_open = True  # advisory telemetry — its failure must never block a tool call
+
     def __init__(self, sink: Callable[[dict[str, Any]], None] | None = None) -> None:
         self.sink = sink
 

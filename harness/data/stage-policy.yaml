@@ -1,0 +1,32 @@
+# stage-policy.yaml — stage → gate policy (human-edited config, YAML).
+#
+#   hard: true  → missing requirement BLOCKS (exit 2); false → advisory only.
+#   requires:   → artifact kinds that must exist (and pass verdict policy)
+#                 at plans/<active>/artifacts/<kind>.json.
+#   require_plan: hard stage must resolve an active plan (default true when
+#                 omitted). Set false per-stage to opt out — the change is
+#                 tracked in git (tamper-visible).
+#
+# Verdict policy for hard stages (in code, not here): verification must have
+# no FAILed check; review-decision verdict must be exactly PASS —
+# PASS_WITH_RISK is a conscious soft-accept, not a ship license.
+stages:
+  commit:
+    hard: false
+    requires: []
+    require_plan: false
+  push:
+    hard: true
+    requires: [verification]
+  pr:
+    hard: true
+    requires: [verification, review-decision, plan-approval]
+  merge:
+    hard: true
+    requires: [verification, review-decision, plan-approval]
+  ship:
+    hard: true
+    requires: [verification, review-decision, plan-approval]
+  deploy:
+    hard: true
+    requires: [verification, review-decision, plan-approval]

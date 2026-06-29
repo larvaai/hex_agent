@@ -4,10 +4,15 @@ A thin layer ABOVE the frozen kernel (like ``supervisor``): the infra-independen
 contracts every part of the control plane shares — RuntimeEvent envelope, RuntimeCommand,
 RuntimeCheckpoint, Permission, Redactor — plus the event/command type registries. No I/O
 here; transport/storage (SQLite/JSONL/EventBus now, Kafka/Redis/Postgres behind ports
-later) arrives in Phase B/C. See docs/rebuild_from_zero/E21_realtime_control_plane/.
+later) arrives in Phase B/C. See docs/spec/active/E21-realtime-control-plane/.
 """
 from __future__ import annotations
 
+from control.authz import (
+    PERMISSION_EDIT_PERMISSIONS,
+    command_needs_human_checkpoint,
+    is_permission_escalating,
+)
 from control.checkpoint import (
     CHECKPOINT_STATUSES,
     RESOLVED_STATUSES,
@@ -21,7 +26,14 @@ from control.command_registry import (
     load_command_registry,
     parse_command_registry,
 )
-from control.commands import ISSUER_TYPES, IssuedBy, RuntimeCommand, parse_command
+from control.commands import (
+    ACCEPT_STATUSES,
+    ISSUER_TYPES,
+    CommandAck,
+    IssuedBy,
+    RuntimeCommand,
+    parse_command,
+)
 from control.emitter import BusEventSink, EventEmitter, bus_emitter
 from control.errors import ControlContractError
 from control.event_registry import (
@@ -43,6 +55,7 @@ from control.events import (
 from control.permission import EFFECTIVE_FROM, Permission
 from control.ports import EventSinkPort
 from control.redaction import REDACTED, SECRET_KEYS, Redactor
+from control.snapshot import AGENT_STATUSES, AgentView, TaskLoopSnapshot, build_snapshot
 
 __all__ = [
     # errors
@@ -63,6 +76,8 @@ __all__ = [
     "parse_event_registry",
     # command
     "RuntimeCommand",
+    "CommandAck",
+    "ACCEPT_STATUSES",
     "IssuedBy",
     "parse_command",
     "ISSUER_TYPES",
@@ -80,10 +95,19 @@ __all__ = [
     # permission
     "Permission",
     "EFFECTIVE_FROM",
+    # authz predicates (attribution≠authz doctrine)
+    "is_permission_escalating",
+    "command_needs_human_checkpoint",
+    "PERMISSION_EDIT_PERMISSIONS",
     # redaction
     "Redactor",
     "SECRET_KEYS",
     "REDACTED",
+    # snapshot read-model (S21.9)
+    "TaskLoopSnapshot",
+    "AgentView",
+    "build_snapshot",
+    "AGENT_STATUSES",
     # emitter + ports (B1)
     "EventEmitter",
     "BusEventSink",

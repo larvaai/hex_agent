@@ -1,0 +1,146 @@
+# components.yaml — optional feature bundles for ship-all-but-off packaging.
+#
+# Every component SHIPS unconditionally (install copies all files, wires all
+# hooks so `verify_install --strict` stays green). A component is turned OFF at
+# RUNTIME only, via whichever real mechanism it implies (both reuse an existing
+# enable path): hook-bearing components get `enabled: false` per hook in
+# harness-hooks.yaml; plugin-bearing components (the sibling plugins) get
+# `enabledPlugins[hs-<group>@hs-local]: false` in settings.json.
+#
+# For hook-bearing components SKILL/SCRIPT/DATA lists are informational and the
+# load-bearing effect is the HOOK flag; for plugin-bearing components the
+# enabledPlugins toggle is a REAL skill-disable (those carry no hooks).
+#
+# Only OPTIONAL features live here. Core always-on hooks (gate_stage, write_guard,
+# ownership_guard, session_init, ...) are deliberately NOT declared — the projector
+# never touches an undeclared hook.
+#
+# `requires`: a component may not be enabled while a component it depends on is off.
+
+components:
+  rbac:
+    hooks: [agent_rbac_guard]
+    scripts: [agent_permissions, rbac_selfcheck]
+    data: [agent-permissions.yaml]
+    requires: []
+
+  decision-capture:
+    hooks: [nudge_context_inject, decision_capture_nudge]
+    skills: [remember]
+    requires: []
+
+  uiux:
+    # Plugin-only component: the hs-uiux sibling plugin (UI/UX design intelligence,
+    # frontend build from designs/screenshots, web-interface-guidelines review).
+    # Ported (provenance in docs/STANDARDIZE.md). "off" flips
+    # enabledPlugins[hs-uiux@hs-local]=false while the dir still ships
+    # (ship-all-but-off). Disabling stops these skills loading (enabledPlugins off).
+    plugin: hs-uiux
+    skills: [web-design-guidelines, design, frontend-design, ui-ux-pro-max, ui-styling, show-off]
+    hooks: []
+    requires: []
+
+  viz:
+    # Plugin-only component: the hs-viz sibling plugin (diagrams / knowledge graphs
+    # / visual preview). No hooks — "off" flips enabledPlugins[hs-viz@hs-local]=false
+    # while the plugin dir still ships (ship-all-but-off). Disabling stops these skills loading (enabledPlugins off).
+    plugin: hs-viz
+    skills: [excalidraw, mermaidjs, graphify, tech-graph, preview]
+    hooks: []
+    requires: []
+
+  devops:
+    # Plugin-only component: the hs-devops sibling plugin (deploy / cloud devops /
+    # web testing / browser automation). Ported (provenance in
+    # docs/STANDARDIZE.md). "off" flips enabledPlugins[hs-devops@hs-local]=false
+    # while the plugin dir still ships (ship-all-but-off). Disabling stops these skills loading (enabledPlugins off).
+    plugin: hs-devops
+    skills: [deploy, devops, web-testing, agent-browser, chrome-profile]
+    hooks: []
+    requires: []
+
+  ai:
+    # Plugin-only component: the hs-ai sibling plugin (AI/multimodal generation,
+    # media processing, creative-coding: shaders, three.js, video). Ported
+    # (provenance in docs/STANDARDIZE.md). "off" flips
+    # enabledPlugins[hs-ai@hs-local]=false while the plugin dir still ships
+    # (ship-all-but-off). Disabling stops these skills loading (enabledPlugins off).
+    plugin: hs-ai
+    skills: [ai-multimodal, ai-artist, stitch, shader, threejs, html-video, remotion, media-processing]
+    hooks: []
+    requires: []
+
+  stack:
+    # Plugin-only component: the hs-stack sibling plugin (full-stack engineering
+    # playbooks: backend / frontend / mobile dev, databases, React, web frameworks,
+    # TanStack, better-auth). Ported (provenance in
+    # docs/STANDARDIZE.md). "off" flips enabledPlugins[hs-stack@hs-local]=false
+    # while the plugin dir still ships (ship-all-but-off). Disabling stops these skills loading (enabledPlugins off).
+    plugin: hs-stack
+    skills: [backend-development, frontend-development, mobile-development, databases, react-best-practices, web-frameworks, tanstack, better-auth]
+    hooks: []
+    requires: []
+
+  integrations:
+    # Plugin-only component: the hs-integrations sibling plugin (third-party
+    # integrations: payments SePay/VietQR, Shopify, Google ADK, MCP usage, git
+    # knowledge graph). Ported (provenance in docs/STANDARDIZE.md).
+    # "off" flips enabledPlugins[hs-integrations@hs-local]=false while the plugin
+    # dir still ships (ship-all-but-off). Disabling stops these skills loading (enabledPlugins off).
+    plugin: hs-integrations
+    skills: [payment-integration, shopify, google-adk-python, use-mcp, gkg]
+    hooks: []
+    requires: []
+
+  extra:
+    # Plugin-only component: the hs-extra sibling plugin (misc / content / PM
+    # skills: ask, llms, watzup, copywriting, ghpm, mintlify, markdown-novel-viewer,
+    # cti-expert). Ported (provenance in docs/STANDARDIZE.md).
+    # "off" flips enabledPlugins[hs-extra@hs-local]=false while the plugin dir
+    # still ships (ship-all-but-off). Disabling stops these skills loading (enabledPlugins off).
+    plugin: hs-extra
+    skills: [ask, llms, watzup, copywriting, ghpm, mintlify, markdown-novel-viewer, cti-expert]
+    hooks: []
+    requires: []
+
+  flow:
+    # Plugin-only: hs-flow (workflow/orchestration/autonomy). Core decomposition.
+    plugin: hs-flow
+    skills: [loop, afk, autonomous-bell, team, worktree, compound, project-management, plans-kanban]
+    hooks: []
+    requires: []
+
+  think:
+    # Plugin-only: hs-think (reasoning/decision/critique). Core decomposition.
+    plugin: hs-think
+    skills: [brainstorm, predict, scenario, sequential-thinking, problem-solving, critique, bakeoff]
+    hooks: []
+    requires: []
+
+  research:
+    # Plugin-only: hs-research (investigation/discovery/scan). Core decomposition.
+    plugin: hs-research
+    skills: [research, autoresearch, discover, repomix, techstack, security-scan]
+    hooks: []
+    requires: []
+
+  create:
+    # Plugin-only: hs-create (authoring harness artifacts). Core decomposition.
+    plugin: hs-create
+    skills: [skill-creator, harness-creator, mcp-builder, agentize, port, bootstrap]
+    hooks: []
+    requires: []
+
+  mem:
+    # Plugin-only: hs-mem (memory/reflection/docs). Core decomposition.
+    plugin: hs-mem
+    skills: [remember, insights, journal, retro, docs, docs-seeker, document-skills]
+    hooks: []
+    requires: []
+
+  meta:
+    # Plugin-only: hs-meta (harness self-management). Core decomposition.
+    plugin: hs-meta
+    skills: [find-skills, voice, context-engineering, project-organization]
+    hooks: []
+    requires: []

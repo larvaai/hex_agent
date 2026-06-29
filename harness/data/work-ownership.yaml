@@ -1,0 +1,39 @@
+# work-ownership.yaml — declared file ownership per work-unit.
+#
+# Each unit lists the file globs it may change. ownership_gate.py enforces this:
+#   overlap   — advisory: warns when two units declare colliding files. Humans
+#               keep the scheduling call, so it never blocks by default.
+#   reconcile — fail-closed: a changed file owned by no unit blocks (exit 2).
+#   reconcile_actor — per-actor poaching check (the ownership_guard commit
+#               hook): blocks a commit whose staged files fall in ANOTHER
+#               owner's lane. Drives off the optional `owner:` field below.
+#
+# `owner:` (optional) names the person who may touch a unit's lane — an actor
+# string like "user:alice@corp.io" (the agent suffix collapses to the person).
+# Only DECLARED owners are policed: an actor that owns no unit is ungoverned, so
+# the example placeholder owners below leave every real contributor free until
+# you assign real lanes. The commit hook reads the manifest named by
+# HARNESS_WORK_OWNERSHIP_FILE and skips entirely when that env var is unset.
+#
+# fnmatch semantics: '*' spans '/', so a 'dir/*' glob owns the whole subtree.
+# This is the per-session map — edit `units` to match the lanes of the work in
+# flight before parallel contributors start. The seed below declares three real,
+# disjoint harness lanes as a worked example.
+units:
+  - id: ownership-gate
+    role: developer
+    owner: "user:example-owner-a@placeholder.invalid"
+    globs:
+      - "harness/scripts/ownership_gate.py"
+      - "harness/tests/test_ownership_gate.py"
+  - id: claims
+    role: developer
+    owner: "user:example-owner-b@placeholder.invalid"
+    globs:
+      - "harness/scripts/claims.py"
+      - "harness/tests/test_claims.py"
+  - id: audit-trace
+    role: developer
+    owner: "user:example-owner-c@placeholder.invalid"
+    globs:
+      - "harness/hooks/trace_log.py"

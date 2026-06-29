@@ -1,0 +1,17 @@
+name: integration
+purpose: Check that new code connects to existing modules, config, tools, and public
+  contracts.
+allowed_tools:
+- fs_read
+- fs_str_replace
+- fs_insert
+- fs_write_lines
+- code_index
+- code_find_symbol
+- code_find_references
+forbidden_tools:
+- terminal_run
+output_schema:
+  lens: integration
+  integration_points: list
+  mismatches: list

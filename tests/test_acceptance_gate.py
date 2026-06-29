@@ -7,6 +7,15 @@ from tests.conftest import compose_json, decision_json
 AC = [("ac1", "the criterion")]
 
 
+def call(agent_id="code", *, scope=()):
+    return {
+        "agent_id": agent_id,
+        "objective": "work",
+        "scope_of_work": f"{agent_id} scope",
+        "allowed_capabilities": list(scope),
+    }
+
+
 def run(env, **kw):
     return run_task_loop(
         env.supervisor_session,
@@ -63,3 +72,131 @@ def test_finish_allowed_with_real_evidence(make_env):
     assert result["acceptance"][0]["status"] == "passed"
     assert result["acceptance"][0]["evidence_ids"] == ["tool_result-0001"]
     assert result["final_output"] == {"answer": 42}
+
+
+def test_finish_rejects_scaffolding_evidence(make_env):
+    # AC1: a round-0 `continue` mints a context_packet (scaffolding); citing only that
+    # as evidence must NOT satisfy the AC — existence alone is no longer enough.
+    env = make_env(
+        compose=compose_json(("code", "r")),
+        decisions=[
+            decision_json("continue", next_agent_calls=[call("code")]),
+            decision_json(
+                "finished",
+                acceptance_status=[
+                    {"id": "ac1", "status": "passed", "evidence_ids": ["context_packet-0001"]}
+                ],
+                final_output={"answer": 1},
+            ),
+        ],
+    )
+    result = run(env)
+    assert result["status"] != "finished"  # scaffolding is not real evidence
+    assert result["acceptance"][0]["status"] == "pending"
+
+
+def test_finish_allows_mixed_when_one_valid(make_env):
+    # AC2 / FM-HIGH: evidence that mixes one valid type (tool_result) with one scaffolding
+    # id (session_plan) still passes — spec S21.33 requires ≥1 valid, not all-valid.
+    env = make_env(
+        compose=compose_json(("code", "r")),
+        decisions=[
+            decision_json("need_tool", tool_requests=[{"tool": "echo", "args": {"k": 1}}]),
+            decision_json(
+                "finished",
+                acceptance_status=[
+                    {
+                        "id": "ac1",
+                        "status": "passed",
+                        "evidence_ids": ["tool_result-0001", "session_plan-0000"],
+                    }
+                ],
+                final_output={"answer": 7},
+            ),
+        ],
+    )
+    result = run(env)
+    assert result["status"] == "finished"
+    assert result["acceptance"][0]["status"] == "passed"
+
+
+def _ac_reports(result):
+    return [a for a in result["state"]["artifacts"].values() if a.get("kind") == "ac_report"]
+
+
+def test_finished_emits_ac_report(make_env):
+    # AC3: a FINISHED run leaves exactly one ac_report artifact snapshotting AC state.
+    env = make_env(
+        compose=compose_json(("code", "r")),
+        decisions=[
+            decision_json("need_tool", tool_requests=[{"tool": "echo", "args": {"k": 1}}]),
+            decision_json(
+                "finished",
+                acceptance_status=[{"id": "ac1", "status": "passed", "evidence_ids": ["tool_result-0001"]}],
+                final_output={"answer": 42},
+            ),
+        ],
+    )
+    result = run(env)
+    assert result["status"] == "finished"
+    reports = _ac_reports(result)
+    assert len(reports) == 1
+    assert reports[0]["checks"][0]["status"] == "passed"
+    assert reports[0]["checks"][0]["evidence_types"] == ["tool_result"]
+    assert reports[0]["verdict"] == "passed"  # tool_result is a strong evidence type
+
+
+def test_finish_denied_no_ac_report(make_env):
+    # AC4: a denied finish (no real evidence) must NOT mint an ac_report.
+    env = make_env(
+        compose=compose_json(("code", "r")),
+        decisions=[decision_json("finished", final_output={"answer": 1})],
+    )
+    result = run(env)
+    assert result["status"] != "finished"
+    assert _ac_reports(result) == []
+
+
+# ── overall verdict (Phase 03 — additive read-model annotation) ──────────────
+
+
+def test_verdict_passed_with_risk_on_generic_artifact(make_env):
+    # An AC passed by citing only a generic-kind artifact (delegation_result → "artifact",
+    # not a strong type) is PASSED but flagged: every evidence type for some AC is generic.
+    env = make_env(
+        compose=compose_json(("code", "r")),
+        decisions=[
+            decision_json("continue", next_agent_calls=[call("code")]),
+            decision_json(
+                "finished",
+                # session_plan-0000, context_packet-0001, <worker finding>-uuid,
+                # delegation_result-0003 → cite the generic delegation_result.
+                acceptance_status=[
+                    {"id": "ac1", "status": "passed", "evidence_ids": ["delegation_result-0003"]}
+                ],
+                final_output={"answer": 1},
+            ),
+        ],
+    )
+    result = run(env)
+    assert result["status"] == "finished"
+    reports = _ac_reports(result)
+    assert reports[0]["checks"][0]["evidence_types"] == ["artifact"]
+    assert reports[0]["verdict"] == "passed_with_risk"
+
+
+def test_overall_verdict_policy_is_pure_and_total():
+    # Policy lives in code (evidence._overall_verdict) — pin the full matrix directly,
+    # incl. the `pending` branch the live gate can never mint (FINISHED ⇒ all passed).
+    from supervisor.evidence import _overall_verdict
+
+    strong = {"id": "a", "status": "passed", "evidence_types": ["tool_result"]}
+    generic = {"id": "b", "status": "passed", "evidence_types": ["artifact"]}
+    mixed = {"id": "c", "status": "passed", "evidence_types": ["artifact", "diff"]}
+    not_passed = {"id": "d", "status": "pending", "evidence_types": ["tool_result"]}
+
+    assert _overall_verdict([strong]) == "passed"
+    assert _overall_verdict([strong, mixed]) == "passed"  # mixed AC has ≥1 strong
+    assert _overall_verdict([strong, generic]) == "passed_with_risk"
+    assert _overall_verdict([generic]) == "passed_with_risk"
+    assert _overall_verdict([strong, not_passed]) == "pending"

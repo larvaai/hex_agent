@@ -1,0 +1,15 @@
+{
+  "schema": "plan-approval/v1",
+  "plan": "260626-0159-roadmap-prior-art-schema",
+  "plan_hash": "8c21f9587bde",
+  "file_hashes": {
+    "plan.md": "1c82c07d713a",
+    "phase-1-schema.md": "6e4f1ed15abe",
+    "phase-2-committee-note.md": "4f663f135683"
+  },
+  "author": "namson.nguyen102@gmail.com",
+  "reviewer": "user:uspro",
+  "verdict": "APPROVED",
+  "rationale": "Docs-only, risk thấp, không đụng runtime. Áp DEC-7 (prior_art external-anchor schema) + DEC-8 (Committee-Agent E21). Scope OUT rõ. Duyệt bởi uspro qua AskUserQuestion.",
+  "ts": "2026-06-25T19:49:42.594588+00:00"
+}

@@ -25,6 +25,7 @@ from supervisor.contracts import (
     parse_decision,
     parse_session_plan,
 )
+from supervisor.evidence import evidence_type_of
 from supervisor.orchestrator import OrchestratorPort
 from supervisor.state import AcceptanceCheck, AgentTurn, TaskLoopState, TaskLoopStatus
 
@@ -137,6 +138,7 @@ def o_decide(state: TaskLoopState, ctx: SupervisorContext, *, budget: Budget) ->
             if budget.parse_exceeded():
                 return None
             continue
+        budget.record_parse_success()  # O recovered — clear the consecutive-fumble streak
         ctx.emit("loop.decision", {"round": state.round_no, "decision": decision.decision})
         return decision
 
@@ -353,15 +355,23 @@ def run_tool(state: TaskLoopState, ctx: SupervisorContext, decision: Orchestrato
 
 # ── acceptance gate (S10.6) ──────────────────────────────────────────────────
 def judge_acceptance(state: TaskLoopState, ctx: SupervisorContext, decision: OrchestratorDecision) -> None:
-    """Apply O's reported acceptance status. 'passed' is honoured only with
-    non-empty evidence that actually exists on the Blackboard."""
+    """Apply O's reported acceptance status. 'passed' is honoured only when every
+    cited id resolves on the Blackboard AND at least one is a real evidence type —
+    scaffolding alone (session_plan/context_packet/ac_report) no longer satisfies an
+    AC (S21.33). ≥1 valid, not all-valid: O may attach one scaffolding id alongside
+    real evidence without being wrongly blocked."""
     for row in decision.acceptance_status:
         check: AcceptanceCheck | None = state.acceptance_by_id(str(row.get("id", "")))
         if check is None:
             continue
         claimed = str(row.get("status", "pending"))
         evidence = [str(e) for e in (row.get("evidence_ids") or [])]
-        if claimed == "passed" and evidence and all(e in state.artifacts for e in evidence):
+        if (
+            claimed == "passed"
+            and evidence
+            and all(e in state.artifacts for e in evidence)
+            and any(evidence_type_of(state.artifacts[e]) is not None for e in evidence)
+        ):
             check.status = "passed"
             check.evidence_ids = evidence
         elif claimed == "failed":
