@@ -37,6 +37,10 @@ class EventType(str, Enum):
     ANSWER_PRODUCED = "answer_produced"     # answer branch: {text}
     TASK_BOX_CREATED = "task_box_created"   # task branch, done_when adjudicated OK: {goal, done_when}
     TASK_BOX_REJECTED = "task_box_rejected"  # task branch, done_when forged/path-jailed: {reason, goal}
+    # Multi-lens advisory — lenses ADVISE, code/agent DECIDES (deliberately NOT folded by reduce():
+    # a lens line must never become a node verdict — see read_model.reduce + plan Luật 1)
+    LENS_QUERIED = "lens_queried"      # payload {lens_id, source: combo|adhoc, reads: [ids]}
+    LENS_RETURNED = "lens_returned"    # payload {lens_id, line} — NO verdict field (no-forge)
 
 
 @dataclass(frozen=True)

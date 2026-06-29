@@ -18,6 +18,15 @@ from .contracts import (
     TriageResult,
 )
 from .events import Event, EventLog, EventType
+from .lens import (
+    ComboSpec,
+    ComboStage,
+    Lens,
+    LensComboError,
+    LensRegistry,
+    load_lenses,
+    run_lenses,
+)
 from .live_view import render, render_log, render_tree
 from .llm import LLM, FakeLLM, by_role
 from .orchestrator import Orchestrator
@@ -46,6 +55,13 @@ __all__ = [
     "Event",
     "EventLog",
     "EventType",
+    "Lens",
+    "ComboStage",
+    "ComboSpec",
+    "LensRegistry",
+    "LensComboError",
+    "load_lenses",
+    "run_lenses",
     "render",
     "render_log",
     "render_tree",

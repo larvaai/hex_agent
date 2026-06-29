@@ -35,6 +35,7 @@ def build_runtime(
     rule_catalog: dict = None,
     sandbox: object = None,
     max_tool_steps: int = 8,
+    lenses: object = None,
 ) -> Runtime:
     topology.validate(raise_on_error=True)
     tool_catalog = tool_catalog or {}
@@ -74,7 +75,7 @@ def build_runtime(
         raise TopologyError("topology has no agent nodes")
     entry_node = entry_node or agent_nodes[0]
     ordered = [entry_node] + [n for n in agent_nodes if n is not entry_node]
-    roster = Roster([Agent(n.id, n.attrs["role"], llm) for n in ordered])
+    roster = Roster([Agent(n.id, n.attrs["role"], llm, he=n.attrs.get("he")) for n in ordered])
 
     budget = Budget(limit=topology.budget.get("max_llm_calls")) if topology.budget else Budget()
     orch = Orchestrator(
@@ -85,5 +86,6 @@ def build_runtime(
         tools=tools,
         sandbox=sandbox,
         max_tool_steps=max_tool_steps,
+        lenses=lenses,
     )
     return Runtime(orch, roster.first())

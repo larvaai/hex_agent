@@ -9,6 +9,9 @@ var/
 # harness runtime state (telemetry/sessions — never commit)
 harness/state/
 
+# symm-harness runtime state (trace/telemetry/sessions/handoff — never commit)
+symm-harness/state/
+
 # claude runtime (project settings.json is tracked; runtime/local are not)
 .claude/agent-memory/
 .claude/settings.local.json

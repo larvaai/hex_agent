@@ -18,6 +18,10 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR\"/harness/hooks/setup_nudge.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/symm-harness/hooks/voice_inject.py"
           }
         ]
       }
@@ -105,6 +109,10 @@
           },
           {
             "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/symm-harness/hooks/track_skill_invocation.py"
+          },
+          {
+            "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR\"/harness/hooks/cook_isolation_nudge.py"
           },
           {
@@ -137,6 +145,10 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR\"/harness/hooks/emit_session_summary.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/symm-harness/hooks/emit_session_summary.py"
           }
         ]
       }
@@ -179,6 +191,10 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR\"/harness/hooks/track_skill_invocation.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/symm-harness/hooks/track_skill_invocation.py"
           }
         ]
       }
@@ -189,6 +205,10 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR\"/harness/hooks/track_subagent_outcome.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/symm-harness/hooks/track_subagent_outcome.py"
           }
         ]
       }
@@ -199,6 +219,12 @@
       "source": {
         "source": "directory",
         "path": "./harness/plugins"
+      }
+    },
+    "symm-local": {
+      "source": {
+        "source": "directory",
+        "path": "./symm-harness/plugins"
       }
     }
   },
@@ -216,7 +242,9 @@
     "hs-research@hs-local": true,
     "hs-create@hs-local": true,
     "hs-mem@hs-local": true,
-    "hs-meta@hs-local": true
+    "hs-meta@hs-local": true,
+    "mind@symm-local": true,
+    "voice@symm-local": true
   },
   "statusLine": {
     "type": "command",

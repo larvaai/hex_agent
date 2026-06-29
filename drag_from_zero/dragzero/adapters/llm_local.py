@@ -224,6 +224,37 @@ def build_triage_messages(ctx: dict, strict: bool = False) -> list:
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
+_LENS_SYSTEM = (
+    "You are ONE lens in a multi-lens advisory. Answer the question from your single angle in ONE "
+    "short line of prose. You ADVISE only — never a verdict, never JSON, never a passed/status/score "
+    "field. The agent decides; you only add a perspective."
+)
+
+
+def build_lens_messages(ctx: dict) -> list:
+    """A lens prompt: the lens question + the situation + any upstream lens lines, verbatim. A lens
+    returns prose (one line), NOT JSON — so there is no repair ladder, just first-non-empty-line."""
+    parts = [ctx.get("prompt", "")]
+    inp = ctx.get("input")
+    if inp:
+        parts.append("Situation:")
+        parts.append(inp if isinstance(inp, str) else json.dumps(inp, ensure_ascii=False))
+    upstream = ctx.get("upstream") or {}
+    if upstream:
+        parts.append("Upstream lens notes:")
+        parts.extend(f"- {lid}: {line}" for lid, line in upstream.items())
+    parts.append("Answer in ONE short line (prose, no JSON).")
+    user = "\n".join(p for p in parts if p)
+    return [{"role": "system", "content": _LENS_SYSTEM}, {"role": "user", "content": user}]
+
+
+def _first_nonempty_line(raw: str) -> str:
+    for line in (raw or "").splitlines():
+        if line.strip():
+            return line.strip()
+    return (raw or "").strip()
+
+
 # --------------------------------------------------------------------------- #
 # Transport
 # --------------------------------------------------------------------------- #
@@ -268,6 +299,8 @@ class OpenAICompatLLM:
     def complete(self, ctx: dict) -> dict:
         if ctx.get("request") == "triage":
             return self._complete_triage(ctx)
+        if ctx.get("request") == "lens":
+            return self._complete_lens(ctx)
         raw = self._transport(build_messages(ctx, self.roles, strict=False))
         try:
             out = coerce_response(raw)
@@ -298,20 +331,35 @@ class OpenAICompatLLM:
         self.last_meta = {"repaired": True, "fallback": fell_back}
         return out2
 
+    def _complete_lens(self, ctx: dict) -> dict:
+        """Lens variant: prose, not JSON. One call, take the first non-empty line, wrap as
+        {"lens": line} for lens._one_line. No repair/fallback ladder — a lens line is free-text."""
+        line = _first_nonempty_line(self._transport(build_lens_messages(ctx)))
+        self.last_meta = {"repaired": False, "fallback": False}
+        return {"lens": line}
+
 
 class RecordedLLM:
     """Replay canned assistant replies through the SAME parse/repair path.
 
-    Deterministic: drives the full orchestrator loop in tests without weights.
-    Responses are consumed in call order (the orchestrator runs depth-first).
+    Deterministic: drives the full orchestrator loop in tests without weights. Two modes (at most
+    one): `responses` is consumed in CALL ORDER (the orchestrator runs depth-first); `by_lens` keys
+    lens lines by lens-id so a combo replays identically regardless of stage order (F7). A lens ctx
+    in by_lens mode returns WITHOUT touching the positional counter, so mixing the two never skews
+    the order-sensitive path; a missing keyed id raises KeyError (loud, never a silent empty line).
     """
 
-    def __init__(self, responses: list) -> None:
-        self._responses = list(responses)
+    def __init__(self, responses: list = None, *, by_lens: dict = None) -> None:
+        if responses is not None and by_lens is not None:
+            raise ValueError("RecordedLLM takes responses OR by_lens, not both")
+        self._responses = list(responses or [])
+        self._by_lens = dict(by_lens) if by_lens is not None else None
         self._i = 0
         self.last_meta: dict = {}
 
     def complete(self, ctx: dict) -> dict:
+        if ctx.get("request") == "lens" and self._by_lens is not None:
+            return {"lens": self._by_lens[ctx.get("lens_id")]}  # keyed; KeyError is loud (F7)
         if self._i >= len(self._responses):
             raise IndexError("RecordedLLM exhausted: more LLM calls than recorded responses")
         raw = self._responses[self._i]

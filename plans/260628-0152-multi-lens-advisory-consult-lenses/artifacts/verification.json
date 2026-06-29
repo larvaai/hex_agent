@@ -1,0 +1,54 @@
+{
+  "stage": "ship",
+  "plan": "260628-0152-multi-lens-advisory-consult-lenses",
+  "actor": "user:uspro",
+  "ts": "2026-06-28T03:01:47+07:00",
+  "checks": [
+    {
+      "name": "full_suite_green",
+      "status": "PASS",
+      "detail": "python -m pytest drag_from_zero -q -> 325 passed, 1 skipped, 7 deselected; baseline was 304 passed (+21 new lens tests). 100% pass."
+    },
+    {
+      "name": "old_suites_byte_identical",
+      "status": "PASS",
+      "detail": "test_invariants/slice4_tools/capability/slice5_topology/triage/decompose/disk_truth + slice2_adapter -> 83 passed; skip(1)/deselect(7) counts unchanged from baseline => collection unperturbed, no old test file edited."
+    },
+    {
+      "name": "luat1_no_forge",
+      "status": "PASS",
+      "detail": "test_lens_output_no_verdict: LENS_RETURNED payload == {lens_id,line}, no key in {verdict,route,mode,passed,status,score}. read_model.reduce() deliberately ignores LENS_* (F8) so a lens line can never become a node verdict."
+    },
+    {
+      "name": "luat2_structural_permission",
+      "status": "PASS",
+      "detail": "test_lens_cannot_dispatch_tool (tool-shaped lens reply never dispatches; only consult_lenses appears in TOOL_CALLED) + test_consult_gated_when_capability_set (opt-in capability denies). run_lenses holds no ToolRegistry (lens.py); _run_tool has the single dispatch call site (orchestrator.py)."
+    },
+    {
+      "name": "luat3_additive",
+      "status": "PASS",
+      "detail": "test_no_he_byte_identical (registry present, he=None -> stream identical to no-lenses run) + test_consult_empty_by_default (lenses=None -> 'not configured', no LENS event, tools.names() unchanged). Mandate seed computed once/task, reused per gated attempt (F3)."
+    },
+    {
+      "name": "cascade_feeds_all_raw",
+      "status": "PASS",
+      "detail": "test_run_lenses_cascade: A,B->C(reads A,B) returns 3 lines (raw A,B AND synth C); C's ctx.upstream carries A,B lines; C runs after its reads. Synthesis appends, never replaces raw."
+    },
+    {
+      "name": "he_mandate_code_enforced",
+      "status": "PASS",
+      "detail": "test_he_mandate_autoruns (combo auto-runs source=combo, agent emits zero consult, lines seeded into step-0 observations) + test_he_disabled_no_run (enabled=false -> no LENS event) + test_he_plus_adhoc (mandate combo AND ad-hoc consult both fire) + test_wiring_passes_he."
+    },
+    {
+      "name": "config_validate_at_load",
+      "status": "PASS",
+      "detail": "test_load_lenses_invalid: he->unknown combo, combo->unknown lens, cascade forward-ref each raise LensComboError at LOAD (not runtime). test_load_lenses_ok round-trips the sample. harness/data/lenses.yaml shipped INERT (nothing auto-loads it)."
+    },
+    {
+      "name": "determinism_key_by_lens_id",
+      "status": "PASS",
+      "detail": "test_recorded_lens_by_id + test_recorded_lens_cascade_replay: RecordedLLM(by_lens=...) replays identical lines keyed by lens-id, order-independent; positional path untouched (test_recorded_positional_path_untouched_by_lens_mode); missing keyed id raises KeyError loud (F7)."
+    }
+  ],
+  "verdict": "PASS"
+}

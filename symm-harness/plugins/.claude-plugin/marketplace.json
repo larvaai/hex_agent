@@ -1,0 +1,20 @@
+{
+  "name": "symm-local",
+  "owner": {
+    "name": "symm-harness"
+  },
+  "plugins": [
+    {
+      "name": "mind",
+      "source": "./mind",
+      "description": "symm-harness backstage thinker: mind:reason decomposes + dispatches deep-reasoner/consolidator agents, writes conclusion.json to the seam.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "voice",
+      "source": "./voice",
+      "description": "symm-harness frontstage interpreter: voice:render re-renders the conclusion psychologically-aware and concise (the output polish layer).",
+      "version": "0.1.0"
+    }
+  ]
+}

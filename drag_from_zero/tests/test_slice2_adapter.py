@@ -168,3 +168,50 @@ def test_triage_parse_repair():  # broken→good recovers via repair; ever-broke
 def test_coerce_triage_pure_fallback():
     assert coerce_triage("utter garbage")["triage"]["kind"] == "answer"
     assert coerce_triage('{"kind":"task","goal":"g"}')["triage"]["goal"] == "g"
+
+
+# --- Multi-lens advisory: the request:"lens" branch through the same adapters --- #
+def _lens_ctx(lens_id, prompt, upstream=None):
+    return {"agent_id": "w", "role": "lens", "request": "lens", "lens_id": lens_id,
+            "prompt": prompt, "input": {"task": "t"}, "upstream": upstream or {}}
+
+
+def test_openai_lens_branch():  # a lens is prose: first non-empty line, wrapped {"lens": line}
+    llm = OpenAICompatLLM(transport=lambda messages: "Line one is the answer.\nLine two is extra.")
+    out = llm.complete(_lens_ctx("risk", "what breaks?"))
+    assert out == {"lens": "Line one is the answer."}
+    assert llm.last_meta == {"repaired": False, "fallback": False}
+
+
+def test_recorded_lens_cascade_replay():  # by_lens replay is deterministic; cascade ctx carries upstream
+    from dragzero import EventLog
+    from dragzero.lens import ComboStage, Lens, LensRegistry, run_lenses
+
+    reg = LensRegistry()
+    for lz in (Lens("risk", "?"), Lens("evidence", "?"), Lens("synth", "?")):
+        reg.register_lens(lz)
+    stages = (ComboStage("risk"), ComboStage("evidence"), ComboStage("synth", reads=("risk", "evidence")))
+
+    def build():
+        llm = RecordedLLM(by_lens={"risk": "R", "evidence": "E", "synth": "S"})
+        return run_lenses(reg, stages, {"task": "t"}, llm, EventLog(), agent_id="w", source="combo")
+
+    assert build() == ["R", "E", "S"]
+    assert build() == ["R", "E", "S"]   # deterministic across runs
+
+
+def test_recorded_lens_by_lens_missing_id_is_loud():  # F7 — a missing keyed line raises, never silent
+    from dragzero import EventLog
+    from dragzero.lens import ComboStage, Lens, LensRegistry, run_lenses
+
+    reg = LensRegistry()
+    reg.register_lens(Lens("risk", "?"))
+    llm = RecordedLLM(by_lens={"evidence": "E"})  # no "risk" key
+    with pytest.raises(KeyError):
+        run_lenses(reg, (ComboStage("risk"),), {"task": "t"}, llm, EventLog(), agent_id="w", source="combo")
+
+
+def test_recorded_positional_path_untouched_by_lens_mode():  # old call-order replay still works
+    recorded = RecordedLLM([_SOLO, _SOLO])
+    out = recorded.complete({"role": "planner", "task": "t", "depth": 0})
+    assert out["decision"]["mode"] == "solo"

@@ -21,6 +21,7 @@ from .budget import AttemptBudget, RootBudget
 from .capability import Capability
 from .contracts import DelegationMode, TaskStatus, TriageResult
 from .events import Event, EventLog, EventType
+from .lens import ComboStage, LensRegistry, run_lenses
 from .registries import Budget, HookRegistry, RuleRegistry, ToolRegistry
 from .roster import Roster
 from .tools import ToolResult
@@ -58,6 +59,7 @@ class _WorkRec:
     spawns_used: int = 0        # children this node has directly spawned
     activated_at: Optional[float] = None  # gate-freshness floor for a done_when leaf
     decomp_sigs: list = field(default_factory=list)  # proposals seen — identical retry = STUCK
+    lens_seed: list = field(default_factory=list)  # hệ-mandate combo lines, computed ONCE/task
 
 
 class Orchestrator:
@@ -75,6 +77,7 @@ class Orchestrator:
         k_attempts: int = K_ATTEMPTS,
         max_depth: int = MAX_DEPTH,
         step_budget: int = 200,
+        lenses: Optional[LensRegistry] = None,
     ) -> None:
         self.roster = roster
         self.log = log if log is not None else EventLog()  # NOT `log or ...`: empty EventLog is falsy (__len__)
@@ -85,6 +88,7 @@ class Orchestrator:
         self.sandbox = sandbox
         self.max_tool_steps = max_tool_steps
         self.capability = capability  # root capability; None = no gating (byte-identical to before)
+        self.lenses = lenses  # None = consult_lenses disabled, byte-identical (empty-by-default)
         self.k_attempts = k_attempts
         self.max_depth = max_depth
         self._steps = RootBudget(max_steps=step_budget)  # decompose-path backstop (D10)
@@ -196,7 +200,9 @@ class Orchestrator:
         return not self._ready
 
     # --- tools ---
-    def _run_tool(self, tool_call) -> ToolResult:
+    def _run_tool(self, tool_call, rec=None, observations=None) -> ToolResult:
+        if tool_call.tool == "consult_lenses":  # the agent's mid-loop ad-hoc lens request
+            return self._run_consult(tool_call, rec, observations)
         tool = self.tools.get(tool_call.tool)
         if tool is None:
             return ToolResult(False, "", f"unknown tool: {tool_call.tool}")
@@ -206,6 +212,40 @@ class Orchestrator:
             return tool.run(tool_call.args, self.sandbox)
         except Exception as exc:
             return ToolResult(False, "", f"{type(exc).__name__}: {exc}")
+
+    # --- consult_lenses (the agent asks for extra lens lines mid-ReAct) ---
+    def _run_consult(self, tool_call, rec, observations) -> ToolResult:
+        """Resolve {combo|lenses} → run the lens-runner → fold the lines back as ONE observation.
+        lenses=None ⇒ not configured (empty-by-default, byte-identical). The lines come back via
+        the existing TOOL_RESULT path; structurally run_lenses holds no ToolRegistry, so a summoned
+        lens can never itself dispatch a tool/consult (Luật 2)."""
+        if self.lenses is None:
+            return ToolResult(False, "", "consult_lenses not configured")
+        stages = self._resolve_consult(tool_call.args)
+        if not stages:
+            return ToolResult(False, "", "no lenses resolved")
+        base_ctx = self._consult_ctx(rec, tool_call.args, observations)
+        lines = run_lenses(self.lenses, stages, base_ctx, rec.agent.llm, self.log,
+                           agent_id=rec.agent.id, source="adhoc")
+        return ToolResult(True, "\n".join(lines))
+
+    def _resolve_consult(self, args) -> list:
+        """{combo: name} → that combo's stages (cascade preserved); {lenses: [ids]} → one
+        independent stage per KNOWN id. An unknown id is dropped (a typo degrades to fewer lenses,
+        never a crash); an unknown combo resolves to no stages → 'no lenses resolved'."""
+        args = args or {}
+        combo_name = args.get("combo")
+        if combo_name:
+            combo = self.lenses.get_combo(combo_name)
+            return list(combo.stages) if combo is not None else []
+        return [ComboStage(i) for i in (args.get("lenses") or []) if self.lenses.get_lens(i) is not None]
+
+    def _consult_ctx(self, rec, args, observations) -> dict:
+        """The SITUATION a lens sees for an ad-hoc consult — not the raw task only (F6). Mid-loop
+        the agent already holds observations; the lens sees the recent ones plus what the agent
+        flags via `on` (optional)."""
+        recent = [_clip(o.get("output") or o.get("error") or "") for o in (observations or [])[-3:]]
+        return {"task": rec.task.description, "on": (args or {}).get("on"), "context": recent}
 
     # --- one unit of work ---
     def _halt(self, task_id: str) -> None:
@@ -243,14 +283,35 @@ class Orchestrator:
             self._terminal(rec, TaskStatus.FAILED.value)
             return
 
+        # hệ-mandate: compute the combo seed ONCE per task (before BOTH callers init observations,
+        # so a gated task's K attempts reuse the seed — combo never reruns per-attempt, F3). [] when
+        # he=None / lenses=None → both callers init exactly as before (byte-identical, Luật 3).
+        rec.lens_seed = self._mandatory_lens(rec, agent)
+
         if rec.task.done_when:  # Gap 2: code-gated leaf — verify→retry-K→decompose
             self._solve_gated(rec, agent)
             return
 
-        observations: list = []
+        observations: list = list(rec.lens_seed)
         step = self._react_until_terminal(rec, agent, observations)
         if step is not None:
             self._handle_terminal(rec, agent, step)
+
+    def _mandatory_lens(self, rec: _WorkRec, agent: Agent) -> list:
+        """CODE forces the hệ's combo at task entry (the agent cannot skip it). Returns the lines
+        shaped as observations to seed before step 0. Empty (byte-identical) when there is no
+        registry, the agent has no hệ, the hệ is unbound, or the binding is disabled."""
+        if self.lenses is None or not getattr(agent, "he", None):
+            return []
+        binding = self.lenses.combo_for_he(agent.he)
+        if binding is None or not binding[1]:  # unknown hệ OR enabled=False → don't run
+            return []
+        combo = binding[0]
+        if combo is None:  # bound but combo missing (defensive; register_he validates existence)
+            return []
+        lines = run_lenses(self.lenses, combo.stages, {"task": rec.task.description}, agent.llm,
+                           self.log, agent_id=agent.id, source="combo")
+        return [{"tool": "lens:" + agent.he, "ok": True, "output": ln, "error": ""} for ln in lines]
 
     def _react_until_terminal(self, rec: _WorkRec, agent: Agent, observations: list):
         """Run the agent's bounded tool loop; return the terminal AgentStep, or None if the task
@@ -269,7 +330,7 @@ class Orchestrator:
                 self.log.append(Event(EventType.TOOL_DENIED, task_id=task_id, agent_id=agent.id, payload={"tool": tc.tool, "reason": "not in capability"}))
                 result = ToolResult(False, "", f"tool {tc.tool!r} denied by capability")
             else:
-                result = self._run_tool(tc)
+                result = self._run_tool(tc, rec, observations)
             self.log.append(Event(
                 EventType.TOOL_RESULT, task_id=task_id, agent_id=agent.id,
                 payload={"tool": tc.tool, "ok": result.ok, "output": _clip(result.output), "error": result.error},
@@ -363,7 +424,7 @@ class Orchestrator:
             if self._steps.step_exceeded():
                 self._block_leaf(rec, "STEP_BUDGET")
                 return
-            observations: list = []
+            observations: list = list(rec.lens_seed)  # reuse the once-computed hệ seed each attempt (F3)
             step = self._react_until_terminal(rec, agent, observations)
             if step is None:
                 return  # halted / failed inside the react loop

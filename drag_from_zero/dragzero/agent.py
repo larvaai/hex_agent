@@ -36,6 +36,7 @@ class Agent:
     id: str
     role: str
     llm: object
+    he: Optional[str] = None  # multi-lens hệ: enabled binding ⇒ CODE mandates its combo (keyword default = additive)
 
     def step(self, task: Task, depth: int, observations: list, step_idx: int, tools: Optional[list] = None) -> AgentStep:
         ctx = {
